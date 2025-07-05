@@ -1,0 +1,6 @@
+@GPInventory.Api_HostAddress = http://localhost:5279
+
+GET {{GPInventory.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

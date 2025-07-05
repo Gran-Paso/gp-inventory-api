@@ -1,0 +1,19 @@
+<Project>
+  <PropertyGroup>
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutput>../TestResults/</CoverletOutput>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <ExcludeByFile>
+      **/Program.cs;
+      **/Startup.cs;
+      **/*Migrations/*.cs;
+      **/obj/**/*.cs;
+      **/bin/**/*.cs;
+    </ExcludeByFile>
+    <ExcludeByAttribute>
+      Obsolete;
+      GeneratedCode;
+      CompilerGenerated;
+    </ExcludeByAttribute>
+  </PropertyGroup>
+</Project>
