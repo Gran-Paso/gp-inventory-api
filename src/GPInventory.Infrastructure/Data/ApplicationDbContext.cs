@@ -18,6 +18,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<Stock> Stocks { get; set; }
     public DbSet<FlowType> FlowTypes { get; set; }
     public DbSet<Provider> Providers { get; set; }
+    public DbSet<Sale> Sales { get; set; }
+    public DbSet<SaleDetail> SaleDetails { get; set; }
+    public DbSet<PaymentMethod> PaymentMethods { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -227,6 +230,78 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.Business)
                 .WithMany()
                 .HasForeignKey(e => e.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+                
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+        });
+
+        // PaymentMethod configuration
+        modelBuilder.Entity<PaymentMethod>(entity =>
+        {
+            entity.ToTable("payment_methods");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+        });
+
+        // Sale configuration
+        modelBuilder.Entity<Sale>(entity =>
+        {
+            entity.ToTable("sales");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.BusinessId).HasColumnName("business");
+            entity.Property(e => e.Date).HasColumnName("date");
+            entity.Property(e => e.CustomerName).HasColumnName("customer_name").HasMaxLength(255);
+            entity.Property(e => e.CustomerRut).HasColumnName("customer_rut").HasMaxLength(255);
+            entity.Property(e => e.Total).HasColumnName("total");
+            entity.Property(e => e.PaymentMethodId).HasColumnName("payment_method");
+            entity.Property(e => e.Notes).HasColumnName("notes").HasColumnType("text");
+
+            entity.HasOne(e => e.Business)
+                .WithMany()
+                .HasForeignKey(e => e.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.PaymentMethod)
+                .WithMany(pm => pm.Sales)
+                .HasForeignKey(e => e.PaymentMethodId)
+                .OnDelete(DeleteBehavior.Restrict);
+                
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+        });
+
+        // SaleDetail configuration
+        modelBuilder.Entity<SaleDetail>(entity =>
+        {
+            entity.ToTable("sales_detail");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ProductId).HasColumnName("product");
+            entity.Property(e => e.Amount).HasColumnName("amount").HasMaxLength(255);
+            entity.Property(e => e.Price).HasColumnName("price");
+            entity.Property(e => e.Discount).HasColumnName("discount");
+            entity.Property(e => e.SaleId).HasColumnName("sale");
+
+            entity.HasOne(e => e.Product)
+                .WithMany()
+                .HasForeignKey(e => e.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Sale)
+                .WithMany(s => s.SaleDetails)
+                .HasForeignKey(e => e.SaleId)
                 .OnDelete(DeleteBehavior.Restrict);
                 
             // BaseEntity properties - ignore since they don't exist in the database
