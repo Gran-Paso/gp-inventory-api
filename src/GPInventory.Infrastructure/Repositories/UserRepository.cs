@@ -77,7 +77,7 @@ public class StockRepository : Repository<Stock>, IStockRepository
     {
         return await _dbSet
             .Where(s => s.ProductId == productId)
-            .Include(s => s.Flow)
+            .Include(s => s.FlowType)
             .OrderByDescending(s => s.Date)
             .ToListAsync();
     }
@@ -86,22 +86,40 @@ public class StockRepository : Repository<Stock>, IStockRepository
     {
         var stocks = await _dbSet
             .Where(s => s.ProductId == productId)
-            .Include(s => s.Flow)
+            .Include(s => s.FlowType)
             .ToListAsync();
 
         int currentStock = 0;
         foreach (var stock in stocks)
         {
-            if (stock.Flow.Type == "entrada")
+            // Usar comparación case-insensitive para mayor robustez
+            var flowTypeName = stock.FlowType.Name.ToLowerInvariant();
+            if (flowTypeName == "entrada" || flowTypeName == "compra")
             {
                 currentStock += stock.Amount;
             }
-            else if (stock.Flow.Type == "salida")
+            else if (flowTypeName == "salida" || flowTypeName == "venta")
             {
                 currentStock -= stock.Amount;
             }
         }
 
         return currentStock;
+    }
+
+    /// <summary>
+    /// Versión optimizada que calcula el stock directamente en la base de datos
+    /// </summary>
+    public async Task<int> GetCurrentStockOptimizedAsync(int productId)
+    {
+        return await _dbSet
+            .Where(s => s.ProductId == productId)
+            .Include(s => s.FlowType)
+            .SumAsync(s => 
+                s.FlowType.Name.ToLower() == "entrada" || s.FlowType.Name.ToLower() == "compra" 
+                    ? s.Amount 
+                    : s.FlowType.Name.ToLower() == "salida" || s.FlowType.Name.ToLower() == "venta"
+                        ? -s.Amount 
+                        : 0);
     }
 }

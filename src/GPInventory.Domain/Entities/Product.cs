@@ -1,4 +1,5 @@
 using GPInventory.Domain.Entities;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace GPInventory.Domain.Entities;
 
@@ -9,6 +10,7 @@ public class Product : BaseEntity
     public int ProductTypeId { get; set; }
     public int Price { get; set; }
     public int Cost { get; set; }
+    
     public string? Sku { get; set; }
     public DateTime Date { get; set; }
     public int BusinessId { get; set; }

@@ -17,6 +17,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<ProductType> ProductTypes { get; set; }
     public DbSet<Stock> Stocks { get; set; }
     public DbSet<FlowType> FlowTypes { get; set; }
+    public DbSet<Provider> Providers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -130,8 +131,8 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
             entity.Property(e => e.Image).HasColumnName("image").HasMaxLength(255);
             entity.Property(e => e.ProductTypeId).HasColumnName("product_type");
-            entity.Property(e => e.Price).HasColumnName("price");
-            entity.Property(e => e.Cost).HasColumnName("cost");
+            entity.Property(e => e.Price).HasColumnName("price").HasMaxLength(255);
+            entity.Property(e => e.Cost).HasColumnName("cost").HasMaxLength(255);
             entity.Property(e => e.Sku).HasColumnName("sku").HasMaxLength(255);
             entity.Property(e => e.Date).HasColumnName("date");
             entity.Property(e => e.BusinessId).HasColumnName("business");
@@ -158,7 +159,7 @@ public class ApplicationDbContext : DbContext
             entity.ToTable("flow_type");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
-            entity.Property(e => e.Type).HasColumnName("type").HasMaxLength(255);
+            entity.Property(e => e.Name).HasColumnName("type").HasMaxLength(100);
             
             // BaseEntity properties - ignore since they don't exist in the database
             entity.Ignore(e => e.CreatedAt);
@@ -174,18 +175,26 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entity.Property(e => e.ProductId).HasColumnName("product");
             entity.Property(e => e.Date).HasColumnName("date");
-            entity.Property(e => e.FlowId).HasColumnName("flow");
+            entity.Property(e => e.FlowTypeId).HasColumnName("flow");
             entity.Property(e => e.Amount).HasColumnName("amount");
             entity.Property(e => e.AuctionPrice).HasColumnName("auction_price");
+            entity.Property(e => e.Cost).HasColumnName("cost");
+            entity.Property(e => e.ProviderId).HasColumnName("provider");
+            entity.Property(e => e.Notes).HasColumnName("notes");
 
             entity.HasOne(e => e.Product)
                 .WithMany(p => p.Stocks)
                 .HasForeignKey(e => e.ProductId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasOne(e => e.Flow)
+            entity.HasOne(e => e.FlowType)
                 .WithMany(f => f.Stocks)
-                .HasForeignKey(e => e.FlowId)
+                .HasForeignKey(e => e.FlowTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Provider)
+                .WithMany(p => p.StockMovements)
+                .HasForeignKey(e => e.ProviderId)
                 .OnDelete(DeleteBehavior.Restrict);
                 
             // BaseEntity properties - ignore since they don't exist in the database
@@ -196,8 +205,34 @@ public class ApplicationDbContext : DbContext
 
         // Seed data for FlowType
         modelBuilder.Entity<FlowType>().HasData(
-            new FlowType { Id = 1, Type = "entrada" },
-            new FlowType { Id = 2, Type = "salida" }
+            new FlowType("Compra") { Id = 1 },
+            new FlowType("Venta") { Id = 2 },
+            new FlowType("Producción") { Id = 3 },
+            new FlowType("Devolución") { Id = 4 },
+            new FlowType("Ajuste Positivo") { Id = 5 },
+            new FlowType("Ajuste Negativo") { Id = 6 },
+            new FlowType("Merma") { Id = 7 },
+            new FlowType("Transferencia") { Id = 8 }
         );
+        
+        // Provider configuration
+        modelBuilder.Entity<Provider>(entity =>
+        {
+            entity.ToTable("provider");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            entity.Property(e => e.BusinessId).HasColumnName("business");
+
+            entity.HasOne(e => e.Business)
+                .WithMany()
+                .HasForeignKey(e => e.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+                
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+        });
     }
 }

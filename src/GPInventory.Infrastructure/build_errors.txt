@@ -1,0 +1,19 @@
+  Determinando los proyectos que se van a restaurar...
+  Todos los proyectos están actualizados para la restauración.
+  GPInventory.Domain -> C:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Domain\bin\Debug\net8.0\GPInventory.Domain.dll
+  GPInventory.Application -> c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Application\bin\Debug\net8.0\GPInventory.Application.dll
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Repositories\UserRepository.cs(80,29): error CS1061: "Stock" no contiene una definición para "Flow" ni un método de extensión accesible "Flow" que acepte un primer argumento del tipo "Stock" (¿falta alguna directiva using o una referencia de ensamblado?) [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Data\DataSeeder.cs(18,40): error CS0117: 'FlowType' no contiene una definición para 'Type' [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Data\DataSeeder.cs(19,40): error CS0117: 'FlowType' no contiene una definición para 'Type' [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Repositories\UserRepository.cs(89,29): error CS1061: "Stock" no contiene una definición para "Flow" ni un método de extensión accesible "Flow" que acepte un primer argumento del tipo "Stock" (¿falta alguna directiva using o una referencia de ensamblado?) [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+
+ERROR al compilar.
+
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Repositories\UserRepository.cs(80,29): error CS1061: "Stock" no contiene una definición para "Flow" ni un método de extensión accesible "Flow" que acepte un primer argumento del tipo "Stock" (¿falta alguna directiva using o una referencia de ensamblado?) [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Data\DataSeeder.cs(18,40): error CS0117: 'FlowType' no contiene una definición para 'Type' [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Data\DataSeeder.cs(19,40): error CS0117: 'FlowType' no contiene una definición para 'Type' [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\Repositories\UserRepository.cs(89,29): error CS1061: "Stock" no contiene una definición para "Flow" ni un método de extensión accesible "Flow" que acepte un primer argumento del tipo "Stock" (¿falta alguna directiva using o una referencia de ensamblado?) [c:\Users\pablo\OneDrive\Desktop\Workspace\Gran Paso\gp-inventory-api\src\GPInventory.Infrastructure\GPInventory.Infrastructure.csproj]
+    0 Advertencia(s)
+    4 Errores
+
+Tiempo transcurrido 00:00:01.22

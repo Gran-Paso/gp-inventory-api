@@ -15,8 +15,8 @@ public static class DataSeeder
         if (!await context.FlowTypes.AnyAsync())
         {
             context.FlowTypes.AddRange(
-                new FlowType { Id = 1, Type = "entrada" },
-                new FlowType { Id = 2, Type = "salida" }
+                new FlowType { Id = 1, Name = "entrada" },
+                new FlowType { Id = 2, Name = "salida" }
             );
             await context.SaveChangesAsync();
         }
@@ -25,7 +25,7 @@ public static class DataSeeder
         if (!await context.Roles.AnyAsync())
         {
             context.Roles.AddRange(
-                new Role("Admin"),
+                new Role("Operador"),
                 new Role("Manager"),
                 new Role("Employee")
             );
