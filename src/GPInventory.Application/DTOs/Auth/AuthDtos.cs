@@ -48,6 +48,18 @@ public class ResetPasswordDto
 {
     public string Email { get; set; } = string.Empty;
     public string NewPassword { get; set; } = string.Empty;
+    public string Token { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Clase para representar la información agrupada de negocio y rol del JWT
+/// </summary>
+public class BusinessRoleInfo
+{
+    public int BusinessId { get; set; }
+    public string BusinessName { get; set; } = string.Empty;
+    public int RoleId { get; set; }
+    public string RoleName { get; set; } = string.Empty;
 }
 
 public class AssignRoleDto

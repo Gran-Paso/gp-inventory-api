@@ -83,6 +83,22 @@ public class SalesController : ControllerBase
                 .Where(s => s.ProductId == productId)
                 .SumAsync(s => s.Amount);
 
+            // Calcular precio promedio y costo promedio basado en las ventas
+            var salesData = await _context.SaleDetails
+                .Include(sd => sd.Sale)
+                .Where(sd => sd.ProductId == productId)
+                .Select(sd => new { sd.Price, Cost = _context.Stocks
+                    .Where(s => s.ProductId == productId && s.Date <= sd.Sale.Date)
+                    .OrderByDescending(s => s.Date)
+                    .Select(s => s.Cost)
+                    .FirstOrDefault() })
+                .ToListAsync();
+
+            var averagePrice = salesData.Any() ? (decimal?)salesData.Average(s => s.Price) : null;
+            var averageCost = salesData.Any() && salesData.Any(s => s.Cost > 0) 
+                ? (decimal?)salesData.Where(s => s.Cost > 0).Average(s => s.Cost) 
+                : null;
+
             var result = new
             {
                 id = product.Id,
@@ -92,6 +108,8 @@ public class SalesController : ControllerBase
                 sku = product.Sku,
                 image = product.Image,
                 currentStock = currentStock,
+                averagePrice = averagePrice,
+                averageCost = averageCost,
                 productType = product.ProductType != null ? new { id = product.ProductType.Id, name = product.ProductType.Name } : null,
                 canSell = currentStock > 0
             };
@@ -205,14 +223,14 @@ public class SalesController : ControllerBase
 
                 _context.SaleDetails.Add(saleDetail);
 
-                // Crear movimiento de stock (salida)
+                // Crear movimiento de stock (salida por venta)
                 var stockMovement = new GPInventory.Domain.Entities.Stock
                 {
                     ProductId = item.ProductId,
                     Date = DateTime.UtcNow,
-                    FlowTypeId = 2, // Asumiendo que 2 = "Salida"
+                    FlowTypeId = 11, // FlowType "Venta"
                     Amount = -item.Quantity, // Cantidad negativa para salida
-                    Cost = product.Cost,
+                    Cost = null, // No se especifica costo en las ventas
                     Notes = $"Venta rápida #{sale.Id}"
                 };
 

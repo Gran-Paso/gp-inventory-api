@@ -16,6 +16,12 @@ public interface ITokenService
     string GenerateToken(UserDto user);
     bool ValidateToken(string token);
     int? GetUserIdFromToken(string token);
+    
+    // Nuevos métodos para estructura mejorada del JWT
+    List<BusinessRoleInfo> GetBusinessRolesFromToken(string token);
+    BusinessRoleInfo? GetPrimaryBusinessFromToken(string token);
+    bool HasAccessToBusiness(string token, int businessId);
+    BusinessRoleInfo? GetRoleInBusiness(string token, int businessId);
 }
 
 public interface IPasswordService
