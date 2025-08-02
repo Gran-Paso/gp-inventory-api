@@ -11,10 +11,10 @@ Before running the API, make sure to update the connection string in `appsetting
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=143.198.232.23;Database=gp_inventory;Uid=root;Pwd=%8W(9/SNEVpT@<<bQ!U7ed;"
+    "DefaultConnection": "xd"
   },
   "JwtSettings": {
-    "SecretKey": "this-is-a-super-secret-key-that-must-be-at-least-32-characters-long-for-security",
+    "SecretKey": "this-is-a-super-secret-key",
     "Issuer": "GPInventory",
     "Audience": "GPInventory"
   }
