@@ -181,6 +181,11 @@ public class StockController : ControllerBase
                 return BadRequest(new { message = "ID de producto inválido" });
             }
 
+            if (request.StoreId <= 0)
+            {
+                return BadRequest(new { message = "ID de store inválido" });
+            }
+
             if (request.Amount == 0)
             {
                 return BadRequest(new { message = "La cantidad no puede ser cero" });
@@ -191,13 +196,25 @@ public class StockController : ControllerBase
                 return BadRequest(new { message = "Tipo de flujo requerido" });
             }
 
-            _logger.LogInformation("Creando movimiento de stock para producto: {productId}", request.ProductId);
+            _logger.LogInformation("Creando movimiento de stock para producto: {productId} en store: {storeId}", request.ProductId, request.StoreId);
 
             // Verificar que el producto existe
             var product = await _context.Products.FindAsync(request.ProductId);
             if (product == null)
             {
                 return BadRequest(new { message = "El producto especificado no existe" });
+            }
+
+            // Verificar que el store existe y está activo
+            var store = await _context.Stores.FindAsync(request.StoreId);
+            if (store == null)
+            {
+                return BadRequest(new { message = "El store especificado no existe" });
+            }
+
+            if (!store.Active)
+            {
+                return BadRequest(new { message = "El store especificado no está activo" });
             }
 
             // Verificar que el tipo de flujo existe
@@ -211,11 +228,10 @@ public class StockController : ControllerBase
             int? providerId = null;
             if (!string.IsNullOrEmpty(request.ProviderName))
             {
-                providerId = await GetOrCreateProvider(request.ProviderName.Trim(), product.BusinessId);
+                providerId = await GetOrCreateProviderForStore(request.ProviderName.Trim(), request.StoreId);
             }
 
             // Crear movimiento de stock
-            var defaultStore = await GetOrCreateDefaultStore(product.BusinessId);
             var stockMovement = new GPInventory.Domain.Entities.Stock
             {
                 ProductId = request.ProductId,
@@ -224,7 +240,7 @@ public class StockController : ControllerBase
                 Amount = request.Amount,
                 Cost = request.Cost,
                 ProviderId = providerId,
-                StoreId = defaultStore.Id,
+                StoreId = request.StoreId,
                 Notes = request.Notes?.Trim()
             };
 
@@ -359,6 +375,37 @@ public class StockController : ControllerBase
             _logger.LogError(ex, "Error al obtener tipos de flujo");
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
+    }
+
+    /// <summary>
+    /// Obtiene o crea un proveedor para un store específico
+    /// </summary>
+    /// <param name="providerName">Nombre del proveedor</param>
+    /// <param name="storeId">ID del store</param>
+    /// <returns>ID del proveedor</returns>
+    private async Task<int> GetOrCreateProviderForStore(string providerName, int storeId)
+    {
+        // Buscar proveedor existente en el store
+        var existingProvider = await _context.Providers
+            .FirstOrDefaultAsync(p => p.Name.ToLower() == providerName.ToLower() && p.StoreId == storeId);
+
+        if (existingProvider != null)
+        {
+            return existingProvider.Id;
+        }
+
+        // Crear nuevo proveedor asociado al store
+        var newProvider = new GPInventory.Domain.Entities.Provider
+        {
+            Name = providerName,
+            StoreId = storeId
+        };
+
+        _context.Providers.Add(newProvider);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Proveedor creado: {providerName} para store: {storeId}", providerName, storeId);
+        return newProvider.Id;
     }
 
     /// <summary>
@@ -709,6 +756,11 @@ public class CreateStockMovementRequest
     /// ID del producto
     /// </summary>
     public int ProductId { get; set; }
+
+    /// <summary>
+    /// ID del store donde se realiza el movimiento
+    /// </summary>
+    public int StoreId { get; set; }
 
     /// <summary>
     /// Fecha del movimiento (opcional, por defecto fecha actual)

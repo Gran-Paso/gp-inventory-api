@@ -50,48 +50,264 @@ public class SalesController : ControllerBase
     }
 
     /// <summary>
+    /// Busca productos disponibles por nombre o SKU en un store específico
+    /// </summary>
+    /// <param name="storeId">ID del store</param>
+    /// <param name="searchTerm">Término de búsqueda (nombre o SKU) - opcional</param>
+    /// <returns>Lista de productos que coinciden con la búsqueda y tienen stock disponible</returns>
+    [HttpGet("search-available-products/{storeId}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> SearchAvailableProductsByStore(int storeId, [FromQuery] string? searchTerm = null)
+    {
+        try
+        {
+            _logger.LogInformation("Buscando productos disponibles en store {storeId} con término: {searchTerm}", storeId, searchTerm ?? "todos");
+
+            // Verificar que el store existe y está activo
+            var store = await _context.Stores
+                .Include(s => s.Business)
+                .FirstOrDefaultAsync(s => s.Id == storeId && s.Active);
+
+            if (store == null)
+            {
+                return NotFound(new { message = "Store no encontrado o no está activo" });
+            }
+
+            // Buscar productos por nombre o SKU, o todos si no hay término de búsqueda
+            var query = _context.Products
+                .Include(p => p.ProductType)
+                .Include(p => p.Business)
+                .Where(p => p.BusinessId == store.BusinessId);
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var searchTermLower = searchTerm.ToLower();
+                query = query.Where(p => p.Name.ToLower().Contains(searchTermLower) || 
+                                        (p.Sku != null && p.Sku.ToLower().Contains(searchTermLower)));
+            }
+
+            var matchingProducts = await query.ToListAsync();
+
+            var availableProducts = new List<object>();
+
+            foreach (var product in matchingProducts)
+            {
+                var currentStock = await _context.Stocks
+                    .Where(s => s.ProductId == product.Id && s.StoreId == storeId)
+                    .SumAsync(s => s.Amount);
+
+                // Solo incluir productos con stock disponible
+                if (currentStock > 0)
+                {
+                    availableProducts.Add(new
+                    {
+                        id = product.Id,
+                        name = product.Name,
+                        sku = product.Sku,
+                        price = product.Price,
+                        cost = product.Cost,
+                        image = product.Image,
+                        currentStock = currentStock,
+                        productType = product.ProductType != null ? new { id = product.ProductType.Id, name = product.ProductType.Name } : null,
+                        canSell = true
+                    });
+                }
+            }
+
+            var result = new
+            {
+                storeId = store.Id,
+                storeName = store.Name,
+                searchTerm = searchTerm ?? "todos",
+                isFiltered = !string.IsNullOrWhiteSpace(searchTerm),
+                totalFound = availableProducts.Count,
+                products = availableProducts.OrderBy(p => ((dynamic)p).name)
+            };
+
+            var logMessage = string.IsNullOrWhiteSpace(searchTerm) 
+                ? $"Se encontraron {availableProducts.Count} productos disponibles en store {storeId}"
+                : $"Se encontraron {availableProducts.Count} productos disponibles que coinciden con '{searchTerm}' en store {storeId}";
+            
+            _logger.LogInformation(logMessage);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al buscar productos disponibles en store: {storeId}", storeId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene todos los productos disponibles (con stock > 0) en un store específico
+    /// </summary>
+    /// <param name="storeId">ID del store</param>
+    /// <returns>Lista de productos disponibles con su stock en el store</returns>
+    [HttpGet("available-products/{storeId}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetAvailableProductsByStore(int storeId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo productos disponibles para store: {storeId}", storeId);
+
+            // Verificar que el store existe y está activo
+            var store = await _context.Stores
+                .Include(s => s.Business)
+                .FirstOrDefaultAsync(s => s.Id == storeId && s.Active);
+
+            if (store == null)
+            {
+                return NotFound(new { message = "Store no encontrado o no está activo" });
+            }
+
+            // Obtener todos los productos del business del store
+            var businessProducts = await _context.Products
+                .Include(p => p.ProductType)
+                .Include(p => p.Business)
+                .Where(p => p.BusinessId == store.BusinessId)
+                .ToListAsync();
+
+            // Calcular stock para cada producto en el store específico
+            var availableProducts = new List<object>();
+
+            foreach (var product in businessProducts)
+            {
+                var currentStock = await _context.Stocks
+                    .Where(s => s.ProductId == product.Id && s.StoreId == storeId)
+                    .SumAsync(s => s.Amount);
+
+                // Solo incluir productos con stock disponible
+                if (currentStock > 0)
+                {
+                    // Calcular precio promedio basado en ventas del store
+                    var salesData = await _context.SaleDetails
+                        .Include(sd => sd.Sale)
+                        .Where(sd => sd.ProductId == product.Id && sd.Sale.StoreId == storeId)
+                        .ToListAsync();
+
+                    var averagePrice = salesData.Any() ? (decimal?)salesData.Average(s => s.Price) : null;
+
+                    // Calcular costo promedio basado en movimientos de stock del store
+                    var stockMovements = await _context.Stocks
+                        .Where(s => s.ProductId == product.Id && s.StoreId == storeId && s.Cost.HasValue && s.Cost.Value > 0)
+                        .ToListAsync();
+
+                    decimal? averageCost = null;
+                    if (stockMovements.Any())
+                    {
+                        var totalCostValue = stockMovements.Sum(s => (decimal)s.Amount * (decimal)s.Cost!.Value);
+                        var totalQuantity = stockMovements.Sum(s => (decimal)s.Amount);
+                        
+                        if (totalQuantity > 0)
+                        {
+                            averageCost = totalCostValue / totalQuantity;
+                        }
+                    }
+
+                    availableProducts.Add(new
+                    {
+                        id = product.Id,
+                        name = product.Name,
+                        sku = product.Sku,
+                        price = product.Price,
+                        cost = product.Cost,
+                        image = product.Image,
+                        currentStock = currentStock,
+                        averagePrice = averagePrice.HasValue ? Math.Round(averagePrice.Value, 2) : (decimal?)null,
+                        averageCost = averageCost.HasValue ? Math.Round(averageCost.Value, 2) : (decimal?)null,
+                        productType = product.ProductType != null ? new { id = product.ProductType.Id, name = product.ProductType.Name } : null,
+                        business = new { id = product.Business.Id, companyName = product.Business.CompanyName }
+                    });
+                }
+            }
+
+            var result = new
+            {
+                storeId = store.Id,
+                storeName = store.Name,
+                storeLocation = store.Location,
+                businessId = store.BusinessId,
+                businessName = store.Business?.CompanyName,
+                totalAvailableProducts = availableProducts.Count,
+                products = availableProducts.OrderBy(p => ((dynamic)p).name)
+            };
+
+            _logger.LogInformation($"Se encontraron {availableProducts.Count} productos disponibles en store {storeId}");
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener productos disponibles del store: {storeId}", storeId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
     /// Busca un producto por ID para venta rápida
     /// </summary>
     /// <param name="productId">ID del producto</param>
-    /// <param name="businessId">ID del negocio</param>
-    /// <returns>Información del producto y stock disponible</returns>
+    /// <param name="storeId">ID del store</param>
+    /// <returns>Información del producto y stock disponible en el store</returns>
     [HttpGet("products/{productId}")]
     [Authorize]
     [ProducesResponseType(200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<object>> GetProductForSale(int productId, [FromQuery] int businessId)
+    public async Task<ActionResult<object>> GetProductForSale(int productId, [FromQuery] int storeId)
     {
         try
         {
-            _logger.LogInformation("Buscando producto {productId} para venta en negocio {businessId}", productId, businessId);
+            _logger.LogInformation("Buscando producto {productId} para venta en store {storeId}", productId, storeId);
 
+            // Verificar que el store existe y está activo
+            var store = await _context.Stores
+                .Include(s => s.Business)
+                .FirstOrDefaultAsync(s => s.Id == storeId && s.Active);
+
+            if (store == null)
+            {
+                return BadRequest(new { message = "Store no encontrado o no está activo" });
+            }
+
+            // Buscar el producto que pertenezca al business del store
             var product = await _context.Products
                 .Include(p => p.ProductType)
                 .Include(p => p.Business)
-                .Where(p => p.Id == productId && p.BusinessId == businessId)
+                .Where(p => p.Id == productId && p.BusinessId == store.BusinessId)
                 .FirstOrDefaultAsync();
 
             if (product == null)
             {
-                return NotFound(new { message = "Producto no encontrado o no pertenece al negocio" });
+                return NotFound(new { message = "Producto no encontrado o no pertenece al negocio del store" });
             }
 
-            // Calcular stock actual
+            // Calcular stock actual en el store específico
             var currentStock = await _context.Stocks
-                .Where(s => s.ProductId == productId)
+                .Where(s => s.ProductId == productId && s.StoreId == storeId)
                 .SumAsync(s => s.Amount);
 
-            // Calcular precio promedio y costo promedio basado en las ventas
+            // Calcular precio promedio y costo promedio basado en las ventas del store
             var salesData = await _context.SaleDetails
                 .Include(sd => sd.Sale)
-                .Where(sd => sd.ProductId == productId)
-                .Select(sd => new { sd.Price, Cost = _context.Stocks
-                    .Where(s => s.ProductId == productId && s.Date <= sd.Sale.Date)
-                    .OrderByDescending(s => s.Date)
-                    .Select(s => s.Cost)
-                    .FirstOrDefault() })
+                .Where(sd => sd.ProductId == productId && sd.Sale.StoreId == storeId)
+                .Select(sd => new { 
+                    sd.Price, 
+                    Cost = _context.Stocks
+                        .Where(s => s.ProductId == productId && s.Date <= sd.Sale.Date && s.StoreId == storeId)
+                        .OrderByDescending(s => s.Date)
+                        .Select(s => s.Cost)
+                        .FirstOrDefault() 
+                })
                 .ToListAsync();
 
             var averagePrice = salesData.Any() ? (decimal?)salesData.Average(s => s.Price) : null;
@@ -111,6 +327,8 @@ public class SalesController : ControllerBase
                 averagePrice = averagePrice,
                 averageCost = averageCost,
                 productType = product.ProductType != null ? new { id = product.ProductType.Id, name = product.ProductType.Name } : null,
+                store = new { id = store.Id, name = store.Name, location = store.Location },
+                business = new { id = product.Business.Id, companyName = product.Business.CompanyName },
                 canSell = currentStock > 0
             };
 
@@ -141,9 +359,9 @@ public class SalesController : ControllerBase
         try
         {
             // Validaciones básicas
-            if (request.BusinessId <= 0)
+            if (request.StoreId <= 0)
             {
-                return BadRequest(new { message = "ID de negocio inválido" });
+                return BadRequest(new { message = "ID de store inválido" });
             }
 
             if (request.Items == null || !request.Items.Any())
@@ -151,47 +369,52 @@ public class SalesController : ControllerBase
                 return BadRequest(new { message = "La venta debe tener al menos un producto" });
             }
 
-            _logger.LogInformation("Procesando venta rápida para negocio: {businessId}", request.BusinessId);
+            _logger.LogInformation("Procesando venta rápida para store: {storeId}", request.StoreId);
 
-            // Verificar que el negocio existe
-            var business = await _context.Businesses.FindAsync(request.BusinessId);
-            if (business == null)
+            // Verificar que el store existe y está activo
+            var store = await _context.Stores
+                .Include(s => s.Business)
+                .FirstOrDefaultAsync(s => s.Id == request.StoreId);
+            
+            if (store == null)
             {
-                return BadRequest(new { message = "El negocio especificado no existe" });
+                return BadRequest(new { message = "El store especificado no existe" });
             }
 
-            // Verificar que todos los productos existen y tienen stock
+            if (!store.Active)
+            {
+                return BadRequest(new { message = "El store especificado no está activo" });
+            }
+
+            // Verificar que todos los productos existen y pertenecen al mismo business del store
             var productIds = request.Items.Select(i => i.ProductId).ToList();
             var products = await _context.Products
-                .Where(p => productIds.Contains(p.Id) && p.BusinessId == request.BusinessId)
+                .Where(p => productIds.Contains(p.Id) && p.BusinessId == store.BusinessId)
                 .ToListAsync();
 
             if (products.Count != productIds.Count)
             {
-                return BadRequest(new { message = "Uno o más productos no existen o no pertenecen al negocio" });
+                return BadRequest(new { message = "Uno o más productos no existen o no pertenecen al negocio del store" });
             }
 
-            // Verificar stock disponible
+            // Verificar stock disponible en el store específico
             foreach (var item in request.Items)
             {
                 var currentStock = await _context.Stocks
-                    .Where(s => s.ProductId == item.ProductId)
+                    .Where(s => s.ProductId == item.ProductId && s.StoreId == request.StoreId)
                     .SumAsync(s => s.Amount);
 
                 if (currentStock < item.Quantity)
                 {
                     var product = products.First(p => p.Id == item.ProductId);
-                    return BadRequest(new { message = $"Stock insuficiente para {product.Name}. Disponible: {currentStock}, Solicitado: {item.Quantity}" });
+                    return BadRequest(new { message = $"Stock insuficiente para {product.Name} en este store. Disponible: {currentStock}, Solicitado: {item.Quantity}" });
                 }
             }
-
-            // Obtener el store por defecto para el business
-            var defaultStore = await GetOrCreateDefaultStore(request.BusinessId);
 
             // Crear la venta
             var sale = new GPInventory.Domain.Entities.Sale
             {
-                StoreId = defaultStore.Id,
+                StoreId = request.StoreId,
                 Date = DateTime.UtcNow,
                 CustomerName = request.CustomerName?.Trim(),
                 CustomerRut = request.CustomerRut?.Trim(),
@@ -234,6 +457,7 @@ public class SalesController : ControllerBase
                     FlowTypeId = 11, // FlowType "Venta"
                     Amount = -item.Quantity, // Cantidad negativa para salida
                     Cost = null, // No se especifica costo en las ventas
+                    StoreId = request.StoreId,
                     Notes = $"Venta rápida #{sale.Id}"
                 };
 
@@ -259,7 +483,10 @@ public class SalesController : ControllerBase
             var result = new
             {
                 saleId = sale.Id,
-                businessId = sale.BusinessId,
+                storeId = sale.StoreId,
+                storeName = store.Name,
+                businessId = store.BusinessId,
+                businessName = store.Business?.CompanyName,
                 date = sale.Date,
                 customerName = sale.CustomerName,
                 customerRut = sale.CustomerRut,
@@ -296,7 +523,8 @@ public class SalesController : ControllerBase
         try
         {
             var sale = await _context.Sales
-                .Include(s => s.Business)
+                .Include(s => s.Store)
+                    .ThenInclude(st => st.Business)
                 .Include(s => s.PaymentMethod)
                 .Include(s => s.SaleDetails)
                     .ThenInclude(sd => sd.Product)
@@ -311,8 +539,11 @@ public class SalesController : ControllerBase
             var result = new
             {
                 id = sale.Id,
-                businessId = sale.BusinessId,
-                businessName = sale.Business.CompanyName,
+                storeId = sale.StoreId,
+                storeName = sale.Store?.Name,
+                storeLocation = sale.Store?.Location,
+                businessId = sale.Store?.BusinessId,
+                businessName = sale.Store?.Business?.CompanyName,
                 date = sale.Date,
                 customerName = sale.CustomerName,
                 customerRut = sale.CustomerRut,
@@ -335,6 +566,153 @@ public class SalesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error al obtener venta: {id}", id);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene todos los stores activos de un business para selección
+    /// </summary>
+    /// <param name="businessId">ID del negocio</param>
+    /// <returns>Lista de stores activos</returns>
+    [HttpGet("stores/{businessId}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<IEnumerable<object>>> GetStoresByBusiness(int businessId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo stores para business: {businessId}", businessId);
+
+            var business = await _context.Businesses.FindAsync(businessId);
+            if (business == null)
+            {
+                return NotFound(new { message = "Negocio no encontrado" });
+            }
+
+            var stores = await _context.Stores
+                .Where(s => s.BusinessId == businessId && s.Active)
+                .OrderBy(s => s.Name)
+                .Select(s => new
+                {
+                    id = s.Id,
+                    name = s.Name,
+                    location = s.Location,
+                    businessId = s.BusinessId
+                })
+                .ToListAsync();
+
+            // Si no hay stores, crear uno por defecto
+            if (!stores.Any())
+            {
+                var defaultStore = await GetOrCreateDefaultStore(businessId);
+                return Ok(new[]
+                {
+                    new
+                    {
+                        id = defaultStore.Id,
+                        name = defaultStore.Name,
+                        location = defaultStore.Location,
+                        businessId = defaultStore.BusinessId
+                    }
+                });
+            }
+
+            return Ok(stores);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener stores del business: {businessId}", businessId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene todas las ventas de un store específico
+    /// </summary>
+    /// <param name="storeId">ID del store</param>
+    /// <param name="dateFrom">Fecha desde (opcional)</param>
+    /// <param name="dateTo">Fecha hasta (opcional)</param>
+    /// <returns>Lista de ventas del store</returns>
+    [HttpGet("store/{storeId}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetSalesByStore(
+        int storeId, 
+        [FromQuery] DateTime? dateFrom = null, 
+        [FromQuery] DateTime? dateTo = null)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo ventas para store: {storeId}", storeId);
+
+            // Verificar que el store existe
+            var store = await _context.Stores
+                .Include(s => s.Business)
+                .FirstOrDefaultAsync(s => s.Id == storeId);
+
+            if (store == null)
+            {
+                return NotFound(new { message = "Store no encontrado" });
+            }
+
+            var query = _context.Sales
+                .Include(s => s.PaymentMethod)
+                .Include(s => s.SaleDetails)
+                    .ThenInclude(sd => sd.Product)
+                .Where(s => s.StoreId == storeId);
+
+            if (dateFrom.HasValue)
+            {
+                query = query.Where(s => s.Date >= dateFrom.Value);
+            }
+
+            if (dateTo.HasValue)
+            {
+                query = query.Where(s => s.Date <= dateTo.Value);
+            }
+
+            var sales = await query
+                .OrderByDescending(s => s.Date)
+                .Select(s => new
+                {
+                    id = s.Id,
+                    date = s.Date,
+                    customerName = s.CustomerName,
+                    customerRut = s.CustomerRut,
+                    total = s.Total,
+                    paymentMethod = s.PaymentMethod != null ? new { id = s.PaymentMethod.Id, name = s.PaymentMethod.Name } : null,
+                    itemsCount = s.SaleDetails.Count,
+                    totalQuantity = s.SaleDetails.Sum(sd => int.Parse(sd.Amount)),
+                    notes = s.Notes
+                })
+                .ToListAsync();
+
+            var result = new
+            {
+                storeId = store.Id,
+                storeName = store.Name,
+                storeLocation = store.Location,
+                businessId = store.BusinessId,
+                businessName = store.Business?.CompanyName,
+                totalSales = sales.Count,
+                totalAmount = sales.Sum(s => s.total),
+                dateFrom = dateFrom,
+                dateTo = dateTo,
+                sales = sales
+            };
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener ventas del store: {storeId}", storeId);
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
     }
@@ -380,9 +758,9 @@ public class SalesController : ControllerBase
 public class QuickSaleRequest
 {
     /// <summary>
-    /// ID del negocio
+    /// ID del store donde se realiza la venta
     /// </summary>
-    public int BusinessId { get; set; }
+    public int StoreId { get; set; }
 
     /// <summary>
     /// Nombre del cliente (opcional)
