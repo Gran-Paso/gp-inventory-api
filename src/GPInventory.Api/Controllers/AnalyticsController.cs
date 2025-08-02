@@ -21,9 +21,10 @@ public class AnalyticsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene un dashboard completo de analytics del negocio
+    /// Obtiene un dashboard completo de analytics del negocio dividido por stores
     /// </summary>
     /// <param name="businessId">ID del negocio</param>
+    /// <param name="storeId">ID del store específico (opcional, si no se proporciona muestra consolidado)</param>
     /// <param name="days">Número de días para análisis (opcional, por defecto 30)</param>
     /// <returns>Métricas completas de analytics</returns>
     [HttpGet("dashboard/{businessId}")]
@@ -32,11 +33,11 @@ public class AnalyticsController : ControllerBase
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<object>> GetAnalyticsDashboard(int businessId, [FromQuery] int days = 30)
+    public async Task<ActionResult<object>> GetAnalyticsDashboard(int businessId, [FromQuery] int? storeId = null, [FromQuery] int days = 30)
     {
         try
         {
-            _logger.LogInformation("Obteniendo analytics para negocio: {businessId}", businessId);
+            _logger.LogInformation("Obteniendo analytics para business: {businessId}, store: {storeId}", businessId, storeId);
 
             // Verificar que el negocio existe
             var business = await _context.Businesses.FindAsync(businessId);
@@ -44,6 +45,29 @@ public class AnalyticsController : ControllerBase
             {
                 return NotFound(new { message = "Negocio no encontrado" });
             }
+
+            // Obtener stores del business
+            var stores = await _context.Stores
+                .Where(s => s.BusinessId == businessId && s.Active)
+                .ToListAsync();
+
+            if (!stores.Any())
+            {
+                return NotFound(new { message = "No se encontraron stores activos para este negocio" });
+            }
+
+            // Si se especifica un store, validar que pertenezca al business
+            if (storeId.HasValue)
+            {
+                var specificStore = stores.FirstOrDefault(s => s.Id == storeId.Value);
+                if (specificStore == null)
+                {
+                    return NotFound(new { message = "Store no encontrado o no pertenece al negocio" });
+                }
+                stores = new List<GPInventory.Domain.Entities.Store> { specificStore };
+            }
+
+            var storeIds = stores.Select(s => s.Id).ToList();
 
             // Fechas de análisis
             var today = DateTime.Today;
@@ -55,31 +79,33 @@ public class AnalyticsController : ControllerBase
             var lastMonthStart = startOfMonth.AddMonths(-1);
             var lastMonthEnd = startOfMonth.AddDays(-1);
 
-            // Obtener datos base de ventas
+            // Obtener datos base de ventas por stores
             var salesData = await _context.SaleDetails
                 .Include(sd => sd.Sale)
-                .Where(sd => sd.Sale.BusinessId == businessId && sd.Sale.Date >= startDate)
+                .Where(sd => storeIds.Contains(sd.Sale.StoreId) && sd.Sale.Date >= startDate)
                 .Select(sd => new {
                     sd.ProductId,
                     sd.Price,
                     sd.Amount,
-                    sd.Sale.Date
+                    sd.Sale.Date,
+                    sd.Sale.StoreId
                 })
                 .ToListAsync();
 
-            // Obtener datos de stock
+            // Obtener datos de stock por stores
             var stockData = await _context.Stocks
                 .Include(s => s.Product)
-                .Where(s => s.Product.BusinessId == businessId)
+                .Where(s => storeIds.Contains(s.StoreId))
                 .Select(s => new {
                     s.ProductId,
                     s.Amount,
                     s.Cost,
-                    s.Date
+                    s.Date,
+                    s.StoreId
                 })
                 .ToListAsync();
 
-            // Obtener productos
+            // Obtener productos del business
             var products = await _context.Products
                 .Where(p => p.BusinessId == businessId)
                 .Select(p => new {
@@ -270,15 +296,27 @@ public class AnalyticsController : ControllerBase
                 timeAnalysis = GetTimeAnalysis(salesData),
 
                 // Tendencias semanales
-                weeklyTrends = GetWeeklyTrends(salesData)
+                weeklyTrends = GetWeeklyTrends(salesData),
+
+                // Información de stores analizadas
+                storeInfo = new
+                {
+                    isStoreSpecific = storeId.HasValue,
+                    storeId = storeId,
+                    businessId = businessId,
+                    storesAnalyzed = storeId.HasValue 
+                        ? stores.Where(s => s.Id == storeId.Value).Select(s => new { s.Id, s.Name, s.Location, s.Active }).ToArray()
+                        : stores.Select(s => new { s.Id, s.Name, s.Location, s.Active }).ToArray(),
+                    totalStores = stores.Count
+                }
             };
 
-            _logger.LogInformation($"Analytics generados para negocio {businessId} - {days} días");
+            _logger.LogInformation($"Analytics generados para negocio {businessId}{(storeId.HasValue ? $" - store {storeId.Value}" : " - todas las stores")} - {days} días");
             return Ok(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al obtener analytics del negocio: {businessId}", businessId);
+            _logger.LogError(ex, "Error al obtener analytics del negocio: {businessId}, store: {storeId}", businessId, storeId);
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
     }
@@ -292,7 +330,7 @@ public class AnalyticsController : ControllerBase
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<object>> GetProfitabilityAnalysis(int businessId, [FromQuery] int days = 30)
+    public async Task<ActionResult<object>> GetProfitabilityAnalysis(int businessId, [FromQuery] int? storeId = null, [FromQuery] int days = 30)
     {
         try
         {
@@ -302,27 +340,46 @@ public class AnalyticsController : ControllerBase
                 return NotFound(new { message = "Negocio no encontrado" });
             }
 
+            // Obtener stores del negocio
+            var stores = await _context.Stores
+                .Where(s => s.BusinessId == businessId && s.Active)
+                .ToListAsync();
+
+            if (!stores.Any())
+            {
+                return NotFound(new { message = "No se encontraron stores activas para este negocio" });
+            }
+
+            // Validar storeId si se proporciona
+            if (storeId.HasValue && !stores.Any(s => s.Id == storeId.Value))
+            {
+                return BadRequest(new { message = "Store no válida para este negocio" });
+            }
+
+            var storeIds = storeId.HasValue ? new[] { storeId.Value } : stores.Select(s => s.Id).ToArray();
             var startDate = DateTime.Today.AddDays(-days);
             
             var salesData = await _context.SaleDetails
                 .Include(sd => sd.Sale)
-                .Where(sd => sd.Sale.BusinessId == businessId && sd.Sale.Date >= startDate)
+                .Where(sd => storeIds.Contains(sd.Sale.StoreId) && sd.Sale.Date >= startDate)
                 .Select(sd => new {
                     sd.ProductId,
                     sd.Price,
                     sd.Amount,
-                    sd.Sale.Date
+                    sd.Sale.Date,
+                    sd.Sale.StoreId
                 })
                 .ToListAsync();
 
             var stockData = await _context.Stocks
                 .Include(s => s.Product)
-                .Where(s => s.Product.BusinessId == businessId)
+                .Where(s => storeIds.Contains(s.StoreId))
                 .Select(s => new {
                     s.ProductId,
                     s.Amount,
                     s.Cost,
-                    s.Date
+                    s.Date,
+                    s.StoreId
                 })
                 .ToListAsync();
 
@@ -342,6 +399,15 @@ public class AnalyticsController : ControllerBase
             var result = new
             {
                 businessId,
+                storeId,
+                storeInfo = new
+                {
+                    isStoreSpecific = storeId.HasValue,
+                    storesAnalyzed = storeId.HasValue 
+                        ? stores.Where(s => s.Id == storeId.Value).Select(s => new { s.Id, s.Name, s.Location }).ToArray()
+                        : stores.Select(s => new { s.Id, s.Name, s.Location }).ToArray(),
+                    totalStores = stores.Count
+                },
                 period = new { days, startDate, endDate = DateTime.Today },
                 totalRevenue = Math.Round(profitabilityData.Sum(p => p.revenue), 2),
                 totalCost = Math.Round(profitabilityData.Sum(p => p.totalCost), 2),
@@ -364,11 +430,12 @@ public class AnalyticsController : ControllerBase
                     .ToList()
             };
 
+            _logger.LogInformation($"Análisis de rentabilidad generado para negocio {businessId}{(storeId.HasValue ? $" - store {storeId.Value}" : " - todas las stores")} - {days} días");
             return Ok(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al obtener análisis de rentabilidad");
+            _logger.LogError(ex, "Error al obtener análisis de rentabilidad del negocio: {businessId}, store: {storeId}", businessId, storeId);
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
     }
