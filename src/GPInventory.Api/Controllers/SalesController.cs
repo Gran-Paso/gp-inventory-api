@@ -185,10 +185,13 @@ public class SalesController : ControllerBase
                 }
             }
 
+            // Obtener el store por defecto para el business
+            var defaultStore = await GetOrCreateDefaultStore(request.BusinessId);
+
             // Crear la venta
             var sale = new GPInventory.Domain.Entities.Sale
             {
-                BusinessId = request.BusinessId,
+                StoreId = defaultStore.Id,
                 Date = DateTime.UtcNow,
                 CustomerName = request.CustomerName?.Trim(),
                 CustomerRut = request.CustomerRut?.Trim(),
@@ -334,6 +337,40 @@ public class SalesController : ControllerBase
             _logger.LogError(ex, "Error al obtener venta: {id}", id);
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
+    }
+
+    /// <summary>
+    /// Obtiene o crea un store por defecto para un business
+    /// </summary>
+    /// <param name="businessId">ID del negocio</param>
+    /// <returns>Store por defecto</returns>
+    private async Task<GPInventory.Domain.Entities.Store> GetOrCreateDefaultStore(int businessId)
+    {
+        // Buscar store existente para el business
+        var existingStore = await _context.Stores
+            .FirstOrDefaultAsync(s => s.BusinessId == businessId);
+
+        if (existingStore != null)
+        {
+            return existingStore;
+        }
+
+        // Si no existe, crear uno por defecto
+        var business = await _context.Businesses.FindAsync(businessId);
+        var storeName = business?.CompanyName ?? "Store Principal";
+
+        var newStore = new GPInventory.Domain.Entities.Store
+        {
+            Name = storeName,
+            BusinessId = businessId,
+            Active = true
+        };
+
+        _context.Stores.Add(newStore);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Store por defecto creado: {storeName} para business: {businessId}", storeName, businessId);
+        return newStore;
     }
 }
 

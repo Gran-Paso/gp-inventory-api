@@ -49,6 +49,7 @@ public class StockController : ControllerBase
                 .Include(s => s.Product)
                 .Include(s => s.FlowType)
                 .Include(s => s.Provider)
+                .Include(s => s.Store)
                 .AsQueryable();
 
             if (productId.HasValue)
@@ -88,6 +89,7 @@ public class StockController : ControllerBase
                     amount = s.Amount,
                     cost = s.Cost,
                     provider = s.Provider != null ? new { id = s.Provider.Id, name = s.Provider.Name } : null,
+                    store = new { id = s.Store.Id, name = s.Store.Name, location = s.Store.Location },
                     notes = s.Notes
                 })
                 .ToListAsync();
@@ -125,9 +127,20 @@ public class StockController : ControllerBase
                 return NotFound(new { message = "Producto no encontrado" });
             }
 
-            // Calcular stock actual sumando todos los movimientos
+            // Calcular stock actual sumando todos los movimientos de todos los stores del business
+            var businessStores = await _context.Stores
+                .Where(s => s.BusinessId == product.BusinessId && s.Active)
+                .Select(s => s.Id)
+                .ToListAsync();
+
+            if (!businessStores.Any())
+            {
+                var defaultStore = await GetOrCreateDefaultStore(product.BusinessId);
+                businessStores.Add(defaultStore.Id);
+            }
+
             var currentStock = await _context.Stocks
-                .Where(s => s.ProductId == productId)
+                .Where(s => s.ProductId == productId && businessStores.Contains(s.StoreId))
                 .SumAsync(s => s.Amount);
 
             var result = new
@@ -202,6 +215,7 @@ public class StockController : ControllerBase
             }
 
             // Crear movimiento de stock
+            var defaultStore = await GetOrCreateDefaultStore(product.BusinessId);
             var stockMovement = new GPInventory.Domain.Entities.Stock
             {
                 ProductId = request.ProductId,
@@ -210,6 +224,7 @@ public class StockController : ControllerBase
                 Amount = request.Amount,
                 Cost = request.Cost,
                 ProviderId = providerId,
+                StoreId = defaultStore.Id,
                 Notes = request.Notes?.Trim()
             };
 
@@ -221,6 +236,7 @@ public class StockController : ControllerBase
                 .Include(s => s.Product)
                 .Include(s => s.FlowType)
                 .Include(s => s.Provider)
+                .Include(s => s.Store)
                 .Where(s => s.Id == stockMovement.Id)
                 .Select(s => new
                 {
@@ -232,6 +248,7 @@ public class StockController : ControllerBase
                     amount = s.Amount,
                     cost = s.Cost,
                     provider = s.Provider != null ? new { id = s.Provider.Id, name = s.Provider.Name } : null,
+                    store = new { id = s.Store.Id, name = s.Store.Name, location = s.Store.Location },
                     notes = s.Notes
                 })
                 .FirstOrDefaultAsync();
@@ -272,6 +289,7 @@ public class StockController : ControllerBase
             var movements = await _context.Stocks
                 .Include(s => s.FlowType)
                 .Include(s => s.Provider)
+                .Include(s => s.Store)
                 .Where(s => s.ProductId == productId)
                 .OrderByDescending(s => s.Date)
                 .Select(s => new
@@ -282,6 +300,7 @@ public class StockController : ControllerBase
                     amount = s.Amount,
                     cost = s.Cost,
                     provider = s.Provider != null ? new { id = s.Provider.Id, name = s.Provider.Name } : null,
+                    store = new { id = s.Store.Id, name = s.Store.Name, location = s.Store.Location },
                     notes = s.Notes
                 })
                 .ToListAsync();
@@ -350,34 +369,71 @@ public class StockController : ControllerBase
     /// <returns>ID del proveedor</returns>
     private async Task<int> GetOrCreateProvider(string providerName, int businessId)
     {
-        // Buscar proveedor existente
+        // Primero obtener o crear un store por defecto para el business
+        var defaultStore = await GetOrCreateDefaultStore(businessId);
+        
+        // Buscar proveedor existente en esa store
         var existingProvider = await _context.Providers
-            .FirstOrDefaultAsync(p => p.Name.ToLower() == providerName.ToLower() && p.BusinessId == businessId);
+            .FirstOrDefaultAsync(p => p.Name.ToLower() == providerName.ToLower() && p.StoreId == defaultStore.Id);
 
         if (existingProvider != null)
         {
             return existingProvider.Id;
         }
 
-        // Crear nuevo proveedor
+        // Crear nuevo proveedor asociado al store
         var newProvider = new GPInventory.Domain.Entities.Provider
         {
             Name = providerName,
-            BusinessId = businessId
+            StoreId = defaultStore.Id
         };
 
         _context.Providers.Add(newProvider);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Proveedor creado: {providerName} para negocio: {businessId}", providerName, businessId);
+        _logger.LogInformation("Proveedor creado: {providerName} para store: {storeId} (business: {businessId})", providerName, defaultStore.Id, businessId);
         return newProvider.Id;
     }
 
     /// <summary>
-    /// Obtiene el inventario completo de un negocio con stock actual
+    /// Obtiene o crea un store por defecto para un business
     /// </summary>
     /// <param name="businessId">ID del negocio</param>
-    /// <returns>Lista de productos con su stock actual</returns>
+    /// <returns>Store por defecto</returns>
+    private async Task<GPInventory.Domain.Entities.Store> GetOrCreateDefaultStore(int businessId)
+    {
+        // Buscar store existente para el business
+        var existingStore = await _context.Stores
+            .FirstOrDefaultAsync(s => s.BusinessId == businessId);
+
+        if (existingStore != null)
+        {
+            return existingStore;
+        }
+
+        // Si no existe, crear uno por defecto
+        var business = await _context.Businesses.FindAsync(businessId);
+        var storeName = business?.CompanyName ?? "Store Principal";
+
+        var newStore = new GPInventory.Domain.Entities.Store
+        {
+            Name = storeName,
+            BusinessId = businessId,
+            Active = true
+        };
+
+        _context.Stores.Add(newStore);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Store por defecto creado: {storeName} para business: {businessId}", storeName, businessId);
+        return newStore;
+    }
+
+    /// <summary>
+    /// Obtiene el inventario completo de un negocio dividido por stores
+    /// </summary>
+    /// <param name="businessId">ID del negocio</param>
+    /// <returns>Inventario dividido por stores con stock actual de cada store</returns>
     /// <response code="200">Inventario obtenido exitosamente</response>
     /// <response code="401">No autorizado - Token JWT requerido</response>
     /// <response code="404">Negocio no encontrado</response>
@@ -388,11 +444,11 @@ public class StockController : ControllerBase
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<IEnumerable<object>>> GetBusinessInventory(int businessId)
+    public async Task<ActionResult<object>> GetBusinessInventory(int businessId)
     {
         try
         {
-            _logger.LogInformation("Obteniendo inventario para negocio: {businessId}", businessId);
+            _logger.LogInformation("Obteniendo inventario dividido por stores para negocio: {businessId}", businessId);
 
             // Verificar que el negocio existe
             var business = await _context.Businesses.FindAsync(businessId);
@@ -401,273 +457,239 @@ public class StockController : ControllerBase
                 return NotFound(new { message = "Negocio no encontrado" });
             }
 
-            // Optimización: Una sola consulta con todas las relaciones necesarias
-            // Separar el cálculo de averagePrice para evitar problemas de traducción SQL
-            var inventoryBase = await _context.Products
+            // Obtener todos los productos del negocio
+            var products = await _context.Products
                 .Include(p => p.ProductType)
                 .Include(p => p.Business)
                 .Where(p => p.BusinessId == businessId)
-                .Select(p => new
-                {
-                    id = p.Id,
-                    name = p.Name,
-                    sku = p.Sku,
-                    price = p.Price,
-                    cost = p.Cost,
-                    image = p.Image,
-                    productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
-                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName },
-                    
-                    // Stock actual - suma directa en SQL
-                    currentStock = _context.Stocks
-                        .Where(s => s.ProductId == p.Id)
-                        .Sum(s => s.Amount),
-                    
-                    // Costo promedio ponderado - solo entradas con costo
-                    averageCost = _context.Stocks
-                        .Where(s => s.ProductId == p.Id && s.Cost.HasValue && s.Cost > 0 && s.Amount > 0)
-                        .Any() 
-                        ? _context.Stocks
-                            .Where(s => s.ProductId == p.Id && s.Cost.HasValue && s.Cost > 0 && s.Amount > 0)
-                            .Sum(s => s.Cost!.Value * s.Amount) / 
-                          _context.Stocks
-                            .Where(s => s.ProductId == p.Id && s.Cost.HasValue && s.Cost > 0 && s.Amount > 0)
-                            .Sum(s => s.Amount)
-                        : (decimal?)null,
-                    
-                    // Total de movimientos
-                    totalMovements = _context.Stocks
-                        .Where(s => s.ProductId == p.Id)
-                        .Count(),
-                    
-                    // Último movimiento
-                    lastMovementDate = _context.Stocks
-                        .Where(s => s.ProductId == p.Id)
-                        .Max(s => (DateTime?)s.Date)
-                })
-                .OrderBy(p => p.name)
                 .ToListAsync();
 
-            // Paso 2: Obtener datos de ventas para el cálculo de averagePrice y métricas
-            var productIds = inventoryBase.Select(p => p.id).ToList();
-            var salesData = await _context.SaleDetails
+            // Obtener todos los stores activos del negocio
+            var stores = await _context.Stores
+                .Where(s => s.BusinessId == businessId && s.Active)
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+
+            // Si no hay stores, crear uno por defecto
+            if (!stores.Any())
+            {
+                var defaultStore = await GetOrCreateDefaultStore(businessId);
+                stores = await _context.Stores
+                    .Where(s => s.Id == defaultStore.Id)
+                    .ToListAsync();
+            }
+
+            var storeIds = stores.Select(s => s.Id).ToList();
+
+            // Obtener todos los stocks y ventas de una vez para optimizar
+            var allStocks = await _context.Stocks
+                .Where(s => storeIds.Contains(s.StoreId))
+                .ToListAsync();
+
+            var allSalesDetails = await _context.SaleDetails
                 .Include(sd => sd.Sale)
-                .Where(sd => productIds.Contains(sd.ProductId))
-                .Select(sd => new { 
-                    sd.ProductId, 
-                    sd.Price, 
-                    sd.Amount,
-                    SaleDate = sd.Sale.Date
-                })
+                    .ThenInclude(s => s.Store)
+                .Where(sd => storeIds.Contains(sd.Sale.StoreId))
                 .ToListAsync();
 
-            // Calcular fechas para filtros y comparaciones
+            // Calcular fechas para métricas de ventas
             var today = DateTime.Today;
             var startOfMonth = new DateTime(today.Year, today.Month, 1);
             var lastMonth = startOfMonth.AddMonths(-1);
             var endOfLastMonth = startOfMonth.AddDays(-1);
-            var sameDayLastMonth = today.AddMonths(-1);
+
+            // Separar ventas por períodos
+            var todaySales = allSalesDetails.Where(sd => sd.Sale.Date.Date == today).ToList();
+            var monthSales = allSalesDetails.Where(sd => sd.Sale.Date >= startOfMonth).ToList();
+            var lastMonthSales = allSalesDetails.Where(sd => sd.Sale.Date >= lastMonth && sd.Sale.Date <= endOfLastMonth).ToList();
+
+            // Calcular summary total del negocio
+            var totalProducts = products.Count;
+            var totalStock = allStocks.GroupBy(s => s.ProductId).Sum(g => g.Sum(s => s.Amount));
             
-            // Filtrar ventas del día, mes actual, mes anterior y mismo día mes anterior
-            var todaySales = salesData.Where(sd => sd.SaleDate.Date == today).ToList();
-            var monthSales = salesData.Where(sd => sd.SaleDate >= startOfMonth).ToList();
-            var lastMonthSales = salesData.Where(sd => sd.SaleDate >= lastMonth && sd.SaleDate <= endOfLastMonth).ToList();
-            var sameDayLastMonthSales = salesData.Where(sd => sd.SaleDate.Date == sameDayLastMonth).ToList();
+            var businessTodaySalesAmount = todaySales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+            var businessTodayTransactions = todaySales.GroupBy(sd => new { sd.Sale.Id }).Count();
+            var businessMonthSalesAmount = monthSales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+            var businessMonthTransactions = monthSales.GroupBy(sd => new { sd.Sale.Id }).Count();
+            var businessLastMonthSalesAmount = lastMonthSales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
 
-            // Paso 3: Calcular métricas y construir resultado final
-            var inventory = inventoryBase.Select(item =>
+            // Calcular porcentaje de cambio mensual
+            decimal? businessMonthChangePercent = null;
+            if (businessLastMonthSalesAmount > 0)
             {
-                var productSales = salesData.Where(sd => sd.ProductId == item.id).ToList();
-                var productTodaySales = todaySales.Where(sd => sd.ProductId == item.id).ToList();
-                var productMonthSales = monthSales.Where(sd => sd.ProductId == item.id).ToList();
-                var productLastMonthSales = lastMonthSales.Where(sd => sd.ProductId == item.id).ToList();
-                var productSameDayLastMonthSales = sameDayLastMonthSales.Where(sd => sd.ProductId == item.id).ToList();
-                
-                decimal? averagePrice = null;
-                decimal todaySalesAmount = 0;
-                int todayQuantitySold = 0;
-                decimal monthSalesAmount = 0;
-                int monthQuantitySold = 0;
-                decimal lastMonthSalesAmount = 0;
-                decimal sameDayLastMonthSalesAmount = 0;
+                businessMonthChangePercent = ((businessMonthSalesAmount - businessLastMonthSalesAmount) / businessLastMonthSalesAmount) * 100;
+            }
 
-                // Calcular precio promedio general
-                if (productSales.Any())
+            var totalSummary = new
+            {
+                totalProducts = totalProducts,
+                totalStock = totalStock,
+                todaySales = new
                 {
-                    try
-                    {
-                        var totalValue = productSales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                        var totalQuantity = productSales.Sum(sd => int.Parse(sd.Amount));
-                        averagePrice = totalQuantity > 0 ? totalValue / totalQuantity : null;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning("Error calculando averagePrice para producto {productId}: {error}", item.id, ex.Message);
-                        averagePrice = null;
-                    }
+                    amount = businessTodaySalesAmount,
+                    transactions = businessTodayTransactions,
+                    changePercent = (decimal?)null // Necesitaríamos datos históricos para calcular esto
+                },
+                monthSales = new
+                {
+                    amount = businessMonthSalesAmount,
+                    transactions = businessMonthTransactions,
+                    changePercent = businessMonthChangePercent
+                }
+            };
+
+            // Procesar cada store individualmente
+            var storesSummary = new List<object>();
+            var storesData = new List<object>();
+
+            foreach (var store in stores)
+            {
+                var storeStocks = allStocks.Where(s => s.StoreId == store.Id).ToList();
+                var storeSalesDetails = allSalesDetails.Where(sd => sd.Sale.StoreId == store.Id).ToList();
+                var storeTodaySales = storeSalesDetails.Where(sd => sd.Sale.Date.Date == today).ToList();
+                var storeMonthSales = storeSalesDetails.Where(sd => sd.Sale.Date >= startOfMonth).ToList();
+                var storeLastMonthSales = storeSalesDetails.Where(sd => sd.Sale.Date >= lastMonth && sd.Sale.Date <= endOfLastMonth).ToList();
+
+                var storeStock = storeStocks.GroupBy(s => s.ProductId).Sum(g => g.Sum(s => s.Amount));
+                var storeTodaySalesAmount = storeTodaySales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+                var storeTodayTransactions = storeTodaySales.GroupBy(sd => sd.Sale.Id).Count();
+                var storeMonthSalesAmount = storeMonthSales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+                var storeMonthTransactions = storeMonthSales.GroupBy(sd => sd.Sale.Id).Count();
+                var storeLastMonthSalesAmount = storeLastMonthSales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+
+                // Calcular porcentaje de cambio mensual del store
+                decimal? storeMonthChangePercent = null;
+                if (storeLastMonthSalesAmount > 0)
+                {
+                    storeMonthChangePercent = ((storeMonthSalesAmount - storeLastMonthSalesAmount) / storeLastMonthSalesAmount) * 100;
                 }
 
-                // Calcular ventas del día
-                if (productTodaySales.Any())
+                // Summary del store
+                storesSummary.Add(new
                 {
-                    try
-                    {
-                        todaySalesAmount = productTodaySales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                        todayQuantitySold = productTodaySales.Sum(sd => int.Parse(sd.Amount));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning("Error calculando ventas del día para producto {productId}: {error}", item.id, ex.Message);
-                    }
-                }
-
-                // Calcular ventas del mes
-                if (productMonthSales.Any())
-                {
-                    try
-                    {
-                        monthSalesAmount = productMonthSales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                        monthQuantitySold = productMonthSales.Sum(sd => int.Parse(sd.Amount));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning("Error calculando ventas del mes para producto {productId}: {error}", item.id, ex.Message);
-                    }
-                }
-
-                // Calcular ventas del mes anterior (para comparación)
-                if (productLastMonthSales.Any())
-                {
-                    try
-                    {
-                        lastMonthSalesAmount = productLastMonthSales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning("Error calculando ventas del mes anterior para producto {productId}: {error}", item.id, ex.Message);
-                    }
-                }
-
-                // Calcular ventas del mismo día mes anterior (para comparación)
-                if (productSameDayLastMonthSales.Any())
-                {
-                    try
-                    {
-                        sameDayLastMonthSalesAmount = productSameDayLastMonthSales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning("Error calculando ventas del mismo día mes anterior para producto {productId}: {error}", item.id, ex.Message);
-                    }
-                }
-
-                // Calcular porcentajes de cambio
-                decimal? todayChangePercent = null;
-                decimal? monthChangePercent = null;
-
-                if (sameDayLastMonthSalesAmount > 0)
-                {
-                    todayChangePercent = ((todaySalesAmount - sameDayLastMonthSalesAmount) / sameDayLastMonthSalesAmount) * 100;
-                }
-
-                if (lastMonthSalesAmount > 0)
-                {
-                    monthChangePercent = ((monthSalesAmount - lastMonthSalesAmount) / lastMonthSalesAmount) * 100;
-                }
-
-                return new
-                {
-                    id = item.id,
-                    name = item.name,
-                    sku = item.sku,
-                    price = item.price,
-                    cost = item.cost,
-                    image = item.image,
-                    productType = item.productType,
-                    business = item.business,
-                    currentStock = item.currentStock,
-                    averageCost = item.averageCost,
-                    averagePrice = averagePrice,
-                    totalMovements = item.totalMovements,
-                    lastMovementDate = item.lastMovementDate,
-                    // Métricas de ventas con porcentajes de cambio
+                    storeId = store.Id,
+                    storeName = store.Name,
+                    location = store.Location,
+                    totalProducts = products.Count,
+                    totalStock = storeStock,
                     todaySales = new
                     {
-                        amount = todaySalesAmount,
-                        quantity = todayQuantitySold,
-                        changePercent = todayChangePercent
+                        amount = storeTodaySalesAmount,
+                        transactions = storeTodayTransactions,
+                        changePercent = (decimal?)null
                     },
                     monthSales = new
                     {
-                        amount = monthSalesAmount,
-                        quantity = monthQuantitySold,
-                        changePercent = monthChangePercent
+                        amount = storeMonthSalesAmount,
+                        transactions = storeMonthTransactions,
+                        changePercent = storeMonthChangePercent
                     }
-                };
-            }).ToList();
+                });
 
-            // Calcular resumen de ventas del negocio con porcentajes de cambio
-            decimal businessTodaySales = 0;
-            int businessTodayTransactions = 0;
-            decimal businessMonthSales = 0;
-            int businessMonthTransactions = 0;
-            decimal businessLastMonthSales = 0;
-            decimal businessSameDayLastMonthSales = 0;
+                // Productos del store
+                var storeProducts = new List<object>();
 
-            try
-            {
-                businessTodaySales = todaySales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                businessTodayTransactions = todaySales.GroupBy(sd => sd.SaleDate).Count();
-                
-                businessMonthSales = monthSales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                businessMonthTransactions = monthSales.GroupBy(sd => sd.SaleDate).Count();
+                foreach (var product in products)
+                {
+                    var productStocks = storeStocks.Where(s => s.ProductId == product.Id).ToList();
+                    var currentStock = productStocks.Sum(s => s.Amount);
 
-                businessLastMonthSales = lastMonthSales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-                businessSameDayLastMonthSales = sameDayLastMonthSales.Sum(sd => sd.Price * int.Parse(sd.Amount));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Error calculando resumen de ventas del negocio {businessId}: {error}", businessId, ex.Message);
-            }
+                    // Calcular costo promedio ponderado para este store
+                    var stockMovements = productStocks.Where(s => s.Amount > 0).ToList();
+                    decimal? averageCost = null;
 
-            // Calcular porcentajes de cambio del negocio
-            decimal? businessTodayChangePercent = null;
-            decimal? businessMonthChangePercent = null;
+                    if (stockMovements.Any())
+                    {
+                        var movementsWithCost = stockMovements.Where(s => s.Cost.HasValue && s.Cost.Value > 0).ToList();
+                        
+                        if (movementsWithCost.Any())
+                        {
+                            var totalCostValue = movementsWithCost.Sum(s => (decimal)s.Amount * (decimal)s.Cost!.Value);
+                            var totalQuantity = movementsWithCost.Sum(s => (decimal)s.Amount);
+                            
+                            if (totalQuantity > 0)
+                            {
+                                averageCost = totalCostValue / totalQuantity;
+                            }
+                        }
+                    }
 
-            if (businessSameDayLastMonthSales > 0)
-            {
-                businessTodayChangePercent = ((businessTodaySales - businessSameDayLastMonthSales) / businessSameDayLastMonthSales) * 100;
-            }
+                    // Calcular ventas del producto en este store
+                    var productSalesDetails = storeSalesDetails.Where(sd => sd.ProductId == product.Id).ToList();
+                    var productTodaySales = productSalesDetails.Where(sd => sd.Sale.Date.Date == today).ToList();
+                    var productMonthSales = productSalesDetails.Where(sd => sd.Sale.Date >= startOfMonth).ToList();
+                    var productLastMonthSales = productSalesDetails.Where(sd => sd.Sale.Date >= lastMonth && sd.Sale.Date <= endOfLastMonth).ToList();
 
-            if (businessLastMonthSales > 0)
-            {
-                businessMonthChangePercent = ((businessMonthSales - businessLastMonthSales) / businessLastMonthSales) * 100;
+                    // Calcular precio promedio de ventas para este store
+                    decimal? averagePrice = null;
+                    if (productSalesDetails.Any())
+                    {
+                        var totalValue = productSalesDetails.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+                        var totalQuantity = productSalesDetails.Sum(sd => decimal.Parse(sd.Amount));
+                        averagePrice = totalQuantity > 0 ? totalValue / totalQuantity : null;
+                    }
+
+                    var todayQuantity = productTodaySales.Sum(sd => decimal.Parse(sd.Amount));
+                    var todaySalesAmount = productTodaySales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+                    var monthQuantity = productMonthSales.Sum(sd => decimal.Parse(sd.Amount));
+                    var monthSalesAmount = productMonthSales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+                    var lastMonthSalesAmount = productLastMonthSales.Sum(sd => (decimal)sd.Price * decimal.Parse(sd.Amount));
+
+                    // Calcular porcentaje de cambio mensual del producto en este store
+                    decimal? productMonthChangePercent = null;
+                    if (lastMonthSalesAmount > 0)
+                    {
+                        productMonthChangePercent = ((monthSalesAmount - lastMonthSalesAmount) / lastMonthSalesAmount) * 100;
+                    }
+
+                    storeProducts.Add(new
+                    {
+                        id = product.Id,
+                        name = product.Name,
+                        sku = product.Sku,
+                        price = product.Price,
+                        cost = product.Cost,
+                        image = product.Image,
+                        productType = product.ProductType != null ? new { id = product.ProductType.Id, name = product.ProductType.Name } : null,
+                        business = new { id = product.Business.Id, companyName = product.Business.CompanyName },
+                        currentStock = currentStock,
+                        averageCost = averageCost.HasValue ? Math.Round(averageCost.Value, 2) : (decimal?)null,
+                        averagePrice = averagePrice.HasValue ? Math.Round(averagePrice.Value, 2) : (decimal?)null,
+                        totalMovements = stockMovements.Count,
+                        lastMovementDate = stockMovements.OrderByDescending(s => s.Date).FirstOrDefault()?.Date,
+                        todaySales = new
+                        {
+                            amount = todaySalesAmount,
+                            quantity = (int)todayQuantity,
+                            changePercent = (decimal?)null
+                        },
+                        monthSales = new
+                        {
+                            amount = monthSalesAmount,
+                            quantity = (int)monthQuantity,
+                            changePercent = productMonthChangePercent
+                        }
+                    });
+                }
+
+                storesData.Add(new
+                {
+                    storeId = store.Id,
+                    storeName = store.Name,
+                    location = store.Location,
+                    products = storeProducts
+                });
             }
 
             var result = new
             {
                 businessId = businessId,
-                summary = new
-                {
-                    totalProducts = inventory.Count,
-                    totalStock = inventory.Sum(i => i.currentStock),
-                    todaySales = new
-                    {
-                        amount = businessTodaySales,
-                        transactions = businessTodayTransactions,
-                        changePercent = businessTodayChangePercent
-                    },
-                    monthSales = new
-                    {
-                        amount = businessMonthSales,
-                        transactions = businessMonthTransactions,
-                        changePercent = businessMonthChangePercent
-                    }
-                },
-                products = inventory
+                summary = totalSummary,
+                storesSummary = storesSummary,
+                stores = storesData
             };
 
-            _logger.LogInformation($"Se encontraron {inventory.Count} productos en el inventario del negocio {businessId}");
+            _logger.LogInformation($"Inventario obtenido para {stores.Count} stores con {products.Count} productos del negocio {businessId}");
             return Ok(result);
         }
         catch (Exception ex)

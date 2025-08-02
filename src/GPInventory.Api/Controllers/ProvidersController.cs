@@ -58,7 +58,7 @@ public class ProvidersController : ControllerBase
                 {
                     id = p.Id,
                     name = p.Name,
-                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName }
+                    business = new { id = p.Business!.Id, companyName = p.Business.CompanyName }
                 })
                 .ToListAsync();
 
@@ -96,7 +96,7 @@ public class ProvidersController : ControllerBase
                 {
                     id = p.Id,
                     name = p.Name,
-                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName }
+                    business = new { id = p.Business!.Id, companyName = p.Business.CompanyName }
                 })
                 .FirstOrDefaultAsync();
 
