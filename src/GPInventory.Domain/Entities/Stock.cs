@@ -57,6 +57,13 @@ public class Stock : BaseEntity
     [Column("notes")]
     public string? Notes { get; set; }
 
+    /// <summary>
+    /// ID de la tienda donde se realizó el movimiento
+    /// </summary>
+    [Column("id_store")]
+    [Required]
+    public int StoreId { get; set; }
+
     // Propiedades de navegación
     /// <summary>
     /// Producto asociado
@@ -76,16 +83,23 @@ public class Stock : BaseEntity
     [ForeignKey("ProviderId")]
     public virtual Provider? Provider { get; set; }
 
+    /// <summary>
+    /// Tienda donde se realizó el movimiento
+    /// </summary>
+    [ForeignKey("StoreId")]
+    public virtual Store Store { get; set; } = null!;
+
     public Stock()
     {
         Date = DateTime.UtcNow;
     }
 
-    public Stock(int productId, int flowTypeId, int amount, int? auctionPrice = null, int? cost = null, int? providerId = null, string? notes = null)
+    public Stock(int productId, int flowTypeId, int amount, int storeId, int? auctionPrice = null, int? cost = null, int? providerId = null, string? notes = null)
     {
         ProductId = productId;
         FlowTypeId = flowTypeId;
         Amount = amount;
+        StoreId = storeId;
         AuctionPrice = auctionPrice;
         Cost = cost;
         ProviderId = providerId;

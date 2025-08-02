@@ -18,17 +18,29 @@ public class Provider : BaseEntity
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
-    /// ID del negocio al que pertenece
+    /// ID de la tienda a la que pertenece (mapeado desde BusinessId temporalmente)
     /// </summary>
-    [Column("business")]
+    [Column("id_store")]
+    public int? StoreId { get; set; }
+
+    /// <summary>
+    /// ID del negocio al que pertenece (compatibilidad temporal)
+    /// </summary>
+    [NotMapped]
     public int BusinessId { get; set; }
 
     // Propiedades de navegación
     /// <summary>
-    /// Negocio al que pertenece el proveedor
+    /// Tienda a la que pertenece el proveedor
     /// </summary>
-    [ForeignKey("BusinessId")]
-    public virtual Business Business { get; set; } = null!;
+    [ForeignKey("StoreId")]
+    public virtual Store? Store { get; set; }
+
+    /// <summary>
+    /// Negocio al que pertenece el proveedor (a través de Store - compatibilidad)
+    /// </summary>
+    [NotMapped]
+    public virtual Business? Business => Store?.Business;
 
     /// <summary>
     /// Movimientos de stock asociados a este proveedor

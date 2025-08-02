@@ -1,5 +1,4 @@
 using GPInventory.Domain.Entities;
-using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace GPInventory.Infrastructure.Data;
