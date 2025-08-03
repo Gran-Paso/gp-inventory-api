@@ -99,6 +99,9 @@ services:
       - "80:80"
     depends_on:
       - api
+    environment:
+      # Frontend se servirá en inventory.granpasochile.cl
+      - VIRTUAL_HOST=inventory.granpasochile.cl
   
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
