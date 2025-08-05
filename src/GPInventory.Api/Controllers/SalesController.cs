@@ -691,12 +691,14 @@ public class SalesController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todas las ventas de un store específico
+    /// Obtiene todas las ventas de un store específico con paginación
     /// </summary>
     /// <param name="storeId">ID del store</param>
     /// <param name="dateFrom">Fecha desde (opcional)</param>
     /// <param name="dateTo">Fecha hasta (opcional)</param>
-    /// <returns>Lista de ventas del store</returns>
+    /// <param name="page">Número de página (por defecto 1)</param>
+    /// <param name="pageSize">Tamaño de página (por defecto 10, máximo 50)</param>
+    /// <returns>Lista paginada de ventas del store</returns>
     [HttpGet("store/{storeId}")]
     [Authorize]
     [ProducesResponseType(200)]
@@ -706,11 +708,18 @@ public class SalesController : ControllerBase
     public async Task<ActionResult<object>> GetSalesByStore(
         int storeId, 
         [FromQuery] DateTime? dateFrom = null, 
-        [FromQuery] DateTime? dateTo = null)
+        [FromQuery] DateTime? dateTo = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
     {
         try
         {
-            _logger.LogInformation("Obteniendo ventas para store: {storeId}", storeId);
+            _logger.LogInformation("Obteniendo ventas para store: {storeId}, página: {page}, tamaño: {pageSize}", storeId, page, pageSize);
+
+            // Validar parámetros de paginación
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 10;
+            if (pageSize > 50) pageSize = 50; // Limitar tamaño máximo
 
             // Verificar que el store existe
             var store = await _context.Stores
@@ -738,21 +747,46 @@ public class SalesController : ControllerBase
                 query = query.Where(s => s.Date <= dateTo.Value);
             }
 
-            var sales = await query
+            // Contar total de registros para paginación
+            var totalCount = await query.CountAsync();
+            var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+
+            // Aplicar paginación
+            var salesData = await query
                 .OrderByDescending(s => s.Date)
-                .Select(s => new
-                {
-                    id = s.Id,
-                    date = s.Date,
-                    customerName = s.CustomerName,
-                    customerRut = s.CustomerRut,
-                    total = s.Total,
-                    paymentMethod = s.PaymentMethod != null ? new { id = s.PaymentMethod.Id, name = s.PaymentMethod.Name } : null,
-                    itemsCount = s.SaleDetails.Count,
-                    totalQuantity = s.SaleDetails.Sum(sd => int.Parse(sd.Amount)),
-                    notes = s.Notes
-                })
+                .ThenByDescending(s => s.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Include(s => s.SaleDetails)
+                    .ThenInclude(sd => sd.Product)
+                .Include(s => s.PaymentMethod)
                 .ToListAsync();
+
+            var sales = salesData.Select(s => new
+            {
+                id = s.Id,
+                date = s.Date,
+                customerName = s.CustomerName,
+                customerRut = s.CustomerRut,
+                total = s.Total,
+                paymentMethod = s.PaymentMethod != null ? new { id = s.PaymentMethod.Id, name = s.PaymentMethod.Name } : null,
+                itemsCount = s.SaleDetails.Count,
+                totalQuantity = s.SaleDetails.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0),
+                notes = s.Notes,
+                details = s.SaleDetails.Select(sd => new
+                {
+                    productId = sd.ProductId,
+                    productName = sd.Product.Name,
+                    productSku = sd.Product.Sku,
+                    quantity = int.TryParse(sd.Amount, out var amount) ? amount : 0,
+                    unitPrice = sd.Price,
+                    discount = sd.Discount ?? 0,
+                    subtotal = (int.TryParse(sd.Amount, out var qty) ? qty : 0) * sd.Price - (sd.Discount ?? 0)
+                }).OrderBy(d => d.productName).ToList()
+            }).ToList();
+
+            // Calcular totales (solo para la información general, no paginada)
+            var totalAmount = await query.SumAsync(s => s.Total);
 
             var result = new
             {
@@ -761,10 +795,19 @@ public class SalesController : ControllerBase
                 storeLocation = store.Location,
                 businessId = store.BusinessId,
                 businessName = store.Business?.CompanyName,
-                totalSales = sales.Count,
-                totalAmount = sales.Sum(s => s.total),
+                totalSales = totalCount,
+                totalAmount = totalAmount,
                 dateFrom = dateFrom,
                 dateTo = dateTo,
+                pagination = new
+                {
+                    currentPage = page,
+                    pageSize = pageSize,
+                    totalPages = totalPages,
+                    totalCount = totalCount,
+                    hasNextPage = page < totalPages,
+                    hasPreviousPage = page > 1
+                },
                 sales = sales
             };
 
