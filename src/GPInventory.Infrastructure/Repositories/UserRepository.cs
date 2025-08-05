@@ -30,6 +30,22 @@ public class UserRepository : Repository<User>, IUserRepository
     {
         return await _dbSet.AnyAsync(u => u.Mail == email);
     }
+
+    public async Task<List<(int UserId, string UserName, string RoleName)>> GetBusinessUsersWithRolesAsync(int businessId, string[] targetRoles)
+    {
+        var result = await _context.UserHasBusinesses
+            .Include(ub => ub.User)
+            .Include(ub => ub.Role)
+            .Where(ub => ub.BusinessId == businessId && targetRoles.Contains(ub.Role.Name))
+            .Select(ub => new { 
+                UserId = ub.UserId, 
+                UserName = ub.User.Name ?? "Usuario", 
+                RoleName = ub.Role.Name 
+            })
+            .ToListAsync();
+
+        return result.Select(x => (x.UserId, x.UserName, x.RoleName)).ToList();
+    }
 }
 
 public class BusinessRepository : Repository<Business>, IBusinessRepository

@@ -23,6 +23,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<SaleDetail> SaleDetails { get; set; }
     public DbSet<PaymentMethod> PaymentMethods { get; set; }
     public DbSet<Store> Stores { get; set; }
+    public DbSet<Notification> Notifications { get; set; }
+    public DbSet<UserNotification> UserNotifications { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +42,10 @@ public class ApplicationDbContext : DbContext
 
         // Apply User configurations
         modelBuilder.ApplyConfiguration(new UserConfiguration());
+
+        // Apply Notification configurations
+        modelBuilder.ApplyConfiguration(new NotificationConfiguration());
+        modelBuilder.ApplyConfiguration(new UserNotificationConfiguration());
 
         // Business configuration
         modelBuilder.Entity<Business>(entity =>

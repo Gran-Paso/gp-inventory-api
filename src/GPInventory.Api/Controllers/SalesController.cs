@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
+using GPInventory.Application.Interfaces;
+using GPInventory.Api.Extensions;
+using System.Security.Claims;
 
 namespace GPInventory.Api.Controllers;
 
@@ -13,11 +16,13 @@ public class SalesController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<SalesController> _logger;
+    private readonly INotificationService _notificationService;
 
-    public SalesController(ApplicationDbContext context, ILogger<SalesController> logger)
+    public SalesController(ApplicationDbContext context, ILogger<SalesController> logger, INotificationService notificationService)
     {
         _context = context;
         _logger = logger;
+        _notificationService = notificationService;
     }
 
     /// <summary>
@@ -480,6 +485,61 @@ public class SalesController : ControllerBase
 
             await transaction.CommitAsync();
 
+            // 🔔 ENVIAR NOTIFICACIONES DESPUÉS DE COMPLETAR LA VENTA
+            try
+            {
+                var userId = GetCurrentUserId();
+                var businessName = store.Business?.CompanyName ?? "Negocio";
+                
+                // Verificar si se alcanzó el hito de $100,000
+                await _notificationService.CheckAndSendQuickSaleNotificationAsync(
+                    userId, 
+                    totalAmount, 
+                    businessName
+                );
+
+                // Verificar stock bajo en los productos vendidos
+                foreach (var item in request.Items)
+                {
+                    var currentStock = await _context.Stocks
+                        .Where(s => s.ProductId == item.ProductId && s.StoreId == request.StoreId)
+                        .SumAsync(s => s.Amount);
+
+                    var product = products.First(p => p.Id == item.ProductId);
+                    
+                    if (currentStock <= 0)
+                    {
+                        // Producto agotado
+                        await _notificationService.CheckAndSendOutOfStockNotificationAsync(
+                            userId,
+                            product.Name,
+                            businessName
+                        );
+                    }
+                    else if (currentStock <= 5)
+                    {
+                        // Stock bajo
+                        await _notificationService.CheckAndSendLowStockNotificationAsync(
+                            userId,
+                            product.Name,
+                            currentStock,
+                            businessName
+                        );
+                    }
+                }
+
+                // 🎯 VERIFICAR PUNTO DE EQUILIBRIO (BREAKEVEN)
+                if (store.BusinessId.HasValue)
+                {
+                    await CheckAndSendBreakevenNotificationAsync(store.BusinessId.Value, businessName);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Las notificaciones no deben afectar el proceso principal
+                _logger.LogWarning(ex, "Error enviando notificaciones para venta {saleId}", sale.Id);
+            }
+
             var result = new
             {
                 saleId = sale.Id,
@@ -750,6 +810,78 @@ public class SalesController : ControllerBase
         _logger.LogInformation("Store por defecto creado: {storeName} para business: {businessId}", storeName, businessId);
         return newStore;
     }
+
+    #region Helper Methods
+
+    private int GetCurrentUserId()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+        {
+            throw new UnauthorizedAccessException("User ID not found in token");
+        }
+        return userId;
+    }
+
+    /// <summary>
+    /// Verifica si el negocio ha alcanzado el punto de equilibrio y envía notificación
+    /// </summary>
+    /// <param name="businessId">ID del negocio</param>
+    /// <param name="businessName">Nombre del negocio</param>
+    private async Task CheckAndSendBreakevenNotificationAsync(int businessId, string businessName)
+    {
+        try
+        {
+            var today = DateTime.UtcNow.Date;
+            var tomorrow = today.AddDays(1);
+
+            // Calcular ingresos del día (sum de todas las ventas del día)
+            var dailyRevenue = await _context.Sales
+                .Where(s => s.Store.BusinessId == businessId && 
+                           s.Date >= today && s.Date < tomorrow)
+                .SumAsync(s => s.Total);
+
+            // Calcular costos del día (sum de todos los stocks con costo del día)
+            // Solo considerar movimientos de entrada (compras/reposición) del día
+            var dailyCosts = await _context.Stocks
+                .Where(s => s.Product.BusinessId == businessId && 
+                           s.Cost.HasValue && 
+                           s.Amount > 0 && 
+                           s.Date >= today && s.Date < tomorrow)
+                .SumAsync(s => s.Cost!.Value * s.Amount);
+
+            // Verificar si se alcanzó el punto de equilibrio del día
+            if (dailyRevenue >= dailyCosts && dailyCosts > 0)
+            {
+                // Verificar si ya se envió esta notificación para el día de hoy
+                var existingNotification = await _context.UserNotifications
+                    .Include(un => un.Notification)
+                    .Where(un => un.Notification.Type == "breakeven_achievement" && 
+                                (un.RenderedMessage ?? "").Contains($"Negocio: {businessName}") &&
+                                un.CreatedAt >= today && un.CreatedAt < tomorrow)
+                    .AnyAsync();
+
+                if (!existingNotification)
+                {
+                    await _notificationService.SendBreakevenNotificationAsync(
+                        businessId, 
+                        businessName, 
+                        dailyRevenue, 
+                        dailyCosts
+                    );
+                    
+                    _logger.LogInformation("Daily breakeven notification sent for business {businessId}: Daily Revenue={revenue}, Daily Costs={costs}", 
+                        businessId, dailyRevenue, dailyCosts);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking daily breakeven for business {businessId}", businessId);
+        }
+    }
+
+    #endregion
 }
 
 /// <summary>
