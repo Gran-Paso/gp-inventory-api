@@ -18,10 +18,10 @@ namespace GPInventory.Api.Controllers
             _notificationService = notificationService;
         }
 
-        #region Template Management (Admin only)
+        #region Template Management (Administrador only)
 
         [HttpPost("templates")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Administrador")]
         public async Task<ActionResult<NotificationDto>> CreateTemplate([FromBody] CreateNotificationDto createDto)
         {
             try
@@ -36,7 +36,7 @@ namespace GPInventory.Api.Controllers
         }
 
         [HttpGet("templates")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Administrador")]
         public async Task<ActionResult<IEnumerable<NotificationDto>>> GetTemplates()
         {
             var templates = await _notificationService.GetNotificationTemplatesAsync();
@@ -44,7 +44,7 @@ namespace GPInventory.Api.Controllers
         }
 
         [HttpGet("templates/{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Administrador")]
         public async Task<ActionResult<NotificationDto>> GetTemplate(int id)
         {
             var template = await _notificationService.GetNotificationTemplateAsync(id);
@@ -55,7 +55,7 @@ namespace GPInventory.Api.Controllers
         }
 
         [HttpPut("templates/{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Administrador")]
         public async Task<IActionResult> UpdateTemplate(int id, [FromBody] CreateNotificationDto updateDto)
         {
             try
@@ -73,7 +73,7 @@ namespace GPInventory.Api.Controllers
         }
 
         [HttpDelete("templates/{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Administrador")]
         public async Task<IActionResult> DeleteTemplate(int id)
         {
             var success = await _notificationService.DeleteNotificationTemplateAsync(id);
@@ -98,9 +98,9 @@ namespace GPInventory.Api.Controllers
         [HttpGet("user/{userId}")]
         public async Task<ActionResult<IEnumerable<UserNotificationDto>>> GetUserNotifications(int userId, [FromQuery] bool? isRead = null)
         {
-            // Verificar que el usuario solo pueda acceder a sus propias notificaciones o sea admin
+            // Verificar que el usuario solo pueda acceder a sus propias notificaciones o sea administrador
             var currentUserId = GetCurrentUserId();
-            if (currentUserId != userId && !User.IsInRole("Admin"))
+            if (currentUserId != userId && !User.IsInRole("Administrador"))
             {
                 return Forbid("You can only access your own notifications");
             }
@@ -112,9 +112,9 @@ namespace GPInventory.Api.Controllers
         [HttpGet("user/{userId}/unread-count")]
         public async Task<ActionResult<int>> GetUserUnreadCount(int userId)
         {
-            // Verificar que el usuario solo pueda acceder a sus propias notificaciones o sea admin
+            // Verificar que el usuario solo pueda acceder a sus propias notificaciones o sea administrador
             var currentUserId = GetCurrentUserId();
-            if (currentUserId != userId && !User.IsInRole("Admin"))
+            if (currentUserId != userId && !User.IsInRole("Administrador"))
             {
                 return Forbid("You can only access your own notifications");
             }
@@ -163,7 +163,7 @@ namespace GPInventory.Api.Controllers
                 var userId = GetCurrentUserId();
                 
                 // Si se especifica un userId diferente, verificar permisos
-                if (createDto.UserId.HasValue && createDto.UserId.Value != userId && !User.IsInRole("Admin"))
+                if (createDto.UserId.HasValue && createDto.UserId.Value != userId && !User.IsInRole("Administrador"))
                 {
                     return Forbid("You can only create notifications for yourself");
                 }
@@ -193,7 +193,7 @@ namespace GPInventory.Api.Controllers
                 var userId = GetCurrentUserId();
                 
                 // Si se especifica un userId diferente, verificar permisos
-                if (createDto.UserId != userId && !User.IsInRole("Admin"))
+                if (createDto.UserId != userId && !User.IsInRole("Administrador"))
                 {
                     return Forbid("You can only create notifications for yourself");
                 }
@@ -209,10 +209,10 @@ namespace GPInventory.Api.Controllers
 
         #endregion
 
-        #region Admin Methods
+        #region Administrador Methods
 
         [HttpPost("update-existing")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Administrador")]
         public async Task<IActionResult> UpdateExistingNotifications()
         {
             try
@@ -245,7 +245,7 @@ namespace GPInventory.Api.Controllers
         #region Test Endpoints (Development only)
 
         [HttpPost("test/quick-sale")]
-        [Authorize(Roles = "Admin,Manager")]
+        [Authorize(Roles = "Administrador,Dueño")]
         public async Task<IActionResult> TestQuickSaleNotification([FromBody] TestNotificationDto testDto)
         {
             try
@@ -261,7 +261,7 @@ namespace GPInventory.Api.Controllers
         }
 
         [HttpPost("test/low-stock")]
-        [Authorize(Roles = "Admin,Manager")]
+        [Authorize(Roles = "Administrador,Dueño")]
         public async Task<IActionResult> TestLowStockNotification([FromBody] TestLowStockDto testDto)
         {
             try
@@ -277,7 +277,7 @@ namespace GPInventory.Api.Controllers
         }
 
         [HttpPost("test/breakeven")]
-        [Authorize(Roles = "Admin,Manager")]
+        [Authorize(Roles = "Administrador,Dueño")]
         public async Task<IActionResult> TestBreakevenNotification([FromBody] TestBreakevenDto testDto)
         {
             try

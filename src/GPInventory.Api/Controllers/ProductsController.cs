@@ -46,7 +46,7 @@ public class ProductsController : ControllerBase
 
             var productTypes = await _context.ProductTypes
                 .Where(pt => !string.IsNullOrEmpty(pt.Name))
-                .Select(pt => new { name = pt.Name })
+                .Select(pt => new { id = pt.Id, name = pt.Name })
                 .ToListAsync();
 
             _logger.LogInformation($"Se encontraron {productTypes.Count} tipos de productos");
@@ -136,7 +136,7 @@ public class ProductsController : ControllerBase
 
             var productTypes = await _context.ProductTypes
                 .Where(pt => !string.IsNullOrEmpty(pt.Name))
-                .Select(pt => new { name = pt.Name })
+                .Select(pt => new { id = pt.Id, name = pt.Name })
                 .ToListAsync();
 
             _logger.LogInformation($"Se encontraron {productTypes.Count} tipos de productos");
@@ -307,11 +307,45 @@ public class ProductsController : ControllerBase
             }
 
             _logger.LogInformation("Creando nuevo producto: {productName}", request.Name);
+            _logger.LogInformation("Request completo - ProductTypeId: {productTypeId}, BusinessId: {businessId}, Name: {name}", 
+                request.ProductTypeId, request.BusinessId, request.Name);
 
             // Verificar que el tipo de producto existe
-            var productTypeExists = await _context.ProductTypes.AnyAsync(pt => pt.Id == request.ProductTypeId);
+            _logger.LogInformation("Verificando existencia del tipo de producto con ID: {productTypeId}", request.ProductTypeId);
+            
+            // Debug: Mostrar todos los ProductTypes disponibles en la base de datos real
+            var allProductTypesFromDB = await _context.ProductTypes
+                .AsNoTracking()
+                .Select(pt => new { pt.Id, pt.Name })
+                .ToListAsync();
+                
+            _logger.LogInformation("ProductTypes disponibles en la base de datos: {@productTypes}", allProductTypesFromDB);
+            _logger.LogInformation("Total de ProductTypes en la base de datos: {count}", allProductTypesFromDB.Count);
+            
+            var productTypeExists = await _context.ProductTypes
+                .AsNoTracking()
+                .AnyAsync(pt => pt.Id == request.ProductTypeId);
+                
+            _logger.LogInformation("Verificando ProductTypeId {productTypeId} - Existe: {exists}", request.ProductTypeId, productTypeExists);
+            
+            // Debug adicional: verificar el tipo específico que se busca
+            var specificProductType = await _context.ProductTypes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(pt => pt.Id == request.ProductTypeId);
+                
+            if (specificProductType != null)
+            {
+                _logger.LogInformation("ProductType encontrado en DB: ID={id}, Name={name}", specificProductType.Id, specificProductType.Name);
+            }
+            else
+            {
+                _logger.LogWarning("ProductType con ID {id} NO ENCONTRADO en la base de datos. IDs válidos: {validIds}", 
+                    request.ProductTypeId, allProductTypesFromDB.Select(pt => pt.Id).ToArray());
+            }
+            
             if (!productTypeExists)
             {
+                _logger.LogError("PRODUCTO NO CREADO: ProductType con ID {productTypeId} no existe en la base de datos", request.ProductTypeId);
                 return BadRequest(new { message = "El tipo de producto especificado no existe" });
             }
 
@@ -422,9 +456,25 @@ public class ProductsController : ControllerBase
             }
 
             // Verificar que el tipo de producto existe
-            var productTypeExists = await _context.ProductTypes.AnyAsync(pt => pt.Id == request.ProductTypeId);
+            _logger.LogInformation("Verificando existencia del tipo de producto con ID: {productTypeId} para actualización", request.ProductTypeId);
+            
+            var productTypeExists = await _context.ProductTypes
+                .AsNoTracking()
+                .AnyAsync(pt => pt.Id == request.ProductTypeId);
+                
+            _logger.LogInformation("Resultado de verificación de tipo de producto para actualización: {exists}", productTypeExists);
+            
             if (!productTypeExists)
             {
+                // Log adicional para debug en actualización
+                var allProductTypes = await _context.ProductTypes
+                    .AsNoTracking()
+                    .Select(pt => new { pt.Id, pt.Name })
+                    .ToListAsync();
+                    
+                _logger.LogWarning("Tipo de producto {productTypeId} no encontrado en actualización. Tipos disponibles: {@productTypes}", 
+                    request.ProductTypeId, allProductTypes);
+                    
                 return BadRequest(new { message = "El tipo de producto especificado no existe" });
             }
 

@@ -344,8 +344,8 @@ namespace GPInventory.Application.Services
             var renderedTitle = RenderTemplate(template.TitleTemplate, variables);
             var renderedMessage = RenderTemplate(template.MessageTemplate, variables);
 
-            // Buscar todos los usuarios con roles Manager y Operador en este negocio
-            var targetUsers = await GetBusinessUsersWithRolesAsync(businessId, new[] { "Manager", "Operador" });
+            // Buscar todos los usuarios con roles Dueño, Administrador y Vendedor en este negocio
+            var targetUsers = await GetBusinessUsersWithRolesAsync(businessId, new[] { "Dueño", "Administrador", "Vendedor" });
 
             // Crear notificación para cada usuario elegible
             foreach (var user in targetUsers)
