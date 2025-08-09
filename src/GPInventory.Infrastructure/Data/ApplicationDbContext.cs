@@ -25,6 +25,13 @@ public class ApplicationDbContext : DbContext
     public DbSet<Store> Stores { get; set; }
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<UserNotification> UserNotifications { get; set; }
+    
+    // Expense entities
+    public DbSet<ExpenseCategory> ExpenseCategories { get; set; }
+    public DbSet<ExpenseSubcategory> ExpenseSubcategories { get; set; }
+    public DbSet<RecurrenceType> RecurrenceTypes { get; set; }
+    public DbSet<Expense> Expenses { get; set; }
+    public DbSet<FixedExpense> FixedExpenses { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +53,13 @@ public class ApplicationDbContext : DbContext
         // Apply Notification configurations
         modelBuilder.ApplyConfiguration(new NotificationConfiguration());
         modelBuilder.ApplyConfiguration(new UserNotificationConfiguration());
+
+        // Apply Expense configurations
+        modelBuilder.ApplyConfiguration(new ExpenseCategoryConfiguration());
+        modelBuilder.ApplyConfiguration(new ExpenseSubcategoryConfiguration());
+        modelBuilder.ApplyConfiguration(new RecurrenceTypeConfiguration());
+        modelBuilder.ApplyConfiguration(new ExpenseConfiguration());
+        modelBuilder.ApplyConfiguration(new FixedExpenseConfiguration());
 
         // Business configuration
         modelBuilder.Entity<Business>(entity =>

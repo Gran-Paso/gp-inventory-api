@@ -16,6 +16,8 @@ public class Business : BaseEntity
     // Navigation properties
     public ICollection<UserHasBusiness> UserBusinesses { get; set; } = new List<UserHasBusiness>();
     public ICollection<Product> Products { get; set; } = new List<Product>();
+    public ICollection<Expense> Expenses { get; set; } = new List<Expense>();
+    public ICollection<FixedExpense> FixedExpenses { get; set; } = new List<FixedExpense>();
 
     public Business()
     {

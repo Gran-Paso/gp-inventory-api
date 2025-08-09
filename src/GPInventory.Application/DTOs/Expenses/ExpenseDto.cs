@@ -1,0 +1,88 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+
+namespace GPInventory.Application.DTOs.Expenses;
+
+public class CreateExpenseDto
+{
+    [Required]
+    [JsonPropertyName("subcategory_id")]
+    public int SubcategoryId { get; set; }
+
+    [Required]
+    [Range(1, int.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
+    public int Amount { get; set; }
+
+    [Required]
+    [StringLength(500, ErrorMessage = "La descripción no puede exceder 500 caracteres")]
+    public string Description { get; set; } = string.Empty;
+
+    [Required]
+    public DateTime Date { get; set; }
+
+    [Required]
+    [JsonPropertyName("business_id")]
+    public int BusinessId { get; set; }
+
+    [JsonPropertyName("store_id")]
+    public int? StoreId { get; set; }
+
+    public bool? IsFixed { get; set; } = false;
+}
+
+public class UpdateExpenseDto
+{
+    [JsonPropertyName("subcategory_id")]
+    public int? SubcategoryId { get; set; }
+
+    [Range(1, int.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
+    public int? Amount { get; set; }
+
+    [StringLength(500, ErrorMessage = "La descripción no puede exceder 500 caracteres")]
+    public string? Description { get; set; }
+
+    public DateTime? Date { get; set; }
+
+    [JsonPropertyName("store_id")]
+    public int? StoreId { get; set; }
+}
+
+public class ExpenseDto
+{
+    public int Id { get; set; }
+    public DateTime Date { get; set; }
+    [JsonPropertyName("subcategory_id")]
+    public int SubcategoryId { get; set; }
+    public int Amount { get; set; }
+    public string Description { get; set; } = string.Empty;
+    [JsonPropertyName("is_fixed")]
+    public bool? IsFixed { get; set; }
+    [JsonPropertyName("business_id")]
+    public int BusinessId { get; set; }
+    [JsonPropertyName("store_id")]
+    public int? StoreId { get; set; }
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; }
+}
+
+public class ExpenseWithDetailsDto
+{
+    public int Id { get; set; }
+    public DateTime Date { get; set; }
+    public int Amount { get; set; }
+    public string Description { get; set; } = string.Empty;
+    [JsonPropertyName("is_fixed")]
+    public bool? IsFixed { get; set; }
+    [JsonPropertyName("business_id")]
+    public int BusinessId { get; set; }
+    [JsonPropertyName("store_id")]
+    public int? StoreId { get; set; }
+    [JsonPropertyName("created_at")]
+    public DateTime CreatedAt { get; set; }
+    
+    // Detalles relacionados
+    public ExpenseSubcategoryDto Subcategory { get; set; } = null!;
+    public ExpenseCategoryDto Category { get; set; } = null!;
+    [JsonPropertyName("store_name")]
+    public string? StoreName { get; set; }
+}

@@ -12,7 +12,13 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Configure JSON to handle camelCase from frontend
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+    });
 builder.Services.AddEndpointsApiExplorer();
 
 // Configure Swagger with JWT Authentication
@@ -56,7 +62,16 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", builder =>
     {
-        builder.WithOrigins("http://localhost:5173", "http://localhost:3000", "https://localhost:5001", "https://localhost:5173", "http://localhost:5000")
+        builder.WithOrigins(
+                "http://localhost:5173", 
+                "http://localhost:3000", 
+                "http://localhost:3002",  // GP Expenses
+                "https://localhost:5001", 
+                "https://localhost:5173", 
+                "http://localhost:5000",
+                "https://inventory.granpasochile.cl",  // GP Inventory producción
+                "https://expenses.granpasochile.cl"    // GP Expenses producción
+               )
                .AllowAnyHeader()
                .AllowAnyMethod()
                .AllowCredentials();
@@ -87,7 +102,7 @@ else
 }
 
 // AutoMapper
-builder.Services.AddAutoMapper(typeof(AuthMappingProfile), typeof(NotificationMappingProfile));
+builder.Services.AddAutoMapper(typeof(AuthMappingProfile), typeof(NotificationMappingProfile), typeof(ExpenseMappingProfile));
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -118,11 +133,22 @@ builder.Services.AddScoped<IProductRepository, ProductRepository>();
 builder.Services.AddScoped<IStockRepository, StockRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 
+// Expense repositories
+builder.Services.AddScoped<IExpenseRepository, ExpenseRepository>();
+builder.Services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
+builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository>();
+builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepository>();
+builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
+
 // Application services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+
+// Expense services
+builder.Services.AddScoped<IExpenseService, ExpenseService>();
+builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
 
 var app = builder.Build();
 

@@ -58,6 +58,12 @@ public class Repository<T> : IRepository<T> where T : BaseEntity
         }
     }
 
+    public virtual async Task DeleteAsync(T entity)
+    {
+        _dbSet.Remove(entity);
+        await Task.CompletedTask;
+    }
+
     public virtual async Task<int> SaveChangesAsync()
     {
         return await _context.SaveChangesAsync();

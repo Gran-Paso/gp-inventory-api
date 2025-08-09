@@ -81,6 +81,16 @@ public class Store : BaseEntity
     /// </summary>
     public virtual ICollection<Stock> StockMovements { get; set; } = new List<Stock>();
 
+    /// <summary>
+    /// Gastos variables de esta tienda
+    /// </summary>
+    public virtual ICollection<Expense> Expenses { get; set; } = new List<Expense>();
+
+    /// <summary>
+    /// Gastos fijos de esta tienda
+    /// </summary>
+    public virtual ICollection<FixedExpense> FixedExpenses { get; set; } = new List<FixedExpense>();
+
     public Store()
     {
     }
