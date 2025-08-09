@@ -130,7 +130,7 @@ public class ExpenseRepository : IExpenseRepository
         return await query.ToListAsync();
     }
 
-    public async Task<int> GetTotalExpensesAmountAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null)
+    public async Task<decimal> GetTotalExpensesAmountAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null)
     {
         var query = _dbSet.Where(e => e.BusinessId == businessId);
 
@@ -140,10 +140,10 @@ public class ExpenseRepository : IExpenseRepository
         if (endDate.HasValue)
             query = query.Where(e => e.Date <= endDate.Value);
 
-        return await query.SumAsync(e => e.Amount);
+        return (decimal)await query.SumAsync(e => e.Amount);
     }
 
-    public async Task<IEnumerable<(int CategoryId, string CategoryName, int TotalAmount, int Count)>> GetExpensesByCategoryAsync(
+    public async Task<IEnumerable<(int CategoryId, string CategoryName, decimal TotalAmount, int Count)>> GetExpensesByCategoryAsync(
         int businessId, DateTime? startDate = null, DateTime? endDate = null)
     {
         var query = _dbSet
@@ -163,14 +163,14 @@ public class ExpenseRepository : IExpenseRepository
             {
                 CategoryId = g.Key.Id,
                 CategoryName = g.Key.Name,
-                TotalAmount = g.Sum(e => e.Amount),
+                TotalAmount = (decimal)g.Sum(e => e.Amount), // Cast to decimal
                 Count = g.Count()
             })
             .Select(x => ValueTuple.Create(x.CategoryId, x.CategoryName, x.TotalAmount, x.Count))
             .ToListAsync();
     }
 
-    public async Task<IEnumerable<(int Year, int Month, int TotalAmount, int Count)>> GetMonthlyExpensesAsync(
+    public async Task<IEnumerable<(int Year, int Month, decimal TotalAmount, int Count)>> GetMonthlyExpensesAsync(
         int businessId, DateTime? startDate = null, DateTime? endDate = null)
     {
         var query = _dbSet.Where(e => e.BusinessId == businessId);
@@ -187,7 +187,7 @@ public class ExpenseRepository : IExpenseRepository
             {
                 Year = g.Key.Year,
                 Month = g.Key.Month,
-                TotalAmount = g.Sum(e => e.Amount),
+                TotalAmount = (decimal)g.Sum(e => e.Amount), // Cast to decimal
                 Count = g.Count()
             })
             .OrderBy(x => x.Year)

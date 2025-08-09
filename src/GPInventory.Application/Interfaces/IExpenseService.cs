@@ -24,6 +24,6 @@ public interface IExpenseService
     Task DeleteFixedExpenseAsync(int id);
 
     // Resumen y reportes
-    Task<ExpenseSummaryDto> GetExpenseSummaryAsync(int businessId, ExpenseFiltersDto filters);
+    Task<ExpenseSummaryDto> GetExpenseSummaryAsync(int[] businessIds, ExpenseFiltersDto filters);
     Task<byte[]> ExportExpensesAsync(ExpenseFiltersDto filters);
 }

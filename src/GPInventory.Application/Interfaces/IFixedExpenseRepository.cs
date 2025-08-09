@@ -14,4 +14,5 @@ public interface IFixedExpenseRepository
     Task<decimal> GetTotalFixedExpensesAmountAsync(int businessId);
     Task<IEnumerable<(int CategoryId, string CategoryName, decimal TotalAmount, int Count)>> GetFixedExpensesByCategoryAsync(int businessId);
     Task<IEnumerable<FixedExpense>> GetActiveFixedExpensesForGenerationAsync(DateTime currentDate);
+    Task<DateTime?> GetLastExpenseDateForFixedExpenseAsync(int fixedExpenseId);
 }

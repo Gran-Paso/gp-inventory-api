@@ -148,16 +148,33 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/summary
     [HttpGet("summary")]
-    public async Task<IActionResult> GetExpenseSummary([FromQuery] int businessId, [FromQuery] ExpenseFiltersDto filters)
+    public async Task<IActionResult> GetExpenseSummary([FromQuery] ExpenseFiltersDto filters)
     {
         try
         {
-            var summary = await _expenseService.GetExpenseSummaryAsync(businessId, filters);
+            // Validar que se proporcionen business IDs como en otros endpoints
+            int[]? targetBusinessIds = null;
+            
+            if (filters.BusinessIds != null && filters.BusinessIds.Length > 0)
+            {
+                targetBusinessIds = filters.BusinessIds;
+            }
+            else if (filters.BusinessId.HasValue)
+            {
+                targetBusinessIds = new[] { filters.BusinessId.Value };
+            }
+            else
+            {
+                return BadRequest(new { message = "Se debe proporcionar al menos un ID de negocio" });
+            }
+
+            // Actualizar el servicio para manejar múltiples business IDs
+            var summary = await _expenseService.GetExpenseSummaryAsync(targetBusinessIds, filters);
             return Ok(summary);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error retrieving expense summary for business: {BusinessId}", businessId);
+            _logger.LogError(ex, "Error retrieving expense summary for filters: {@Filters}", filters);
             return StatusCode(500, new { message = "Error al obtener el resumen de gastos" });
         }
     }

@@ -1,5 +1,6 @@
 using AutoMapper;
 using GPInventory.Application.DTOs.Expenses;
+using GPInventory.Application.Helpers;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
 using System.Globalization;
@@ -169,10 +170,19 @@ public class ExpenseService : IExpenseService
     {
         try
         {
+            Console.WriteLine($"CreateExpenseAsync - createExpenseDto.IsFixed: {createExpenseDto.IsFixed}");
+            Console.WriteLine($"CreateExpenseAsync - createExpenseDto.FixedExpenseId: {createExpenseDto.FixedExpenseId}");
+            Console.WriteLine($"CreateExpenseAsync - createExpenseDto JSON: {System.Text.Json.JsonSerializer.Serialize(createExpenseDto)}");
+            
             var expense = _mapper.Map<Expense>(createExpenseDto);
+            
+            Console.WriteLine($"CreateExpenseAsync - After mapping, expense.IsFixed: {expense.IsFixed}");
+            Console.WriteLine($"CreateExpenseAsync - After mapping, expense.FixedExpenseId: {expense.FixedExpenseId}");
             
             // Asegurar que IsFixed tenga un valor válido, convirtiendo NULL a false
             expense.IsFixed = createExpenseDto.IsFixed ?? false;
+            
+            Console.WriteLine($"CreateExpenseAsync - After manual assignment, expense.IsFixed: {expense.IsFixed}");
             
             var createdExpense = await _expenseRepository.AddAsync(expense);
             return _mapper.Map<ExpenseDto>(createdExpense);
@@ -271,7 +281,16 @@ public class ExpenseService : IExpenseService
             var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(
                 businessIds: businessIds);
                 
-            return _mapper.Map<IEnumerable<FixedExpenseWithDetailsDto>>(fixedExpenses);
+            var dtos = _mapper.Map<IEnumerable<FixedExpenseWithDetailsDto>>(fixedExpenses);
+            
+            // Populate payment status for each fixed expense
+            foreach (var dto in dtos)
+            {
+                var fixedExpense = fixedExpenses.First(fe => fe.Id == dto.Id);
+                await PopulatePaymentStatusAsync(dto, fixedExpense);
+            }
+                
+            return dtos;
         }
         catch (Exception ex)
         {
@@ -294,7 +313,10 @@ public class ExpenseService : IExpenseService
             if (fixedExpense == null)
                 throw new KeyNotFoundException($"Gasto fijo con ID {id} no encontrado");
 
-            return _mapper.Map<FixedExpenseDto>(fixedExpense);
+            var dto = _mapper.Map<FixedExpenseDto>(fixedExpense);
+            await PopulatePaymentStatusAsync(dto, fixedExpense);
+            
+            return dto;
         }
         catch (KeyNotFoundException)
         {
@@ -420,15 +442,65 @@ public class ExpenseService : IExpenseService
     }
 
     // Resumen y reportes
-    public async Task<ExpenseSummaryDto> GetExpenseSummaryAsync(int businessId, ExpenseFiltersDto filters)
+    public async Task<ExpenseSummaryDto> GetExpenseSummaryAsync(int[] businessIds, ExpenseFiltersDto filters)
     {
         try
         {
-            var totalAmount = await _expenseRepository.GetTotalExpensesAmountAsync(businessId, filters.StartDate, filters.EndDate);
-            var fixedExpensesAmount = await _fixedExpenseRepository.GetTotalFixedExpensesAmountAsync(businessId); // Solo gastos fijos activos
-            
-            var expensesByCategory = await _expenseRepository.GetExpensesByCategoryAsync(businessId, filters.StartDate, filters.EndDate);
-            var monthlyExpenses = await _expenseRepository.GetMonthlyExpensesAsync(businessId, filters.StartDate, filters.EndDate);
+            // Validar que se proporcionen business IDs
+            if (businessIds == null || businessIds.Length == 0)
+            {
+                throw new ArgumentException("Se debe proporcionar al menos un ID de negocio");
+            }
+
+            // Calcular totales combinando datos de todos los negocios
+            decimal totalAmount = 0;
+            decimal fixedExpensesAmount = 0;
+            var allExpensesByCategory = new List<(int CategoryId, string CategoryName, decimal TotalAmount, int Count)>();
+            var allMonthlyExpenses = new List<(int Year, int Month, decimal TotalAmount, int Count)>();
+
+            foreach (var businessId in businessIds)
+            {
+                // Sumar totales de cada negocio
+                var businessTotalAmount = await _expenseRepository.GetTotalExpensesAmountAsync(businessId, filters.StartDate, filters.EndDate);
+                var businessFixedExpensesAmount = await _fixedExpenseRepository.GetTotalFixedExpensesAmountAsync(businessId);
+                
+                totalAmount += businessTotalAmount;
+                fixedExpensesAmount += businessFixedExpensesAmount;
+
+                // Combinar gastos por categoría
+                var businessExpensesByCategory = await _expenseRepository.GetExpensesByCategoryAsync(businessId, filters.StartDate, filters.EndDate);
+                allExpensesByCategory.AddRange(businessExpensesByCategory);
+
+                // Combinar gastos mensuales
+                var businessMonthlyExpenses = await _expenseRepository.GetMonthlyExpensesAsync(businessId, filters.StartDate, filters.EndDate);
+                allMonthlyExpenses.AddRange(businessMonthlyExpenses);
+            }
+
+            // Agrupar gastos por categoría combinando datos de todos los negocios
+            var expensesByCategory = allExpensesByCategory
+                .GroupBy(e => new { e.CategoryId, e.CategoryName })
+                .Select(g => new
+                {
+                    CategoryId = g.Key.CategoryId,
+                    CategoryName = g.Key.CategoryName,
+                    TotalAmount = g.Sum(e => e.TotalAmount),
+                    Count = g.Sum(e => e.Count)
+                })
+                .ToList();
+
+            // Agrupar gastos mensuales combinando datos de todos los negocios
+            var monthlyExpenses = allMonthlyExpenses
+                .GroupBy(m => new { m.Year, m.Month })
+                .Select(g => new
+                {
+                    Year = g.Key.Year,
+                    Month = g.Key.Month,
+                    TotalAmount = g.Sum(m => m.TotalAmount),
+                    Count = g.Sum(m => m.Count)
+                })
+                .OrderBy(m => m.Year)
+                .ThenBy(m => m.Month)
+                .ToList();
 
             var summary = new ExpenseSummaryDto
             {
@@ -506,6 +578,103 @@ public class ExpenseService : IExpenseService
             }
             
             throw new ApplicationException($"Error al exportar gastos: {ex.Message}", ex);
+        }
+    }
+
+    private async Task PopulatePaymentStatusAsync(FixedExpenseDto dto, FixedExpense fixedExpense)
+    {
+        try
+        {
+            // Get the last expense date for this fixed expense
+            var lastExpenseDate = await _fixedExpenseRepository.GetLastExpenseDateForFixedExpenseAsync(fixedExpense.Id);
+
+            // Calculate payment status
+            var startDate = fixedExpense.PaymentDate ?? fixedExpense.CreatedAt;
+            var currentDate = DateTime.Now.Date;
+
+            // Si no hay expenses asociados (lastExpenseDate es null)
+            if (!lastExpenseDate.HasValue)
+            {
+                // Solo está al día si el StartDate es en el futuro (aún no ha vencido)
+                dto.IsUpToDate = startDate.Date > currentDate;
+            }
+            else
+            {
+                // Si hay expenses asociados, usar el RecurrenceHelper
+                dto.IsUpToDate = RecurrenceHelper.IsUpToDate(
+                    startDate,
+                    fixedExpense.RecurrenceTypeId,
+                    lastExpenseDate, // lastPaymentDate
+                    lastExpenseDate  // lastExpenseDate
+                );
+            }
+
+            dto.NextDueDate = RecurrenceHelper.CalculateNextDueDate(
+                startDate,
+                fixedExpense.RecurrenceTypeId,
+                lastExpenseDate
+            );
+
+            dto.LastPaymentDate = lastExpenseDate;
+        }
+        catch (Exception)
+        {
+            // If there's an error calculating payment status, set default values
+            dto.IsUpToDate = false;
+            dto.NextDueDate = DateTime.Now.AddDays(30); // Default to 30 days
+            dto.LastPaymentDate = null;
+        }
+    }
+
+    private async Task PopulatePaymentStatusAsync(FixedExpenseWithDetailsDto dto, FixedExpense fixedExpense)
+    {
+        try
+        {
+            // Populate associated expenses
+            if (fixedExpense.GeneratedExpenses != null && fixedExpense.GeneratedExpenses.Any())
+            {
+                dto.AssociatedExpenses = _mapper.Map<List<ExpenseDto>>(fixedExpense.GeneratedExpenses);
+            }
+            
+            // Get the last expense date for this fixed expense
+            var lastExpenseDate = await _fixedExpenseRepository.GetLastExpenseDateForFixedExpenseAsync(fixedExpense.Id);
+            
+            // Calculate payment status
+            var startDate = fixedExpense.PaymentDate ?? fixedExpense.CreatedAt;
+            var currentDate = DateTime.Now.Date;
+            
+            // Si no hay expenses asociados
+            if (fixedExpense.GeneratedExpenses == null || !fixedExpense.GeneratedExpenses.Any())
+            {
+                // Solo está al día si el StartDate es en el futuro (aún no ha vencido)
+                dto.IsUpToDate = startDate.Date > currentDate;
+            }
+            else
+            {
+                // Si hay expenses asociados, usar el RecurrenceHelper
+                dto.IsUpToDate = RecurrenceHelper.IsUpToDate(
+                    startDate, 
+                    fixedExpense.RecurrenceTypeId, 
+                    lastExpenseDate, // lastPaymentDate
+                    lastExpenseDate  // lastExpenseDate
+                );
+            }
+            
+            dto.NextDueDate = RecurrenceHelper.CalculateNextDueDate(
+                startDate, 
+                fixedExpense.RecurrenceTypeId, 
+                lastExpenseDate
+            );
+            
+            dto.LastPaymentDate = lastExpenseDate;
+        }
+        catch (Exception)
+        {
+            // If there's an error calculating payment status, set default values
+            dto.IsUpToDate = false;
+            dto.NextDueDate = DateTime.Now.AddDays(30); // Default to 30 days
+            dto.LastPaymentDate = null;
+            dto.AssociatedExpenses = new List<ExpenseDto>();
         }
     }
 }

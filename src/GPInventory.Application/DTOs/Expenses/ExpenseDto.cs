@@ -27,7 +27,11 @@ public class CreateExpenseDto
     [JsonPropertyName("store_id")]
     public int? StoreId { get; set; }
 
-    public bool? IsFixed { get; set; } = false;
+    [JsonPropertyName("is_fixed")]
+    public bool? IsFixed { get; set; }
+
+    [JsonPropertyName("fixed_expense_id")]
+    public int? FixedExpenseId { get; set; }
 }
 
 public class UpdateExpenseDto
@@ -57,6 +61,8 @@ public class ExpenseDto
     public string Description { get; set; } = string.Empty;
     [JsonPropertyName("is_fixed")]
     public bool? IsFixed { get; set; }
+    [JsonPropertyName("fixed_expense_id")]
+    public int? FixedExpenseId { get; set; }
     [JsonPropertyName("business_id")]
     public int BusinessId { get; set; }
     [JsonPropertyName("store_id")]
@@ -73,6 +79,8 @@ public class ExpenseWithDetailsDto
     public string Description { get; set; } = string.Empty;
     [JsonPropertyName("is_fixed")]
     public bool? IsFixed { get; set; }
+    [JsonPropertyName("fixed_expense_id")]
+    public int? FixedExpenseId { get; set; }
     [JsonPropertyName("business_id")]
     public int BusinessId { get; set; }
     [JsonPropertyName("store_id")]

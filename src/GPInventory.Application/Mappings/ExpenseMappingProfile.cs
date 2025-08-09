@@ -45,7 +45,8 @@ public class ExpenseMappingProfile : Profile
             .ForMember(dest => dest.Subcategory, opt => opt.MapFrom(src => src.Subcategory))
             .ForMember(dest => dest.Category, opt => opt.MapFrom(src => src.Subcategory!.ExpenseCategory))
             .ForMember(dest => dest.RecurrenceType, opt => opt.MapFrom(src => src.RecurrenceType))
-            .ForMember(dest => dest.StoreName, opt => opt.MapFrom(src => src.Store != null ? src.Store.Name : null));
+            .ForMember(dest => dest.StoreName, opt => opt.MapFrom(src => src.Store != null ? src.Store.Name : null))
+            .ForMember(dest => dest.AssociatedExpenses, opt => opt.MapFrom(src => src.GeneratedExpenses));
 
         // Category and subcategory mappings
         CreateMap<ExpenseCategory, ExpenseCategoryDto>();

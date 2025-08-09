@@ -25,7 +25,7 @@ public interface IExpenseRepository
         string orderBy = "Date",
         bool orderDescending = true);
 
-    Task<int> GetTotalExpensesAmountAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
-    Task<IEnumerable<(int CategoryId, string CategoryName, int TotalAmount, int Count)>> GetExpensesByCategoryAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
-    Task<IEnumerable<(int Year, int Month, int TotalAmount, int Count)>> GetMonthlyExpensesAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
+    Task<decimal> GetTotalExpensesAmountAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
+    Task<IEnumerable<(int CategoryId, string CategoryName, decimal TotalAmount, int Count)>> GetExpensesByCategoryAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
+    Task<IEnumerable<(int Year, int Month, decimal TotalAmount, int Count)>> GetMonthlyExpensesAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
 }

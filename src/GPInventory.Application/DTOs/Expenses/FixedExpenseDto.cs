@@ -76,6 +76,11 @@ public class FixedExpenseDto
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    
+    // Estado de pago
+    public bool IsUpToDate { get; set; }
+    public DateTime NextDueDate { get; set; }
+    public DateTime? LastPaymentDate { get; set; }
 }
 
 public class FixedExpenseWithDetailsDto
@@ -94,9 +99,17 @@ public class FixedExpenseWithDetailsDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     
+    // Estado de pago
+    public bool IsUpToDate { get; set; }
+    public DateTime NextDueDate { get; set; }
+    public DateTime? LastPaymentDate { get; set; }
+    
     // Detalles relacionados
     public ExpenseCategoryDto? Category { get; set; } // Obtenida a través de la subcategoría
     public ExpenseSubcategoryDto? Subcategory { get; set; }
     public RecurrenceTypeDto RecurrenceType { get; set; } = null!;
     public string? StoreName { get; set; }
+    
+    // Expenses asociados a este gasto fijo
+    public List<ExpenseDto> AssociatedExpenses { get; set; } = new List<ExpenseDto>();
 }

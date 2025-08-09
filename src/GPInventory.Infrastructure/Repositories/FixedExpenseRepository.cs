@@ -142,6 +142,7 @@ public class FixedExpenseRepository : IFixedExpenseRepository
                 .Include(fe => fe.Subcategory)
                 .Include(fe => fe.Store)
                 .Include(fe => fe.Business)
+                .Include(fe => fe.GeneratedExpenses) // Incluir expenses asociados
                 .AsQueryable();
 
             Console.WriteLine($"Base query created");
@@ -262,6 +263,31 @@ public class FixedExpenseRepository : IFixedExpenseRepository
             }
             
             throw new ApplicationException($"Error al obtener gastos fijos activos para generación: {ex.Message}", ex);
+        }
+    }
+
+    public async Task<DateTime?> GetLastExpenseDateForFixedExpenseAsync(int fixedExpenseId)
+    {
+        try
+        {
+            var lastExpenseDate = await _context.Set<Expense>()
+                .Where(e => e.FixedExpenseId == fixedExpenseId)
+                .OrderByDescending(e => e.Date)
+                .Select(e => e.Date)
+                .FirstOrDefaultAsync();
+
+            return lastExpenseDate;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetLastExpenseDateForFixedExpenseAsync Error: {ex.Message}");
+            Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+            }
+            
+            throw new ApplicationException($"Error al obtener última fecha de gasto para gasto fijo {fixedExpenseId}: {ex.Message}", ex);
         }
     }
 }
