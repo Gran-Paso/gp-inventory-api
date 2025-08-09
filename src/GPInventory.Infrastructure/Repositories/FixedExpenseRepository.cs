@@ -140,6 +140,8 @@ public class FixedExpenseRepository : IFixedExpenseRepository
             
             var query = _context.Set<FixedExpense>()
                 .Include(fe => fe.Subcategory)
+                    .ThenInclude(s => s!.ExpenseCategory) // Incluir la categoría de la subcategoría
+                .Include(fe => fe.RecurrenceType) // Incluir tipo de recurrencia
                 .Include(fe => fe.Store)
                 .Include(fe => fe.Business)
                 .Include(fe => fe.GeneratedExpenses) // Incluir expenses asociados
