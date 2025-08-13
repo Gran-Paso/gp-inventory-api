@@ -8,8 +8,6 @@ COPY src/GPInventory.Api/GPInventory.Api.csproj src/GPInventory.Api/
 COPY src/GPInventory.Application/GPInventory.Application.csproj src/GPInventory.Application/
 COPY src/GPInventory.Domain/GPInventory.Domain.csproj src/GPInventory.Domain/
 COPY src/GPInventory.Infrastructure/GPInventory.Infrastructure.csproj src/GPInventory.Infrastructure/
-COPY tests/GPInventory.Tests/GPInventory.Tests.csproj tests/GPInventory.Tests/
-COPY tests/GPInventory.IntegrationTests/GPInventory.IntegrationTests.csproj tests/GPInventory.IntegrationTests/
 
 # Restaurar dependencias
 RUN dotnet restore GPInventory.sln
