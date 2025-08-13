@@ -19,16 +19,30 @@ public static class RecurrenceHelper
     {
         var recurrenceType = (RecurrenceType)recurrenceTypeId;
         
+        var enableApiDebug = Environment.GetEnvironmentVariable("ENABLE_API_DEBUG") == "true";
+        
+        if (enableApiDebug)
+        {
+            Console.WriteLine($"🔍 RecurrenceHelper.CalculateNextDueDate - Input:");
+            Console.WriteLine($"   - startDate: {startDate}");
+            Console.WriteLine($"   - recurrenceTypeId: {recurrenceTypeId} ({recurrenceType})");
+            Console.WriteLine($"   - lastPaymentDate: {lastPaymentDate}");
+        }
+        
         // Para gastos únicos, la fecha de vencimiento es la fecha de inicio
         if (recurrenceType == RecurrenceType.OneTime)
         {
+            if (enableApiDebug)
+            {
+                Console.WriteLine($"🔍 OneTime expense, returning startDate: {startDate}");
+            }
             return startDate;
         }
 
-        // Si no hay último pago, calcular la primera fecha de vencimiento desde el inicio
+        // Si no hay último pago (no hay gastos asociados), calcular el siguiente período desde startDate
         if (lastPaymentDate == null)
         {
-            return recurrenceType switch
+            var nextDateFromStart = recurrenceType switch
             {
                 RecurrenceType.Monthly => startDate.AddMonths(1),
                 RecurrenceType.Bimonthly => startDate.AddMonths(2),
@@ -37,10 +51,16 @@ public static class RecurrenceHelper
                 RecurrenceType.Annual => startDate.AddYears(1),
                 _ => startDate.AddMonths(1)
             };
+            
+            if (enableApiDebug)
+            {
+                Console.WriteLine($"🔍 No lastPaymentDate, calculated next period from startDate: {nextDateFromStart}");
+            }
+            return nextDateFromStart;
         }
 
         // Si hay último pago, calcular la siguiente fecha desde ese pago
-        return recurrenceType switch
+        var nextDate = recurrenceType switch
         {
             RecurrenceType.Monthly => lastPaymentDate.Value.AddMonths(1),
             RecurrenceType.Bimonthly => lastPaymentDate.Value.AddMonths(2),
@@ -49,6 +69,12 @@ public static class RecurrenceHelper
             RecurrenceType.Annual => lastPaymentDate.Value.AddYears(1),
             _ => lastPaymentDate.Value.AddMonths(1)
         };
+        
+        if (enableApiDebug)
+        {
+            Console.WriteLine($"🔍 Has lastPaymentDate, calculated nextDate: {nextDate}");
+        }
+        return nextDate;
     }
 
     /// <summary>
@@ -68,8 +94,9 @@ public static class RecurrenceHelper
         // Si no hay último pago, usar el período desde la fecha de inicio
         if (lastPaymentDate == null)
         {
-            var nextDue = CalculateNextDueDate(startDate, recurrenceTypeId, null);
-            return (startDate.Date, nextDue.AddDays(-1));
+            // El período va desde la fecha de inicio hasta la fecha de inicio (mismo día)
+            // ya que la próxima fecha de vencimiento es el mismo startDate
+            return (startDate.Date, startDate.Date);
         }
 
         // Si hay último pago, calcular el período actual

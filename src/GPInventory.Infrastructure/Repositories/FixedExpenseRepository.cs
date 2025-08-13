@@ -272,13 +272,30 @@ public class FixedExpenseRepository : IFixedExpenseRepository
     {
         try
         {
-            var lastExpenseDate = await _context.Set<Expense>()
+            // Buscar el último expense asociado a este fixed expense
+            var lastExpense = await _context.Set<Expense>()
                 .Where(e => e.FixedExpenseId == fixedExpenseId)
                 .OrderByDescending(e => e.Date)
-                .Select(e => e.Date)
                 .FirstOrDefaultAsync();
 
-            return lastExpenseDate;
+            // Si hay expenses asociados, retornar la fecha del último
+            if (lastExpense != null)
+            {
+                return lastExpense.Date;
+            }
+
+            // Si no hay expenses asociados, retornar la StartDate del FixedExpense
+            var fixedExpense = await _context.Set<FixedExpense>()
+                .Where(fe => fe.Id == fixedExpenseId)
+                .FirstOrDefaultAsync();
+            
+            if (fixedExpense != null)
+            {
+                // Usar PaymentDate si está disponible, sino CreatedAt
+                return fixedExpense.PaymentDate ?? fixedExpense.PaymentDate;
+            }
+
+            return null; // Si no se encuentra el FixedExpense
         }
         catch (Exception ex)
         {

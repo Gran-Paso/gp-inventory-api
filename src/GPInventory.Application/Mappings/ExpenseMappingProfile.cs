@@ -40,7 +40,7 @@ public class ExpenseMappingProfile : Profile
 
         CreateMap<FixedExpense, FixedExpenseWithDetailsDto>()
             .ForMember(dest => dest.Description, opt => opt.MapFrom(src => src.AdditionalNote))
-            .ForMember(dest => dest.StartDate, opt => opt.MapFrom(src => src.PaymentDate ?? DateTime.UtcNow))
+            .ForMember(dest => dest.StartDate, opt => opt.MapFrom(src => src.PaymentDate ?? src.CreatedAt))
             .ForMember(dest => dest.Notes, opt => opt.MapFrom(src => src.AdditionalNote))
             .ForMember(dest => dest.Subcategory, opt => opt.MapFrom(src => src.Subcategory))
             .ForMember(dest => dest.Category, opt => opt.MapFrom(src => src.Subcategory!.ExpenseCategory))

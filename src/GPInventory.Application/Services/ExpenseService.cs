@@ -588,7 +588,7 @@ public class ExpenseService : IExpenseService
             // Get the last expense date for this fixed expense
             var lastExpenseDate = await _fixedExpenseRepository.GetLastExpenseDateForFixedExpenseAsync(fixedExpense.Id);
 
-            // Calculate payment status
+            // Use PaymentDate if available, otherwise use CreatedAt
             var startDate = fixedExpense.PaymentDate ?? fixedExpense.CreatedAt;
             var currentDate = DateTime.Now.Date;
 
@@ -630,6 +630,16 @@ public class ExpenseService : IExpenseService
     {
         try
         {
+            var enableApiDebug = Environment.GetEnvironmentVariable("ENABLE_API_DEBUG") == "true";
+            
+            if (enableApiDebug)
+            {
+                Console.WriteLine($"🔍 PopulatePaymentStatusAsync - Starting for FixedExpense ID: {fixedExpense.Id}");
+                Console.WriteLine($"🔍 FixedExpense.PaymentDate: {fixedExpense.PaymentDate}");
+                Console.WriteLine($"🔍 FixedExpense.CreatedAt: {fixedExpense.CreatedAt}");
+                Console.WriteLine($"🔍 DTO.StartDate: {dto.StartDate}");
+            }
+            
             // Populate associated expenses
             if (fixedExpense.GeneratedExpenses != null && fixedExpense.GeneratedExpenses.Any())
             {
@@ -639,37 +649,101 @@ public class ExpenseService : IExpenseService
             // Get the last expense date for this fixed expense
             var lastExpenseDate = await _fixedExpenseRepository.GetLastExpenseDateForFixedExpenseAsync(fixedExpense.Id);
             
-            // Calculate payment status
-            var startDate = fixedExpense.PaymentDate ?? fixedExpense.CreatedAt;
+            if (enableApiDebug)
+            {
+                Console.WriteLine($"🔍 LastExpenseDate: {lastExpenseDate}");
+            }
+            
+            var startDate = dto.StartDate;
             var currentDate = DateTime.Now.Date;
+            
+            if (enableApiDebug)
+            {
+                Console.WriteLine($"🔍 Original StartDate: {startDate}");
+                Console.WriteLine($"🔍 Current Date: {currentDate}");
+                Console.WriteLine($"🔍 RecurrenceTypeId: {fixedExpense.RecurrenceTypeId}");
+            }
             
             // Si no hay expenses asociados
             if (fixedExpense.GeneratedExpenses == null || !fixedExpense.GeneratedExpenses.Any())
             {
-                // Solo está al día si el StartDate es en el futuro (aún no ha vencido)
+                if (enableApiDebug)
+                {
+                    Console.WriteLine($"🔍 No generated expenses found");
+                    Console.WriteLine($"🔍 Repository returned StartDate as lastExpenseDate: {lastExpenseDate}");
+                }
+                
+                // isUpToDate = false siempre que StartDate sea mayor al currentDate
                 dto.IsUpToDate = startDate.Date > currentDate;
+                
+                // nextDueDate = mes siguiente al StartDate (según recurrence type)
+                dto.NextDueDate = RecurrenceHelper.CalculateNextDueDate(
+                    startDate, 
+                    fixedExpense.RecurrenceTypeId, 
+                    null // No hay último pago, usar StartDate para calcular siguiente período
+                );
+                
+                if (enableApiDebug)
+                {
+                    Console.WriteLine($"🔍 No expenses - IsUpToDate: {dto.IsUpToDate}");
+                    Console.WriteLine($"🔍 No expenses - NextDueDate: {dto.NextDueDate}");
+                }
+                
+                // Para este caso, LastPaymentDate debería ser null porque no hay pagos reales
+                dto.LastPaymentDate = null;
             }
             else
             {
-                // Si hay expenses asociados, usar el RecurrenceHelper
+                if (enableApiDebug)
+                {
+                    Console.WriteLine($"🔍 Found {fixedExpense.GeneratedExpenses.Count} generated expenses");
+                    Console.WriteLine($"🔍 Real last expense date: {lastExpenseDate}");
+                }
+                
+                // Hay expenses asociados: usar la fecha del último pago como nueva "StartDate"
+                // y calcular el siguiente período desde esa fecha
                 dto.IsUpToDate = RecurrenceHelper.IsUpToDate(
                     startDate, 
                     fixedExpense.RecurrenceTypeId, 
                     lastExpenseDate, // lastPaymentDate
                     lastExpenseDate  // lastExpenseDate
                 );
+                
+                // NextDueDate = siguiente período desde la fecha del último pago
+                dto.NextDueDate = RecurrenceHelper.CalculateNextDueDate(
+                    startDate, 
+                    fixedExpense.RecurrenceTypeId, 
+                    lastExpenseDate // Usar la fecha del último pago real
+                );
+                
+                if (enableApiDebug)
+                {
+                    Console.WriteLine($"🔍 Has expenses - IsUpToDate: {dto.IsUpToDate}");
+                    Console.WriteLine($"🔍 Has expenses - NextDueDate: {dto.NextDueDate}");
+                }
+                
+                // Para este caso, LastPaymentDate es la fecha del último expense real
+                dto.LastPaymentDate = lastExpenseDate;
             }
             
-            dto.NextDueDate = RecurrenceHelper.CalculateNextDueDate(
-                startDate, 
-                fixedExpense.RecurrenceTypeId, 
-                lastExpenseDate
-            );
-            
-            dto.LastPaymentDate = lastExpenseDate;
+            if (enableApiDebug)
+            {
+                Console.WriteLine($"🔍 Final Result - IsUpToDate: {dto.IsUpToDate}");
+                Console.WriteLine($"🔍 Final Result - NextDueDate: {dto.NextDueDate}");
+                Console.WriteLine($"🔍 Final Result - LastPaymentDate: {dto.LastPaymentDate}");
+                Console.WriteLine($"🔍 PopulatePaymentStatusAsync - Completed successfully");
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            var enableApiDebug = Environment.GetEnvironmentVariable("ENABLE_API_DEBUG") == "true";
+            
+            if (enableApiDebug)
+            {
+                Console.WriteLine($"❌ PopulatePaymentStatusAsync - Error: {ex.Message}");
+                Console.WriteLine($"❌ Stack Trace: {ex.StackTrace}");
+            }
+            
             // If there's an error calculating payment status, set default values
             dto.IsUpToDate = false;
             dto.NextDueDate = DateTime.Now.AddDays(30); // Default to 30 days
