@@ -44,6 +44,12 @@ public class SaleDetail : BaseEntity
     [Required]
     public int SaleId { get; set; }
 
+    /// <summary>
+    /// ID del stock específico del cual se está vendiendo el producto
+    /// </summary>
+    [Column("stock_id")]
+    public int? StockId { get; set; }
+
     // Propiedades de navegación
     /// <summary>
     /// Producto vendido
@@ -56,6 +62,12 @@ public class SaleDetail : BaseEntity
     /// </summary>
     [ForeignKey("SaleId")]
     public virtual Sale Sale { get; set; } = null!;
+
+    /// <summary>
+    /// Stock específico del cual se está vendiendo (opcional)
+    /// </summary>
+    [ForeignKey("StockId")]
+    public virtual Stock? Stock { get; set; }
 
     // Propiedades calculadas
     /// <summary>
@@ -78,12 +90,13 @@ public class SaleDetail : BaseEntity
     {
     }
 
-    public SaleDetail(int productId, int amount, int price, int saleId, int? discount = null)
+    public SaleDetail(int productId, int amount, int price, int saleId, int? discount = null, int? stockId = null)
     {
         ProductId = productId;
         Amount = amount.ToString();
         Price = price;
         SaleId = saleId;
         Discount = discount;
+        StockId = stockId;
     }
 }

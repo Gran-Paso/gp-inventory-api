@@ -64,6 +64,12 @@ public class Stock : BaseEntity
     [Required]
     public int StoreId { get; set; }
 
+    /// <summary>
+    /// ID de la venta asociada (opcional, para movimientos de salida por venta)
+    /// </summary>
+    [Column("sale_id")]
+    public int? SaleId { get; set; }
+
     // Propiedades de navegación
     /// <summary>
     /// Producto asociado
@@ -89,12 +95,18 @@ public class Stock : BaseEntity
     [ForeignKey("StoreId")]
     public virtual Store Store { get; set; } = null!;
 
+    /// <summary>
+    /// Venta asociada (opcional, para movimientos de salida por venta)
+    /// </summary>
+    [ForeignKey("SaleId")]
+    public virtual Sale? Sale { get; set; }
+
     public Stock()
     {
         Date = DateTime.UtcNow;
     }
 
-    public Stock(int productId, int flowTypeId, int amount, int storeId, int? auctionPrice = null, int? cost = null, int? providerId = null, string? notes = null)
+    public Stock(int productId, int flowTypeId, int amount, int storeId, int? auctionPrice = null, int? cost = null, int? providerId = null, string? notes = null, int? saleId = null)
     {
         ProductId = productId;
         FlowTypeId = flowTypeId;
@@ -104,6 +116,7 @@ public class Stock : BaseEntity
         Cost = cost;
         ProviderId = providerId;
         Notes = notes;
+        SaleId = saleId;
         Date = DateTime.UtcNow;
     }
 }

@@ -101,9 +101,28 @@ public class SalesController : ControllerBase
 
             foreach (var product in matchingProducts)
             {
-                var currentStock = await _context.Stocks
-                    .Where(s => s.ProductId == product.Id && s.StoreId == storeId)
-                    .SumAsync(s => s.Amount);
+                // Obtener todos los stocks del producto en el store
+                var stockLots = await _context.Stocks
+                    .Where(s => s.ProductId == product.Id && s.StoreId == storeId && s.Amount > 0)
+                    .ToListAsync();
+
+                // Calcular stock real disponible considerando las ventas
+                var currentStock = 0;
+                foreach (var stock in stockLots)
+                {
+                    var saleDetailsForStock = await _context.SaleDetails
+                        .Where(sd => sd.StockId == stock.Id)
+                        .Select(sd => sd.Amount)
+                        .ToListAsync();
+                        
+                    var stockUsedInSales = saleDetailsForStock.Sum(amount => int.Parse(amount));
+
+                    var availableInLot = stock.Amount - stockUsedInSales;
+                    if (availableInLot > 0)
+                    {
+                        currentStock += availableInLot;
+                    }
+                }
 
                 // Solo incluir productos con stock disponible
                 if (currentStock > 0)
@@ -186,9 +205,28 @@ public class SalesController : ControllerBase
 
             foreach (var product in businessProducts)
             {
-                var currentStock = await _context.Stocks
-                    .Where(s => s.ProductId == product.Id && s.StoreId == storeId)
-                    .SumAsync(s => s.Amount);
+                // Obtener todos los stocks del producto en el store
+                var stockLots = await _context.Stocks
+                    .Where(s => s.ProductId == product.Id && s.StoreId == storeId && s.Amount > 0)
+                    .ToListAsync();
+
+                // Calcular stock real disponible considerando las ventas
+                var currentStock = 0;
+                foreach (var stock in stockLots)
+                {
+                    var saleDetailsForStock = await _context.SaleDetails
+                        .Where(sd => sd.StockId == stock.Id)
+                        .Select(sd => sd.Amount)
+                        .ToListAsync();
+                        
+                    var stockUsedInSales = saleDetailsForStock.Sum(amount => int.Parse(amount));
+
+                    var availableInLot = stock.Amount - stockUsedInSales;
+                    if (availableInLot > 0)
+                    {
+                        currentStock += availableInLot;
+                    }
+                }
 
                 // Solo incluir productos con stock disponible
                 if (currentStock > 0)
@@ -347,6 +385,115 @@ public class SalesController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene los stocks disponibles de un producto específico en un store
+    /// </summary>
+    /// <param name="productId">ID del producto</param>
+    /// <param name="storeId">ID del store</param>
+    /// <returns>Lista de stocks disponibles del producto en el store</returns>
+    [HttpGet("product-stocks/{productId}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetProductStocks(int productId, [FromQuery] int storeId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo stocks del producto {productId} en store {storeId}", productId, storeId);
+
+            // Verificar que el store existe y está activo
+            var store = await _context.Stores
+                .Include(s => s.Business)
+                .FirstOrDefaultAsync(s => s.Id == storeId && s.Active);
+
+            if (store == null)
+            {
+                return BadRequest(new { message = "Store no encontrado o no está activo" });
+            }
+
+            // Verificar que el producto existe y pertenece al business del store
+            var product = await _context.Products
+                .Include(p => p.ProductType)
+                .Where(p => p.Id == productId && p.BusinessId == store.BusinessId)
+                .FirstOrDefaultAsync();
+
+            if (product == null)
+            {
+                return NotFound(new { message = "Producto no encontrado o no pertenece al negocio del store" });
+            }
+
+            // Obtener todos los stocks del producto en el store con cantidad > 0
+            _logger.LogInformation("Buscando stocks con filtros: ProductId={productId}, StoreId={storeId}, Amount > 0", productId, storeId);
+            
+            var stocksQuery = await _context.Stocks
+                .Include(s => s.FlowType)
+                .Where(s => s.ProductId == productId && s.StoreId == storeId && s.Amount > 0)
+                .OrderByDescending(s => s.Date)
+                .ToListAsync();
+
+            // Calcular el stock real disponible considerando las ventas
+            var stocks = new List<object>();
+            var totalAvailableStock = 0;
+
+            foreach (var stock in stocksQuery)
+            {
+                // Calcular cuánto stock se ha usado de este lote en ventas
+                var saleDetailsForStock = await _context.SaleDetails
+                    .Where(sd => sd.StockId == stock.Id)
+                    .Select(sd => sd.Amount)
+                    .ToListAsync();
+                    
+                var stockUsedInSales = saleDetailsForStock.Sum(amount => int.Parse(amount));
+
+                var availableAmount = stock.Amount - stockUsedInSales;
+
+                // Solo incluir si hay stock disponible después de restar las ventas
+                if (availableAmount > 0)
+                {
+                    stocks.Add(new
+                    {
+                        id = stock.Id,
+                        amount = availableAmount, // Stock disponible real
+                        originalAmount = stock.Amount, // Stock original del lote
+                        usedInSales = stockUsedInSales, // Stock usado en ventas
+                        cost = stock.Cost,
+                        date = stock.Date,
+                        flowType = stock.FlowType != null ? new { id = stock.FlowType.Id, name = stock.FlowType.Name } : null,
+                        notes = stock.Notes
+                    });
+
+                    totalAvailableStock += availableAmount;
+                }
+
+                _logger.LogInformation("Lote {stockId}: Original={original}, Usado={used}, Disponible={available}", 
+                    stock.Id, stock.Amount, stockUsedInSales, availableAmount);
+            }
+
+            _logger.LogInformation("Encontrados {stockCount} lotes de stock disponibles para producto {productId} en store {storeId}, total disponible: {totalStock}", 
+                stocks.Count, productId, storeId, totalAvailableStock);
+
+            var result = new
+            {
+                productId = product.Id,
+                productName = product.Name,
+                productSku = product.Sku,
+                storeId = store.Id,
+                storeName = store.Name,
+                totalAvailableStock,
+                stockLots = stocks
+            };
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener stocks del producto: {productId} en store: {storeId}", productId, storeId);
+            return StatusCode(500, new { message = "Error al obtener stocks del producto", details = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Procesa una venta rápida
     /// </summary>
     /// <param name="request">Datos de la venta</param>
@@ -392,7 +539,7 @@ public class SalesController : ControllerBase
             }
 
             // Verificar que todos los productos existen y pertenecen al mismo business del store
-            var productIds = request.Items.Select(i => i.ProductId).ToList();
+            var productIds = request.Items.Select(i => i.ProductId).Distinct().ToList();
             var products = await _context.Products
                 .Where(p => productIds.Contains(p.Id) && p.BusinessId == store.BusinessId)
                 .ToListAsync();
@@ -402,17 +549,56 @@ public class SalesController : ControllerBase
                 return BadRequest(new { message = "Uno o más productos no existen o no pertenecen al negocio del store" });
             }
 
-            // Verificar stock disponible en el store específico
+            // Verificar stock disponible en el store específico y validar StockId si se proporciona
             foreach (var item in request.Items)
             {
-                var currentStock = await _context.Stocks
-                    .Where(s => s.ProductId == item.ProductId && s.StoreId == request.StoreId)
-                    .SumAsync(s => s.Amount);
-
-                if (currentStock < item.Quantity)
+                // Si se especifica un StockId, validar que existe y pertenece al producto y store
+                if (item.StockId.HasValue)
                 {
-                    var product = products.First(p => p.Id == item.ProductId);
-                    return BadRequest(new { message = $"Stock insuficiente para {product.Name} en este store. Disponible: {currentStock}, Solicitado: {item.Quantity}" });
+                    var specificStock = await _context.Stocks
+                        .Where(s => s.Id == item.StockId.Value && 
+                                   s.ProductId == item.ProductId && 
+                                   s.StoreId == request.StoreId)
+                        .FirstOrDefaultAsync();
+
+                    if (specificStock == null)
+                    {
+                        var product = products.First(p => p.Id == item.ProductId);
+                        return BadRequest(new { message = $"El stock específico {item.StockId.Value} no existe para el producto {product.Name} en este store" });
+                    }
+
+                    // Para un lote específico, necesitamos calcular cuánto stock queda disponible
+                    // considerando el stock original del lote menos todas las salidas por ventas de ese lote
+                    var saleDetailsForStock = await _context.SaleDetails
+                        .Where(sd => sd.StockId == item.StockId.Value)
+                        .Select(sd => sd.Amount)
+                        .ToListAsync();
+                    
+                    var stockUsedInSales = saleDetailsForStock.Sum(amount => int.Parse(amount));
+
+                    var availableInLot = specificStock.Amount - stockUsedInSales;
+
+                    if (availableInLot < item.Quantity)
+                    {
+                        var product = products.First(p => p.Id == item.ProductId);
+                        return BadRequest(new { message = $"Stock insuficiente en el lote específico {item.StockId.Value} para {product.Name}. Disponible: {availableInLot}, Solicitado: {item.Quantity}" });
+                    }
+                    
+                    _logger.LogInformation("Validación de stock para lote {stockId}: Original={originalAmount}, Usado={usedAmount}, Disponible={availableAmount}, Solicitado={requestedAmount}", 
+                        item.StockId.Value, specificStock.Amount, stockUsedInSales, availableInLot, item.Quantity);
+                }
+                else
+                {
+                    // Validación de stock total cuando no se especifica StockId específico
+                    var currentStock = await _context.Stocks
+                        .Where(s => s.ProductId == item.ProductId && s.StoreId == request.StoreId)
+                        .SumAsync(s => s.Amount);
+
+                    if (currentStock < item.Quantity)
+                    {
+                        var product = products.First(p => p.Id == item.ProductId);
+                        return BadRequest(new { message = $"Stock insuficiente para {product.Name} en este store. Disponible: {currentStock}, Solicitado: {item.Quantity}" });
+                    }
                 }
             }
 
@@ -449,24 +635,78 @@ public class SalesController : ControllerBase
                     Amount = item.Quantity.ToString(),
                     Price = unitPrice,
                     Discount = item.Discount,
-                    SaleId = sale.Id
+                    SaleId = sale.Id,
+                    StockId = item.StockId
                 };
 
                 _context.SaleDetails.Add(saleDetail);
 
                 // Crear movimiento de stock (salida por venta)
-                var stockMovement = new GPInventory.Domain.Entities.Stock
+                if (item.StockId.HasValue)
                 {
-                    ProductId = item.ProductId,
-                    Date = DateTime.UtcNow,
-                    FlowTypeId = 11, // FlowType "Venta"
-                    Amount = -item.Quantity, // Cantidad negativa para salida
-                    Cost = null, // No se especifica costo en las ventas
-                    StoreId = request.StoreId,
-                    Notes = $"Venta rápida #{sale.Id}"
-                };
+                    // Obtener el stock específico para usar su costo, pero NO restarlo directamente
+                    var specificStock = await _context.Stocks
+                        .FirstAsync(s => s.Id == item.StockId.Value);
+                    
+                    // Crear un registro de movimiento de stock para registrar la salida por venta
+                    // Este registro negativo es lo que efectivamente reduce el stock
+                    var saleStockMovement = new GPInventory.Domain.Entities.Stock
+                    {
+                        ProductId = item.ProductId,
+                        Date = DateTime.UtcNow,
+                        FlowTypeId = 11, // FlowType "Venta"
+                        Amount = -item.Quantity, // Cantidad negativa para salida
+                        Cost = specificStock.Cost, // Usar el costo del stock específico
+                        StoreId = request.StoreId,
+                        SaleId = sale.Id, // Vincular con la venta
+                        Notes = $"Venta #{sale.Id} - Stock lote #{item.StockId.Value}"
+                    };
 
-                _context.Stocks.Add(stockMovement);
+                    _context.Stocks.Add(saleStockMovement);
+                    
+                    _logger.LogInformation("Creado movimiento de stock (venta) para producto {productId}, cantidad: {quantity}, desde stock lote {stockId}, venta {saleId}", 
+                        item.ProductId, -item.Quantity, item.StockId.Value, sale.Id);
+                }
+                else
+                {
+                    // Crear movimiento de stock general (método tradicional)
+                    var stockMovement = new GPInventory.Domain.Entities.Stock
+                    {
+                        ProductId = item.ProductId,
+                        Date = DateTime.UtcNow,
+                        FlowTypeId = 11, // FlowType "Venta"
+                        Amount = -item.Quantity, // Cantidad negativa para salida
+                        Cost = null, // No se especifica costo en las ventas
+                        StoreId = request.StoreId,
+                        SaleId = sale.Id, // Vincular con la venta
+                        Notes = $"Venta #{sale.Id}"
+                    };
+
+                    _context.Stocks.Add(stockMovement);
+                }
+
+                // Obtener información del stock para incluir en la respuesta
+                object? stockInfo = null;
+                if (item.StockId.HasValue)
+                {
+                    var stockUsed = await _context.Stocks
+                        .Include(s => s.FlowType)
+                        .Where(s => s.Id == item.StockId.Value)
+                        .FirstOrDefaultAsync();
+                    
+                    if (stockUsed != null)
+                    {
+                        stockInfo = new
+                        {
+                            id = stockUsed.Id,
+                            originalAmount = stockUsed.Amount,
+                            cost = stockUsed.Cost,
+                            date = stockUsed.Date,
+                            flowType = stockUsed.FlowType != null ? new { id = stockUsed.FlowType.Id, name = stockUsed.FlowType.Name } : null,
+                            notes = stockUsed.Notes
+                        };
+                    }
+                }
 
                 saleDetails.Add(new
                 {
@@ -475,7 +715,10 @@ public class SalesController : ControllerBase
                     quantity = item.Quantity,
                     unitPrice = unitPrice,
                     subtotal = subtotal,
-                    discount = item.Discount
+                    discount = item.Discount,
+                    stockId = item.StockId,
+                    stockInfo = stockInfo,
+                    stockSource = item.StockId.HasValue ? "Lote específico" : "Stock general"
                 });
             }
 
@@ -563,7 +806,7 @@ public class SalesController : ControllerBase
         {
             await transaction.RollbackAsync();
             _logger.LogError(ex, "Error al procesar venta rápida");
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            return StatusCode(500, new { message = "Error al procesar la venta", details = ex.Message });
         }
     }
 
@@ -588,6 +831,9 @@ public class SalesController : ControllerBase
                 .Include(s => s.PaymentMethod)
                 .Include(s => s.SaleDetails)
                     .ThenInclude(sd => sd.Product)
+                .Include(s => s.SaleDetails)
+                    .ThenInclude(sd => sd.Stock!)
+                        .ThenInclude(st => st.FlowType)
                 .Where(s => s.Id == id)
                 .FirstOrDefaultAsync();
 
@@ -595,6 +841,27 @@ public class SalesController : ControllerBase
             {
                 return NotFound(new { message = "Venta no encontrada" });
             }
+
+            // Obtener movimientos de stock asociados a esta venta
+            var stockMovements = await _context.Stocks
+                .Include(s => s.Product)
+                .Include(s => s.FlowType)
+                .Where(s => s.SaleId == id)
+                .OrderBy(s => s.Date)
+                .Select(s => new
+                {
+                    id = s.Id,
+                    productId = s.ProductId,
+                    productName = s.Product.Name,
+                    amount = s.Amount,
+                    cost = s.Cost,
+                    date = s.Date,
+                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
+                    notes = s.Notes,
+                    isOutbound = s.Amount < 0,
+                    movementType = s.Amount < 0 ? "Salida por venta" : "Entrada"
+                })
+                .ToListAsync();
 
             var result = new
             {
@@ -617,8 +884,20 @@ public class SalesController : ControllerBase
                     quantity = sd.AmountAsInt,
                     unitPrice = sd.Price,
                     subtotal = sd.Subtotal,
-                    discount = sd.Discount
-                })
+                    discount = sd.Discount,
+                    stockId = sd.StockId,
+                    stockSource = sd.StockId.HasValue ? "Lote específico" : "Stock general",
+                    stockInfo = sd.Stock != null ? new
+                    {
+                        id = sd.Stock.Id,
+                        originalAmount = sd.Stock.Amount,
+                        cost = sd.Stock.Cost,
+                        date = sd.Stock.Date,
+                        notes = sd.Stock.Notes,
+                        flowType = sd.Stock.FlowType != null ? new { id = sd.Stock.FlowType.Id, name = sd.Stock.FlowType.Name } : null
+                    } : null
+                }),
+                stockMovements = stockMovements
             };
 
             return Ok(result);
@@ -626,6 +905,79 @@ public class SalesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error al obtener venta: {id}", id);
+            return StatusCode(500, new { message = "Error al obtener la venta", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene los movimientos de stock asociados a una venta específica
+    /// </summary>
+    /// <param name="saleId">ID de la venta</param>
+    /// <returns>Lista de movimientos de stock de la venta</returns>
+    [HttpGet("{saleId}/stock-movements")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetSaleStockMovements(int saleId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo movimientos de stock para venta: {saleId}", saleId);
+
+            // Verificar que la venta existe
+            var sale = await _context.Sales
+                .Include(s => s.Store)
+                    .ThenInclude(st => st.Business)
+                .FirstOrDefaultAsync(s => s.Id == saleId);
+
+            if (sale == null)
+            {
+                return NotFound(new { message = "Venta no encontrada" });
+            }
+
+            // Obtener movimientos de stock asociados a esta venta
+            var stockMovements = await _context.Stocks
+                .Include(s => s.Product)
+                .Include(s => s.FlowType)
+                .Include(s => s.Store)
+                .Where(s => s.SaleId == saleId)
+                .OrderBy(s => s.Date)
+                .ThenBy(s => s.ProductId)
+                .Select(s => new
+                {
+                    id = s.Id,
+                    productId = s.ProductId,
+                    productName = s.Product.Name,
+                    productSku = s.Product.Sku,
+                    amount = s.Amount,
+                    cost = s.Cost,
+                    date = s.Date,
+                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
+                    storeId = s.StoreId,
+                    storeName = s.Store.Name,
+                    notes = s.Notes
+                })
+                .ToListAsync();
+
+            var result = new
+            {
+                saleId = sale.Id,
+                saleDate = sale.Date,
+                storeId = sale.StoreId,
+                storeName = sale.Store?.Name,
+                businessId = sale.Store?.BusinessId,
+                businessName = sale.Store?.Business?.CompanyName,
+                totalMovements = stockMovements.Count,
+                stockMovements = stockMovements
+            };
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener movimientos de stock de la venta: {saleId}", saleId);
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
     }
@@ -987,4 +1339,9 @@ public class QuickSaleItem
     /// Descuento aplicado (opcional)
     /// </summary>
     public int? Discount { get; set; }
+
+    /// <summary>
+    /// ID del stock específico del cual se está vendiendo el producto (opcional)
+    /// </summary>
+    public int? StockId { get; set; }
 }

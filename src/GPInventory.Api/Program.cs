@@ -4,6 +4,7 @@ using GPInventory.Application.Services;
 using GPInventory.Infrastructure.Data;
 using GPInventory.Infrastructure.Repositories;
 using GPInventory.Infrastructure.Services;
+using GPInventory.Api.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -158,6 +159,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Add error handling middleware
+app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.UseHttpsRedirection();
 

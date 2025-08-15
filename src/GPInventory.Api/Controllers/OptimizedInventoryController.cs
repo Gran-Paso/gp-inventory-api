@@ -47,8 +47,8 @@ public class OptimizedInventoryController : ControllerBase
             var lastMonth = startOfMonth.AddMonths(-1);
             var endOfLastMonth = startOfMonth.AddDays(-1);
 
-            // 1. CONSULTA OPTIMIZADA: Resumen usando LINQ optimizado con una sola consulta
-            var storesWithData = await _context.Stores
+            // 1. Obtener información básica de las tiendas
+            var stores = await _context.Stores
                 .Where(s => s.BusinessId == businessId && s.Active)
                 .Select(store => new
                 {
@@ -63,26 +63,79 @@ public class OptimizedInventoryController : ControllerBase
                         .Select(st => st.ProductId)
                         .Distinct()
                         .Count(),
-                    TodaySalesAmount = _context.SaleDetails
-                        .Where(sd => sd.Sale.StoreId == store.Id && sd.Sale.Date.Date == today)
-                        .Sum(sd => (decimal?)(sd.Price * decimal.Parse(sd.Amount))) ?? 0,
                     TodayTransactions = _context.Sales
                         .Where(s => s.StoreId == store.Id && s.Date.Date == today)
                         .Count(),
-                    MonthSalesAmount = _context.SaleDetails
-                        .Where(sd => sd.Sale.StoreId == store.Id && sd.Sale.Date >= startOfMonth)
-                        .Sum(sd => (decimal?)(sd.Price * decimal.Parse(sd.Amount))) ?? 0,
                     MonthTransactions = _context.Sales
                         .Where(s => s.StoreId == store.Id && s.Date >= startOfMonth)
-                        .Count(),
-                    LastMonthSalesAmount = _context.SaleDetails
-                        .Where(sd => sd.Sale.StoreId == store.Id && sd.Sale.Date >= lastMonth && sd.Sale.Date <= endOfLastMonth)
-                        .Sum(sd => (decimal?)(sd.Price * decimal.Parse(sd.Amount))) ?? 0
+                        .Count()
                 })
                 .ToListAsync();
 
-            // 2. CONSULTA OPTIMIZADA: Top productos del negocio
-            var topProducts = await _context.Products
+            // 2. Calcular ventas por tienda por separado para evitar decimal.Parse en LINQ to SQL
+            var storesWithSales = new List<object>();
+            decimal totalTodaySales = 0;
+            decimal totalMonthSales = 0;
+            decimal totalLastMonthSales = 0;
+
+            foreach (var store in stores)
+            {
+                // Ventas de hoy
+                var todaySaleDetails = await _context.SaleDetails
+                    .Where(sd => sd.Sale.StoreId == store.StoreId && sd.Sale.Date.Date == today)
+                    .Select(sd => new { sd.Price, sd.Amount })
+                    .ToListAsync();
+                
+                var todaySalesAmount = todaySaleDetails
+                    .Sum(sd => sd.Price * decimal.Parse(sd.Amount));
+
+                // Ventas del mes
+                var monthSaleDetails = await _context.SaleDetails
+                    .Where(sd => sd.Sale.StoreId == store.StoreId && sd.Sale.Date >= startOfMonth)
+                    .Select(sd => new { sd.Price, sd.Amount })
+                    .ToListAsync();
+                
+                var monthSalesAmount = monthSaleDetails
+                    .Sum(sd => sd.Price * decimal.Parse(sd.Amount));
+
+                // Ventas del mes pasado
+                var lastMonthSaleDetails = await _context.SaleDetails
+                    .Where(sd => sd.Sale.StoreId == store.StoreId && sd.Sale.Date >= lastMonth && sd.Sale.Date <= endOfLastMonth)
+                    .Select(sd => new { sd.Price, sd.Amount })
+                    .ToListAsync();
+                
+                var lastMonthSalesAmount = lastMonthSaleDetails
+                    .Sum(sd => sd.Price * decimal.Parse(sd.Amount));
+
+                // Acumular totales
+                totalTodaySales += todaySalesAmount;
+                totalMonthSales += monthSalesAmount;
+                totalLastMonthSales += lastMonthSalesAmount;
+
+                // Agregar tienda con datos de ventas
+                storesWithSales.Add(new
+                {
+                    storeId = store.StoreId,
+                    storeName = store.StoreName,
+                    location = store.Location,
+                    totalProducts = store.ProductCount,
+                    totalStock = store.TotalStock,
+                    todaySales = new
+                    {
+                        amount = todaySalesAmount,
+                        transactions = store.TodayTransactions
+                    },
+                    monthSales = new
+                    {
+                        amount = monthSalesAmount,
+                        transactions = store.MonthTransactions,
+                        changePercent = CalculateChangePercent(monthSalesAmount, lastMonthSalesAmount)
+                    }
+                });
+            }
+
+            // 3. Top productos del negocio - también calculado por separado
+            var products = await _context.Products
                 .Where(p => p.BusinessId == businessId)
                 .Select(p => new
                 {
@@ -92,61 +145,59 @@ public class OptimizedInventoryController : ControllerBase
                     Price = p.Price,
                     CurrentStock = _context.Stocks
                         .Where(st => st.ProductId == p.Id)
-                        .Sum(st => (int?)st.Amount) ?? 0,
-                    MonthSalesAmount = _context.SaleDetails
-                        .Where(sd => sd.ProductId == p.Id && sd.Sale.Date >= startOfMonth)
-                        .Sum(sd => (decimal?)(sd.Price * decimal.Parse(sd.Amount))) ?? 0,
-                    MonthQuantitySold = _context.SaleDetails
-                        .Where(sd => sd.ProductId == p.Id && sd.Sale.Date >= startOfMonth)
-                        .Sum(sd => (decimal?)decimal.Parse(sd.Amount)) ?? 0
+                        .Sum(st => (int?)st.Amount) ?? 0
                 })
-                .OrderByDescending(p => p.MonthSalesAmount)
-                .Take(10)
                 .ToListAsync();
 
-            // 3. Agregar datos del negocio
+            var topProducts = new List<object>();
+            foreach (var product in products.Take(50)) // Limitar para evitar demasiadas consultas
+            {
+                var productSaleDetails = await _context.SaleDetails
+                    .Where(sd => sd.ProductId == product.Id && sd.Sale.Date >= startOfMonth)
+                    .Select(sd => new { sd.Price, sd.Amount })
+                    .ToListAsync();
+
+                var monthSalesAmount = productSaleDetails
+                    .Sum(sd => sd.Price * decimal.Parse(sd.Amount));
+                
+                var monthQuantitySold = productSaleDetails
+                    .Sum(sd => decimal.Parse(sd.Amount));
+
+                topProducts.Add(new
+                {
+                    id = product.Id,
+                    name = product.Name,
+                    sku = product.Sku,
+                    price = product.Price,
+                    currentStock = product.CurrentStock,
+                    monthSalesAmount = monthSalesAmount,
+                    monthQuantitySold = monthQuantitySold
+                });
+            }
+
+            // Ordenar por ventas del mes
+            topProducts = topProducts
+                .OrderByDescending(p => ((dynamic)p).monthSalesAmount)
+                .Take(10)
+                .ToList();
+
+            // 4. Resumen del negocio
             var businessSummary = new
             {
                 totalProducts = await _context.Products.CountAsync(p => p.BusinessId == businessId),
-                totalStock = storesWithData.Sum(s => s.TotalStock),
+                totalStock = stores.Sum(s => s.TotalStock),
                 todaySales = new
                 {
-                    amount = storesWithData.Sum(s => s.TodaySalesAmount),
-                    transactions = storesWithData.Sum(s => s.TodayTransactions)
+                    amount = totalTodaySales,
+                    transactions = stores.Sum(s => s.TodayTransactions)
                 },
                 monthSales = new
                 {
-                    amount = storesWithData.Sum(s => s.MonthSalesAmount),
-                    transactions = storesWithData.Sum(s => s.MonthTransactions),
-                    changePercent = CalculateChangePercent(
-                        storesWithData.Sum(s => s.MonthSalesAmount),
-                        storesWithData.Sum(s => s.LastMonthSalesAmount)
-                    )
+                    amount = totalMonthSales,
+                    transactions = stores.Sum(s => s.MonthTransactions),
+                    changePercent = CalculateChangePercent(totalMonthSales, totalLastMonthSales)
                 }
             };
-
-            var storesData = storesWithData.Select(store => new
-            {
-                storeId = store.StoreId,
-                storeName = store.StoreName,
-                location = store.Location,
-                totalProducts = store.ProductCount,
-                totalStock = store.TotalStock,
-                todaySales = new
-                {
-                    amount = store.TodaySalesAmount,
-                    transactions = store.TodayTransactions
-                },
-                monthSales = new
-                {
-                    amount = store.MonthSalesAmount,
-                    transactions = store.MonthTransactions,
-                    changePercent = CalculateChangePercent(
-                        store.MonthSalesAmount,
-                        store.LastMonthSalesAmount
-                    )
-                }
-            }).ToList();
 
             stopwatch.Stop();
             _logger.LogInformation($"Inventario optimizado completado en {stopwatch.ElapsedMilliseconds}ms para negocio {businessId}");
@@ -156,12 +207,12 @@ public class OptimizedInventoryController : ControllerBase
                 businessId = businessId,
                 executionTimeMs = stopwatch.ElapsedMilliseconds,
                 summary = businessSummary,
-                storesSummary = storesData,
-                topProducts = topProducts.ToList(),
+                storesSummary = storesWithSales,
+                topProducts = topProducts,
                 optimization = new
                 {
-                    version = "v2_optimized_linq",
-                    description = "Optimizado con consultas LINQ agrupadas",
+                    version = "v2_optimized_fixed",
+                    description = "Optimizado con consultas separadas para evitar decimal.Parse en LINQ to SQL",
                     originalEndpoint = "/api/stock/inventory/{businessId}",
                     newEndpoint = "/api/optimizedinventory/inventory/{businessId}",
                     improvements = new string[]
@@ -169,6 +220,7 @@ public class OptimizedInventoryController : ControllerBase
                         "Eliminados bucles anidados",
                         "Consultas LINQ optimizadas",
                         "Reducción de N+1 queries",
+                        "Fixed decimal.Parse issues",
                         "Medición de tiempo de ejecución"
                     }
                 }
