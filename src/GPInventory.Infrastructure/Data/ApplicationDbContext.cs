@@ -32,10 +32,74 @@ public class ApplicationDbContext : DbContext
     public DbSet<RecurrenceType> RecurrenceTypes { get; set; }
     public DbSet<Expense> Expenses { get; set; }
     public DbSet<FixedExpense> FixedExpenses { get; set; }
+    
+    // Production entities
+    public DbSet<Supply> Supplies { get; set; }
+    public DbSet<SupplyEntry> SupplyEntries { get; set; }
+    public DbSet<UnitMeasure> UnitMeasures { get; set; }
+    public DbSet<TimeUnit> TimeUnits { get; set; }
+    public DbSet<Process> Processes { get; set; }
+    public DbSet<ProcessDone> ProcessesDone { get; set; }
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        // Configure basic conventions
+        base.ConfigureConventions(configurationBuilder);
+    }
+    public DbSet<ProcessSupply> ProcessSupplies { get; set; }
+    public DbSet<ProcessDone> ProcessDones { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        
+        // Disable automatic generation of foreign key properties
+        modelBuilder.Model.SetPropertyAccessMode(PropertyAccessMode.Field);
+        
+        // Configure all entities explicitly before applying configurations
+        modelBuilder.Entity<SupplyEntry>(entity =>
+        {
+            // Configure entity first
+            entity.ToTable("supply_entry");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.SupplyId).HasColumnName("supply_id");
+            entity.Property(e => e.UnitCost).HasColumnName("unit_cost");
+            entity.Property(e => e.Amount).HasColumnName("amount");
+            entity.Property(e => e.ProviderId).HasColumnName("provider_id");
+            entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+            
+            // IMPORTANT: Explicitly ignore any UnitMeasure relationship
+            entity.Ignore("UnitMeasure");
+            entity.Ignore("UnitMeasureId");
+            entity.Ignore("UnitMeasureId1");
+            entity.Ignore("UnitMeasureId2");
+            entity.Ignore("UnitMeasureId3");
+            
+            // Configure only the relationships we want
+            entity.HasOne(e => e.Supply)
+                .WithMany(s => s.SupplyEntries)
+                .HasForeignKey(e => e.SupplyId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+
+            entity.HasOne(e => e.Provider)
+                .WithMany()
+                .HasForeignKey(e => e.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+
+            entity.HasOne(e => e.ProcessDone)
+                .WithMany(pd => pd.SupplyEntries)
+                .HasForeignKey(e => e.ProcessDoneId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+        });
 
         // Apply Inventory configurations
         modelBuilder.ApplyConfiguration(new ProductTypeConfiguration());
@@ -163,6 +227,162 @@ public class ApplicationDbContext : DbContext
             entity.Ignore(e => e.CreatedAt);
             entity.Ignore(e => e.UpdatedAt);
             entity.Ignore(e => e.IsActive);
+        });
+
+        // Supply configuration
+        modelBuilder.Entity<Supply>(entity =>
+        {
+            entity.ToTable("supplies");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.BusinessId).HasColumnName("business_id");
+            entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.Property(e => e.FixedExpenseId).HasColumnName("fixed_expense_id");
+            entity.Property(e => e.Active).HasColumnName("active");
+            entity.Property(e => e.UnitMeasureId).HasColumnName("unit_measure_id");
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(e => e.Business)
+                .WithMany()
+                .HasForeignKey(e => e.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Store)
+                .WithMany()
+                .HasForeignKey(e => e.StoreId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.FixedExpense)
+                .WithMany()
+                .HasForeignKey(e => e.FixedExpenseId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Temporarily removed UnitMeasure navigation to fix EF Core issue
+            // entity.HasOne(e => e.UnitMeasure)
+            //     .WithMany()
+            //     .HasForeignKey(e => e.UnitMeasureId)
+            //     .HasConstraintName("FK_supplies_unit_measures_unit_measure_id")
+            //     .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // UnitMeasure configuration
+        modelBuilder.Entity<UnitMeasure>(entity =>
+        {
+            entity.ToTable("unit_measures");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            entity.Property(e => e.Symbol).HasColumnName("symbol").HasMaxLength(255);
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+            entity.Ignore(e => e.Description); // This column doesn't exist in the database
+        });
+
+        // TimeUnit configuration
+        modelBuilder.Entity<TimeUnit>(entity =>
+        {
+            entity.ToTable("time_units");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+            entity.Ignore(e => e.Description); // This column doesn't exist in the database
+        });
+
+        // Process configuration
+        modelBuilder.Entity<Process>(entity =>
+        {
+            entity.ToTable("processes");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ProductId).HasColumnName("product_id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.ProductionTime).HasColumnName("production_time");
+            entity.Property(e => e.TimeUnitId).HasColumnName("time_unit_id");
+            entity.Property(e => e.StoreId).HasColumnName("store_id");
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(e => e.Product)
+                .WithMany()
+                .HasForeignKey(e => e.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Store)
+                .WithMany()
+                .HasForeignKey(e => e.StoreId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.TimeUnit)
+                .WithMany(t => t.Processes)
+                .HasForeignKey(e => e.TimeUnitId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ProcessSupply configuration
+        modelBuilder.Entity<ProcessSupply>(entity =>
+        {
+            entity.ToTable("process_supplies");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ProcessId).HasColumnName("process_id");
+            entity.Property(e => e.SupplyId).HasColumnName("supply_id");
+            entity.Property(e => e.Order).HasColumnName("order");
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(e => e.Process)
+                .WithMany(p => p.ProcessSupplies)
+                .HasForeignKey(e => e.ProcessId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Supply)
+                .WithMany(s => s.ProcessSupplies)
+                .HasForeignKey(e => e.SupplyId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ProcessDone configuration
+        modelBuilder.Entity<ProcessDone>(entity =>
+        {
+            entity.ToTable("process_done");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ProcessId).HasColumnName("process_id");
+            entity.Property(e => e.Quantity).HasColumnName("quantity");
+            entity.Property(e => e.TotalCost).HasColumnName("total_cost");
+            entity.Property(e => e.CompletedAt).HasColumnName("completed_at");
+            entity.Property(e => e.Notes).HasColumnName("notes");
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(e => e.Process)
+                .WithMany()
+                .HasForeignKey(e => e.ProcessId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

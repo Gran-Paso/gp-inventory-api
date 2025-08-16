@@ -65,13 +65,15 @@ builder.Services.AddCors(options =>
     {
         builder.WithOrigins(
                 "http://localhost:5173", 
+                "http://localhost:5174",  // GP Factory
                 "http://localhost:3000", 
                 "http://localhost:3002",  // GP Expenses
                 "https://localhost:5001", 
                 "https://localhost:5173", 
                 "http://localhost:5000",
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
-                "https://expenses.granpasochile.cl"    // GP Expenses producción
+                "https://expenses.granpasochile.cl",   // GP Expenses producción
+                "https://factory.granpasochile.cl"     // GP Factory producción
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
@@ -141,6 +143,13 @@ builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository
 builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepository>();
 builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
 
+// Production repositories
+builder.Services.AddScoped<ISupplyRepository, SupplyRepository>();
+builder.Services.AddScoped<IProcessRepository, ProcessRepository>();
+builder.Services.AddScoped<IProcessDoneRepository, ProcessDoneRepository>();
+builder.Services.AddScoped<IUnitMeasureRepository, UnitMeasureRepository>();
+builder.Services.AddScoped<ISupplyEntryRepository, SupplyEntryRepository>();
+
 // Application services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
@@ -150,6 +159,13 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 // Expense services
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
+
+// Production services
+builder.Services.AddScoped<ISupplyService, SupplyService>();
+builder.Services.AddScoped<IProcessService, ProcessService>();
+builder.Services.AddScoped<IProcessDoneService, ProcessDoneService>();
+builder.Services.AddScoped<IUnitMeasureService, UnitMeasureService>();
+builder.Services.AddScoped<ISupplyEntryService, SupplyEntryService>();
 
 var app = builder.Build();
 
