@@ -27,7 +27,6 @@ public class ProcessRepository : IProcessRepository
             .Include(p => p.TimeUnit)
             .Include(p => p.Store)
             .Include(p => p.ProcessSupplies)
-                .ThenInclude(ps => ps.Supply)
             .FirstOrDefaultAsync(p => p.Id == id);
     }
 

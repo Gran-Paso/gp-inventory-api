@@ -17,6 +17,12 @@ public class SupplyRepository : ISupplyRepository
     public async Task<Supply?> GetByIdAsync(int id)
     {
         return await _context.Supplies
+            .FirstOrDefaultAsync(s => s.Id == id);
+    }
+
+    public async Task<Supply?> GetByIdWithDetailsAsync(int id)
+    {
+        return await _context.Supplies
             .Include(s => s.FixedExpense)
             .Include(s => s.Business)
             .Include(s => s.Store)
@@ -26,18 +32,12 @@ public class SupplyRepository : ISupplyRepository
     public async Task<IEnumerable<Supply>> GetAllAsync()
     {
         return await _context.Supplies
-            .Include(s => s.FixedExpense)
-            .Include(s => s.Business)
-            .Include(s => s.Store)
             .ToListAsync();
     }
 
     public async Task<IEnumerable<Supply>> GetByBusinessIdAsync(int businessId)
     {
         return await _context.Supplies
-            .Include(s => s.FixedExpense)
-            .Include(s => s.Business)
-            .Include(s => s.Store)
             .Where(s => s.BusinessId == businessId)
             .ToListAsync();
     }
@@ -45,9 +45,6 @@ public class SupplyRepository : ISupplyRepository
     public async Task<IEnumerable<Supply>> GetByStoreIdAsync(int storeId)
     {
         return await _context.Supplies
-            .Include(s => s.FixedExpense)
-            .Include(s => s.Business)
-            .Include(s => s.Store)
             .Where(s => s.StoreId == storeId)
             .ToListAsync();
     }
@@ -55,9 +52,6 @@ public class SupplyRepository : ISupplyRepository
     public async Task<IEnumerable<Supply>> GetActiveSuppliesAsync(int businessId)
     {
         return await _context.Supplies
-            .Include(s => s.FixedExpense)
-            .Include(s => s.Business)
-            .Include(s => s.Store)
             .Where(s => s.BusinessId == businessId && s.Active)
             .ToListAsync();
     }
@@ -113,9 +107,6 @@ public class SupplyRepository : ISupplyRepository
     public async Task<Supply?> GetByNameAsync(string name, int businessId)
     {
         return await _context.Supplies
-            .Include(s => s.FixedExpense)
-            .Include(s => s.Business)
-            .Include(s => s.Store)
             .FirstOrDefaultAsync(s => s.Name == name && s.BusinessId == businessId);
     }
 }

@@ -19,7 +19,7 @@ public class SupplyService : ISupplyService
 
     public async Task<SupplyDto> GetSupplyByIdAsync(int id)
     {
-        var supply = await _supplyRepository.GetByIdAsync(id);
+        var supply = await _supplyRepository.GetByIdWithDetailsAsync(id);
         if (supply == null)
             throw new ArgumentException($"Supply with ID {id} not found");
 
@@ -158,8 +158,8 @@ public class SupplyService : ISupplyService
             StoreId = supply.StoreId,
             CreatedAt = supply.CreatedAt,
             UpdatedAt = supply.UpdatedAt,
-            // UnitMeasure navigation temporarily removed - will load separately if needed
-            UnitMeasure = null,
+            // Navigation properties - only include if loaded
+            UnitMeasure = null, // Will be loaded separately if needed
             FixedExpense = supply.FixedExpense != null ? new FixedExpenseDto
             {
                 Id = supply.FixedExpense.Id,

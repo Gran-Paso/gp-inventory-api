@@ -10,8 +10,8 @@ public class CreateExpenseDto
     public int SubcategoryId { get; set; }
 
     [Required]
-    [Range(1, int.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
-    public int Amount { get; set; }
+    [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
+    public decimal Amount { get; set; }
 
     [Required]
     [StringLength(500, ErrorMessage = "La descripción no puede exceder 500 caracteres")]
@@ -39,8 +39,8 @@ public class UpdateExpenseDto
     [JsonPropertyName("subcategory_id")]
     public int? SubcategoryId { get; set; }
 
-    [Range(1, int.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
-    public int? Amount { get; set; }
+    [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
+    public decimal? Amount { get; set; }
 
     [StringLength(500, ErrorMessage = "La descripción no puede exceder 500 caracteres")]
     public string? Description { get; set; }
@@ -57,7 +57,7 @@ public class ExpenseDto
     public DateTime Date { get; set; }
     [JsonPropertyName("subcategory_id")]
     public int SubcategoryId { get; set; }
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public string Description { get; set; } = string.Empty;
     [JsonPropertyName("is_fixed")]
     public bool? IsFixed { get; set; }
@@ -75,7 +75,7 @@ public class ExpenseWithDetailsDto
 {
     public int Id { get; set; }
     public DateTime Date { get; set; }
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public string Description { get; set; } = string.Empty;
     [JsonPropertyName("is_fixed")]
     public bool? IsFixed { get; set; }

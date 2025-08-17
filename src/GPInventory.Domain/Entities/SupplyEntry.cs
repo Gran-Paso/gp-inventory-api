@@ -6,12 +6,11 @@ namespace GPInventory.Domain.Entities;
 public class SupplyEntry : BaseEntity
 {
     [Required]
-    [Column(TypeName = "decimal(10,2)")]
+    [Column(TypeName = "decimal(18,4)")]
     public decimal UnitCost { get; set; }
     
     [Required]
-    [Column(TypeName = "decimal(10,2)")]
-    public decimal Amount { get; set; }
+    public int Amount { get; set; }
     
     public int ProviderId { get; set; }
     
@@ -32,7 +31,7 @@ public class SupplyEntry : BaseEntity
                       int providerId, int supplyId, int? processDoneId = null)
     {
         UnitCost = unitCost;
-        Amount = amount;
+        Amount = (int)amount; // Cast decimal to int
         ProviderId = providerId;
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;

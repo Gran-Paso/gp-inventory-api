@@ -7,10 +7,15 @@ public class ProcessDone : BaseEntity
 {
     public int ProcessId { get; set; }
     
-    public int Quantity { get; set; }
+    public int Stage { get; set; } = 0; // 0 = no iniciado, 1+ = etapa actual del insumo
     
-    [Column(TypeName = "decimal(10,2)")]
-    public decimal TotalCost { get; set; }
+    public DateTime? StartDate { get; set; }
+    
+    public DateTime? EndDate { get; set; }
+    
+    public int? StockId { get; set; }
+    
+    public int Amount { get; set; }
     
     public DateTime CompletedAt { get; set; } = DateTime.UtcNow;
     
@@ -19,6 +24,7 @@ public class ProcessDone : BaseEntity
 
     // Navigation properties
     public Process Process { get; set; } = null!;
+    public Stock? Stock { get; set; }
     
     // Collection navigation properties
     public ICollection<SupplyEntry> SupplyEntries { get; set; } = new List<SupplyEntry>();
@@ -27,12 +33,15 @@ public class ProcessDone : BaseEntity
     {
     }
 
-    public ProcessDone(int processId, int quantity, decimal totalCost, 
+    public ProcessDone(int processId, int amount, int stage = 0, 
+                      DateTime? startDate = null, DateTime? endDate = null,
                       DateTime? completedAt = null, string? notes = null)
     {
         ProcessId = processId;
-        Quantity = quantity;
-        TotalCost = totalCost;
+        Amount = amount;
+        Stage = stage;
+        StartDate = startDate;
+        EndDate = endDate;
         CompletedAt = completedAt ?? DateTime.UtcNow;
         Notes = notes;
     }

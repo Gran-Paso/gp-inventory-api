@@ -5,6 +5,7 @@ namespace GPInventory.Application.Interfaces;
 public interface ISupplyEntryRepository
 {
     Task<IEnumerable<SupplyEntry>> GetAllAsync();
+    Task<IEnumerable<SupplyEntry>> GetAllWithDetailsAsync();
     Task<SupplyEntry?> GetByIdAsync(int id);
     Task<IEnumerable<SupplyEntry>> GetBySupplyIdAsync(int supplyId);
     Task<IEnumerable<SupplyEntry>> GetByProcessDoneIdAsync(int processDoneId);

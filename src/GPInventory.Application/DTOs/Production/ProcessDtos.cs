@@ -86,8 +86,11 @@ public class ProcessDoneDto
 {
     public int Id { get; set; }
     public int ProcessId { get; set; }
-    public int Quantity { get; set; }
-    public decimal TotalCost { get; set; }
+    public int Stage { get; set; }
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public int? StockId { get; set; }
+    public int Amount { get; set; }
     public DateTime CompletedAt { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -102,7 +105,10 @@ public class ProcessDoneDto
 public class CreateProcessDoneDto
 {
     public int ProcessId { get; set; }
-    public int Quantity { get; set; }
+    public int Amount { get; set; }
+    public int Stage { get; set; } = 0;
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
     public string? Notes { get; set; }
     public List<CreateSupplyUsageDto> SupplyUsages { get; set; } = new();
 }
@@ -121,5 +127,5 @@ public class CreateSupplyUsageDto
 {
     public int SupplyId { get; set; }
     public decimal QuantityUsed { get; set; }
-    public decimal UnitCost { get; set; }
+    public decimal UnitCost { get; set; } = 0;
 }

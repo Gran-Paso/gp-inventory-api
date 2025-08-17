@@ -8,5 +8,8 @@ public interface IProcessDoneService
     Task<IEnumerable<ProcessDoneDto>> GetAllProcessDonesAsync();
     Task<IEnumerable<ProcessDoneDto>> GetProcessDonesByProcessIdAsync(int processId);
     Task<ProcessDoneDto> CreateProcessDoneAsync(CreateProcessDoneDto createProcessDoneDto);
+    Task<ProcessDoneDto> UpdateProcessDoneStageAsync(int id, int stage);
+    Task<ProcessDoneDto> UpdateProcessDoneAmountAsync(int id, int amount, bool isLastSupply = false);
+    Task<ProcessDoneDto> AddSupplyEntryAsync(int processDoneId, CreateSupplyUsageDto supplyUsage);
     Task DeleteProcessDoneAsync(int id);
 }
