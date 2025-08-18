@@ -1,12 +1,14 @@
 using GPInventory.Application.DTOs.Auth;
 using GPInventory.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GPInventory.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableCors("AllowFrontend")]
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
@@ -16,6 +18,12 @@ public class AuthController : ControllerBase
     {
         _authService = authService;
         _logger = logger;
+    }
+
+    [HttpGet("cors-test")]
+    public IActionResult CorsTest()
+    {
+        return Ok(new { message = "CORS is working!", timestamp = DateTime.UtcNow });
     }
 
     [HttpPost("login")]

@@ -61,9 +61,9 @@ builder.Services.AddSwaggerGen(c =>
 // Add CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", builder =>
+    options.AddPolicy("AllowFrontend", policy =>
     {
-        builder.WithOrigins(
+        policy.WithOrigins(
                 "http://localhost:5173", 
                 "http://localhost:5174",  // GP Factory
                 "http://localhost:3000", 
@@ -77,13 +77,14 @@ builder.Services.AddCors(options =>
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
-               .AllowCredentials();
+               .AllowCredentials()
+               .SetPreflightMaxAge(TimeSpan.FromMinutes(30)); // Cache preflight requests
     });
     
     // Política más permisiva para desarrollo
-    options.AddPolicy("AllowAll", builder =>
+    options.AddPolicy("AllowAll", policy =>
     {
-        builder.AllowAnyOrigin()
+        policy.AllowAnyOrigin()
                .AllowAnyHeader()
                .AllowAnyMethod();
     });
@@ -176,15 +177,39 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Add logging middleware para debug de CORS
+app.Use(async (context, next) =>
+{
+    var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    
+    // Log request details for CORS debugging
+    if (context.Request.Method == "OPTIONS")
+    {
+        var origin = context.Request.Headers["Origin"].ToString();
+        logger.LogInformation("CORS Preflight request from origin: {Origin}", origin);
+        logger.LogInformation("Request headers: {Headers}", string.Join(", ", context.Request.Headers.Keys));
+    }
+    
+    await next();
+    
+    // Log response headers for CORS debugging
+    if (context.Request.Method == "OPTIONS")
+    {
+        logger.LogInformation("CORS Response headers: {Headers}", 
+            string.Join(", ", context.Response.Headers.Where(h => h.Key.StartsWith("Access-Control")).Select(h => $"{h.Key}: {h.Value}")));
+    }
+});
+
 // Add error handling middleware
 app.UseMiddleware<ErrorHandlingMiddleware>();
+
+// CORS debe ir lo más arriba posible en el pipeline
+app.UseCors("AllowFrontend");
 
 app.UseHttpsRedirection();
 
 // Configure static files middleware for serving uploaded images
 app.UseStaticFiles();
-
-app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
