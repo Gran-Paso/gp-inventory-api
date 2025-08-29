@@ -68,12 +68,15 @@ builder.Services.AddCors(options =>
                 "http://localhost:5174",  // GP Factory
                 "http://localhost:3000", 
                 "http://localhost:3002",  // GP Expenses
+                "http://localhost:5175",  // Gran Paso website dev
                 "https://localhost:5001", 
                 "https://localhost:5173", 
                 "http://localhost:5000",
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
-                "https://factory.granpasochile.cl"     // GP Factory producción
+                "https://factory.granpasochile.cl",    // GP Factory producción
+                "https://granpasochile.cl",            // Gran Paso website producción
+                "https://www.granpasochile.cl"         // Gran Paso website producción con www
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
@@ -151,6 +154,9 @@ builder.Services.AddScoped<IProcessDoneRepository, ProcessDoneRepository>();
 builder.Services.AddScoped<IUnitMeasureRepository, UnitMeasureRepository>();
 builder.Services.AddScoped<ISupplyEntryRepository, SupplyEntryRepository>();
 
+// Gran Paso repositories
+builder.Services.AddScoped<IProspectRepository, ProspectRepository>();
+
 // Application services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
@@ -167,6 +173,9 @@ builder.Services.AddScoped<IProcessService, ProcessService>();
 builder.Services.AddScoped<IProcessDoneService, ProcessDoneService>();
 builder.Services.AddScoped<IUnitMeasureService, UnitMeasureService>();
 builder.Services.AddScoped<ISupplyEntryService, SupplyEntryService>();
+
+// Gran Paso services
+builder.Services.AddScoped<IProspectService, ProspectService>();
 
 var app = builder.Build();
 

@@ -39,18 +39,35 @@ public class ApplicationDbContext : DbContext
     public DbSet<UnitMeasure> UnitMeasures { get; set; }
     public DbSet<TimeUnit> TimeUnits { get; set; }
     public DbSet<Process> Processes { get; set; }
+    public DbSet<ProcessSupply> ProcessSupplies { get; set; }
+    public DbSet<ProcessDone> ProcessDones { get; set; }
+    
+    // Gran Paso entities
+    public DbSet<Prospect> Prospects { get; set; }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Configure basic conventions
         base.ConfigureConventions(configurationBuilder);
     }
-    public DbSet<ProcessSupply> ProcessSupplies { get; set; }
-    public DbSet<ProcessDone> ProcessDones { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        
+        // Configure Prospect entity to use singular table name
+        modelBuilder.Entity<Prospect>(entity =>
+        {
+            entity.ToTable("prospect");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255).IsRequired();
+            entity.Property(e => e.Mail).HasColumnName("mail").HasMaxLength(255).IsRequired();
+            entity.Property(e => e.Contact).HasColumnName("contact").HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Enterprise).HasColumnName("enterprise").HasMaxLength(255);
+            entity.Property(e => e.Description).HasColumnName("description").HasColumnType("TEXT").IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+        });
         
         // Configure all entities explicitly before applying configurations
         modelBuilder.Entity<SupplyEntry>(entity =>
