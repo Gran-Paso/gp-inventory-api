@@ -13,5 +13,5 @@ public interface IProcessService
     Task<ProcessDto> UpdateProcessAsync(int id, UpdateProcessDto updateProcessDto);
     Task DeleteProcessAsync(int id);
     Task<ProcessDto> DeactivateProcessAsync(int id);
-    Task<IEnumerable<ProcessDto>> GetProcessesWithDetailsAsync(int[]? storeIds = null);
+    Task<IEnumerable<ProcessDto>> GetProcessesWithDetailsAsync(int[]? storeIds = null, int? businessId = null);
 }

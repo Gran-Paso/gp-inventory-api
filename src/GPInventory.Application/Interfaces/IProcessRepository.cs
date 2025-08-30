@@ -14,5 +14,5 @@ public interface IProcessRepository
     Task<Process> UpdateAsync(Process process);
     Task DeleteAsync(int id);
     Task<bool> ExistsAsync(int id);
-    Task<IEnumerable<Process>> GetProcessesWithDetailsAsync(int[]? storeIds = null);
+    Task<IEnumerable<Process>> GetProcessesWithDetailsAsync(int[]? storeIds = null, int? businessId = null);
 }

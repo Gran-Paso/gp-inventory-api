@@ -96,11 +96,11 @@ public class SupplyEntriesController : ControllerBase
     }
 
     [HttpGet("stocks")]
-    public async Task<ActionResult<IEnumerable<SupplyStockDto>>> GetAllSupplyStocks()
+    public async Task<ActionResult<IEnumerable<SupplyStockDto>>> GetAllSupplyStocks([FromQuery] int? businessId = null)
     {
         try
         {
-            var stocks = await _supplyEntryService.GetAllSupplyStocksAsync();
+            var stocks = await _supplyEntryService.GetAllSupplyStocksAsync(businessId);
             return Ok(stocks);
         }
         catch (Exception ex)

@@ -152,9 +152,9 @@ public class ProcessService : IProcessService
         return MapToDto(process);
     }
 
-    public async Task<IEnumerable<ProcessDto>> GetProcessesWithDetailsAsync(int[]? storeIds = null)
+    public async Task<IEnumerable<ProcessDto>> GetProcessesWithDetailsAsync(int[]? storeIds = null, int? businessId = null)
     {
-        var processes = await _processRepository.GetProcessesWithDetailsAsync(storeIds);
+        var processes = await _processRepository.GetProcessesWithDetailsAsync(storeIds, businessId);
         return processes.Select(MapToDto);
     }
 

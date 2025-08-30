@@ -20,11 +20,11 @@ public class ProcessesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ProcessDto>>> GetProcesses([FromQuery] int[]? storeIds = null)
+    public async Task<ActionResult<IEnumerable<ProcessDto>>> GetProcesses([FromQuery] int[]? storeIds = null, [FromQuery] int? businessId = null)
     {
         try
         {
-            var processes = await _processService.GetProcessesWithDetailsAsync(storeIds);
+            var processes = await _processService.GetProcessesWithDetailsAsync(storeIds, businessId);
             return Ok(processes);
         }
         catch (Exception ex)

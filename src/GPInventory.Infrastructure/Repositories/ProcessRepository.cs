@@ -94,7 +94,7 @@ public class ProcessRepository : IProcessRepository
         return await _context.Processes.AnyAsync(p => p.Id == id);
     }
 
-    public async Task<IEnumerable<Process>> GetProcessesWithDetailsAsync(int[]? storeIds = null)
+    public async Task<IEnumerable<Process>> GetProcessesWithDetailsAsync(int[]? storeIds = null, int? businessId = null)
     {
         var query = _context.Processes
             .Include(p => p.Product)
@@ -107,6 +107,11 @@ public class ProcessRepository : IProcessRepository
         if (storeIds != null && storeIds.Length > 0)
         {
             query = query.Where(p => storeIds.Contains(p.StoreId));
+        }
+
+        if (businessId.HasValue)
+        {
+            query = query.Where(p => p.Store.BusinessId == businessId.Value);
         }
 
         return await query.ToListAsync();

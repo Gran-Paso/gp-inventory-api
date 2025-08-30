@@ -93,10 +93,14 @@ public class SupplyEntryService : ISupplyEntryService
         };
     }
 
-    public async Task<IEnumerable<SupplyStockDto>> GetAllSupplyStocksAsync()
+    public async Task<IEnumerable<SupplyStockDto>> GetAllSupplyStocksAsync(int? businessId = null)
     {
         // Load all supplies and all supply entries in separate queries to avoid connection conflicts
-        var supplies = await _supplyRepository.GetAllAsync();
+        var allSupplies = await _supplyRepository.GetAllAsync();
+        var supplies = businessId.HasValue 
+            ? allSupplies.Where(s => s.BusinessId == businessId.Value)
+            : allSupplies;
+            
         var allSupplyEntries = await _repository.GetAllAsync();
         var unitMeasures = await _unitMeasureRepository.GetAllAsync();
 
