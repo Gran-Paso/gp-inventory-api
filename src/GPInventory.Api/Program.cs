@@ -5,6 +5,7 @@ using GPInventory.Infrastructure.Data;
 using GPInventory.Infrastructure.Repositories;
 using GPInventory.Infrastructure.Services;
 using GPInventory.Api.Middleware;
+using GPInventory.Api.Converters;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -19,6 +20,11 @@ builder.Services.AddControllers()
         // Configure JSON to handle camelCase from frontend
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        
+        // Add custom DateTime converters to preserve local time
+        options.JsonSerializerOptions.Converters.Add(new LocalDateTimeConverter());
+        options.JsonSerializerOptions.Converters.Add(new LocalDateTimeConverterNonNullable());
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 
@@ -65,9 +71,12 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 "http://localhost:5173", 
-                "http://localhost:5174",  // GP Factory
-                "http://localhost:3000", 
+                "http://localhost:5174",  // GP Factory old
+                "http://localhost:3000",  // Gran Paso main
+                "http://localhost:3001",  // GP Factory
                 "http://localhost:3002",  // GP Expenses
+                "http://localhost:3003",  // GP Inventory  
+                "http://localhost:3004",  // GP Auth
                 "http://localhost:5175",  // Gran Paso website dev
                 "https://localhost:5001", 
                 "https://localhost:5173", 
@@ -75,6 +84,7 @@ builder.Services.AddCors(options =>
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
                 "https://factory.granpasochile.cl",    // GP Factory producción
+                "https://auth.granpasochile.cl",       // GP Auth producción
                 "https://granpasochile.cl",            // Gran Paso website producción
                 "https://www.granpasochile.cl"         // Gran Paso website producción con www
                )

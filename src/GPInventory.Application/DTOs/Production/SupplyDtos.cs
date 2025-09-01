@@ -44,11 +44,17 @@ public class SupplyDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     
+    // Stock information
+    public int CurrentStock { get; set; } = 0;
+    
     // Navigation properties
     public UnitMeasureDto? UnitMeasure { get; set; }
     public FixedExpenseDto? FixedExpense { get; set; }
     public BusinessDto? Business { get; set; }
     public StoreDto? Store { get; set; }
+    
+    // Collection properties
+    public ICollection<SupplyEntryDto> SupplyEntries { get; set; } = new List<SupplyEntryDto>();
 }
 
 public class UpdateSupplyDto

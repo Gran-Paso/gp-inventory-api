@@ -158,8 +158,17 @@ public class SupplyService : ISupplyService
             StoreId = supply.StoreId,
             CreatedAt = supply.CreatedAt,
             UpdatedAt = supply.UpdatedAt,
+            
+            // Calculate current stock from SupplyEntries
+            CurrentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0,
+            
             // Navigation properties - only include if loaded
-            UnitMeasure = null, // Will be loaded separately if needed
+            UnitMeasure = supply.UnitMeasure != null ? new UnitMeasureDto
+            {
+                Id = supply.UnitMeasure.Id,
+                Name = supply.UnitMeasure.Name,
+                Symbol = supply.UnitMeasure.Symbol
+            } : null,
             FixedExpense = supply.FixedExpense != null ? new FixedExpenseDto
             {
                 Id = supply.FixedExpense.Id,
@@ -175,7 +184,26 @@ public class SupplyService : ISupplyService
             {
                 Id = supply.Store.Id,
                 Name = supply.Store.Name ?? string.Empty
-            } : null
+            } : null,
+            // SupplyEntries - map without circular reference to Supply
+            SupplyEntries = supply.SupplyEntries?.Select(se => new SupplyEntryDto
+            {
+                Id = se.Id,
+                UnitCost = se.UnitCost,
+                Amount = (decimal)se.Amount,
+                ProviderId = se.ProviderId,
+                SupplyId = se.SupplyId,
+                ProcessDoneId = se.ProcessDoneId,
+                CreatedAt = se.CreatedAt,
+                UpdatedAt = se.UpdatedAt,
+                // Don't include Supply to avoid circular reference
+                Provider = se.Provider != null ? new ProviderDto
+                {
+                    Id = se.Provider.Id,
+                    Name = se.Provider.Name,
+                    StoreId = se.Provider.StoreId
+                } : null
+            }).ToList() ?? new List<SupplyEntryDto>()
         };
     }
 }

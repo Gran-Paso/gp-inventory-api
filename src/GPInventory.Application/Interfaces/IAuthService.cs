@@ -9,6 +9,8 @@ public interface IAuthService
     Task<bool> ValidateTokenAsync(string token);
     Task<UserDto?> GetUserByEmailAsync(string email);
     Task<AuthResponseDto> ResetPasswordAsync(ResetPasswordDto resetDto);
+    Task<AuthResponseDto> RefreshTokenAsync(RefreshTokenDto refreshDto);
+    Task LogoutAsync(string userEmail, string? clientApp = null);
 }
 
 public interface ITokenService

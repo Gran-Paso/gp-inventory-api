@@ -61,11 +61,11 @@ public class SupplyEntryService : ISupplyEntryService
         var supplyEntries = await _repository.GetBySupplyIdAsync(supplyId);
         
         // Calculate stock based on ProcessDoneId
-        // Entradas: process_done_id IS NULL (incoming stock)
-        // Salidas: process_done_id IS NOT NULL (outgoing stock used in processes)
+        // Entradas: process_done_id IS NULL (incoming stock) - amounts positivos
+        // Salidas: process_done_id IS NOT NULL (outgoing stock used in processes) - amounts negativos
         var totalIncoming = supplyEntries.Where(se => se.ProcessDoneId == null).Sum(se => (decimal)se.Amount);
         var totalOutgoing = supplyEntries.Where(se => se.ProcessDoneId != null).Sum(se => (decimal)se.Amount);
-        var currentStock = totalIncoming - totalOutgoing;
+        var currentStock = totalIncoming + totalOutgoing; // totalOutgoing ya incluye valores negativos
         
         // Get unit measure separately to avoid EF Core auto-detection issues
         UnitMeasure? unitMeasure = null;
@@ -115,11 +115,11 @@ public class SupplyEntryService : ISupplyEntryService
             var unitMeasure = unitMeasures.FirstOrDefault(um => um.Id == supply.UnitMeasureId);
             
             // Calculate values based on ProcessDoneId
-            // Entradas: process_done_id IS NULL (incoming stock)
-            // Salidas: process_done_id IS NOT NULL (outgoing stock used in processes)
+            // Entradas: process_done_id IS NULL (incoming stock) - amounts positivos
+            // Salidas: process_done_id IS NOT NULL (outgoing stock used in processes) - amounts negativos
             var totalIncoming = supplyEntries.Where(se => se.ProcessDoneId == null).Sum(se => (decimal)se.Amount);
             var totalOutgoing = supplyEntries.Where(se => se.ProcessDoneId != null).Sum(se => (decimal)se.Amount);
-            var currentStock = totalIncoming - totalOutgoing;
+            var currentStock = totalIncoming + totalOutgoing; // totalOutgoing ya incluye valores negativos
 
             stockList.Add(new SupplyStockDto
             {
@@ -129,7 +129,7 @@ public class SupplyEntryService : ISupplyEntryService
                 UnitMeasureName = unitMeasure?.Name ?? "Unknown",
                 UnitMeasureSymbol = unitMeasure?.Symbol,
                 TotalIncoming = totalIncoming,
-                TotalOutgoing = totalOutgoing
+                TotalOutgoing = Math.Abs(totalOutgoing) // Mostrar valor absoluto para la UI
             });
         }
 

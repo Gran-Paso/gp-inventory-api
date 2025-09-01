@@ -254,7 +254,7 @@ public class FactoryAnalyticsController : ControllerBase
     {
         var entries = supplyEntries.Where(se => se.SupplyId == supply.Id);
         var incoming = entries.Where(se => se.ProcessDoneId == null).Sum(se => se.Amount);
-        var outgoing = entries.Where(se => se.ProcessDoneId != null).Sum(se => se.Amount);
+        var outgoing = Math.Abs(entries.Where(se => se.ProcessDoneId != null).Sum(se => se.Amount));
         return incoming - outgoing;
     }
 

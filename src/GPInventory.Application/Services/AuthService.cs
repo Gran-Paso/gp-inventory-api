@@ -2,6 +2,7 @@ using AutoMapper;
 using GPInventory.Application.DTOs.Auth;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
+using System.Security.Cryptography;
 
 namespace GPInventory.Application.Services;
 
@@ -58,8 +59,11 @@ public class AuthService : IAuthService
 
         return new AuthResponseDto
         {
-            Token = token,
-            User = userDto
+            AccessToken = token,
+            RefreshToken = "", // Se generará en el controller
+            ExpiresAt = DateTime.UtcNow.AddHours(8),
+            User = userDto,
+            Permissions = new List<string>()
         };
     }
 
@@ -94,8 +98,11 @@ public class AuthService : IAuthService
 
         return new AuthResponseDto
         {
-            Token = token,
-            User = userDto
+            AccessToken = token,
+            RefreshToken = "", // Se generará en el controller
+            ExpiresAt = DateTime.UtcNow.AddHours(8),
+            User = userDto,
+            Permissions = new List<string>()
         };
     }
 
@@ -130,8 +137,25 @@ public class AuthService : IAuthService
 
         return new AuthResponseDto
         {
-            Token = token,
-            User = userDto
+            AccessToken = token,
+            RefreshToken = "", // Se generará en el controller
+            ExpiresAt = DateTime.UtcNow.AddHours(8),
+            User = userDto,
+            Permissions = new List<string>()
         };
+    }
+
+    public Task<AuthResponseDto> RefreshTokenAsync(RefreshTokenDto refreshDto)
+    {
+        // Por ahora, implementación básica que retorna error
+        // Se debe implementar con lógica de refresh tokens cuando se agregue el repositorio
+        throw new UnauthorizedAccessException("Refresh token functionality not implemented yet");
+    }
+
+    public Task LogoutAsync(string userEmail, string? clientApp = null)
+    {
+        // Por ahora, implementación básica
+        // Se debe implementar con lógica de revocación de tokens cuando se agregue el repositorio
+        return Task.CompletedTask;
     }
 }

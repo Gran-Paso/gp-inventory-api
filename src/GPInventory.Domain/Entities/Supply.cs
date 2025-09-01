@@ -22,10 +22,10 @@ public class Supply : BaseEntity
     public int StoreId { get; set; }
 
     // Navigation properties
-    // public UnitMeasure UnitMeasure { get; set; } = null!; // Temporarily removed to fix EF Core issue
+    public UnitMeasure? UnitMeasure { get; set; }
     public FixedExpense? FixedExpense { get; set; }
-    public Business Business { get; set; } = null!;
-    public Store Store { get; set; } = null!;
+    public Business? Business { get; set; }
+    public Store? Store { get; set; }
     
     // Collection navigation properties
     public ICollection<SupplyEntry> SupplyEntries { get; set; } = new List<SupplyEntry>();

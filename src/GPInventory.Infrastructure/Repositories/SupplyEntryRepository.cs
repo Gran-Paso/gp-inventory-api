@@ -50,39 +50,149 @@ public class SupplyEntryRepository : ISupplyEntryRepository
 
     public async Task<IEnumerable<SupplyEntry>> GetAllWithDetailsAsync()
     {
-        return await _context.SupplyEntries
-            .Include(se => se.Provider)
-            .Include(se => se.Supply)
-            .Include(se => se.ProcessDone)
-            .OrderByDescending(se => se.CreatedAt)
-            .ToListAsync();
+        // Use ADO.NET directly to bypass EF Core navigation issues
+        using var command = _context.Database.GetDbConnection().CreateCommand();
+        command.CommandText = @"
+            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            FROM supply_entry 
+            ORDER BY created_at DESC";
+        
+        await _context.Database.OpenConnectionAsync();
+        
+        var results = new List<SupplyEntry>();
+        using var reader = await command.ExecuteReaderAsync();
+        
+        while (await reader.ReadAsync())
+        {
+            var supplyEntry = new SupplyEntry
+            {
+                Id = reader.GetInt32(0), // id
+                Amount = reader.GetInt32(1), // amount
+                CreatedAt = reader.GetDateTime(2), // created_at
+                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
+                ProviderId = reader.GetInt32(4), // provider_id
+                SupplyId = reader.GetInt32(5), // supply_id
+                UnitCost = reader.GetInt32(6), // unit_cost
+                UpdatedAt = reader.GetDateTime(7) // updated_at
+            };
+            results.Add(supplyEntry);
+        }
+        
+        return results;
     }
 
     public async Task<SupplyEntry?> GetByIdAsync(int id)
     {
-        return await _context.SupplyEntries
-            .Include(se => se.Provider)
-            .Include(se => se.Supply)
-            .Include(se => se.ProcessDone)
-            .FirstOrDefaultAsync(se => se.Id == id);
+        // Use ADO.NET directly to bypass EF Core navigation issues
+        using var command = _context.Database.GetDbConnection().CreateCommand();
+        command.CommandText = @"
+            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            FROM supply_entry 
+            WHERE id = @id";
+        
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@id";
+        parameter.Value = id;
+        command.Parameters.Add(parameter);
+        
+        await _context.Database.OpenConnectionAsync();
+        
+        using var reader = await command.ExecuteReaderAsync();
+        
+        if (await reader.ReadAsync())
+        {
+            return new SupplyEntry
+            {
+                Id = reader.GetInt32(0), // id
+                Amount = reader.GetInt32(1), // amount
+                CreatedAt = reader.GetDateTime(2), // created_at
+                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
+                ProviderId = reader.GetInt32(4), // provider_id
+                SupplyId = reader.GetInt32(5), // supply_id
+                UnitCost = reader.GetInt32(6), // unit_cost
+                UpdatedAt = reader.GetDateTime(7) // updated_at
+            };
+        }
+        
+        return null;
     }
 
     public async Task<IEnumerable<SupplyEntry>> GetBySupplyIdAsync(int supplyId)
     {
-        return await _context.SupplyEntries
-            .Where(se => se.SupplyId == supplyId)
-            .OrderByDescending(se => se.CreatedAt)
-            .ToListAsync();
+        // Use ADO.NET directly to bypass EF Core navigation issues
+        using var command = _context.Database.GetDbConnection().CreateCommand();
+        command.CommandText = @"
+            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            FROM supply_entry 
+            WHERE supply_id = @supplyId
+            ORDER BY created_at DESC";
+        
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@supplyId";
+        parameter.Value = supplyId;
+        command.Parameters.Add(parameter);
+        
+        await _context.Database.OpenConnectionAsync();
+        
+        var results = new List<SupplyEntry>();
+        using var reader = await command.ExecuteReaderAsync();
+        
+        while (await reader.ReadAsync())
+        {
+            var supplyEntry = new SupplyEntry
+            {
+                Id = reader.GetInt32(0), // id
+                Amount = reader.GetInt32(1), // amount
+                CreatedAt = reader.GetDateTime(2), // created_at
+                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
+                ProviderId = reader.GetInt32(4), // provider_id
+                SupplyId = reader.GetInt32(5), // supply_id
+                UnitCost = reader.GetInt32(6), // unit_cost
+                UpdatedAt = reader.GetDateTime(7) // updated_at
+            };
+            results.Add(supplyEntry);
+        }
+        
+        return results;
     }
 
     public async Task<IEnumerable<SupplyEntry>> GetByProcessDoneIdAsync(int processDoneId)
     {
-        return await _context.SupplyEntries
-            .Include(se => se.Provider)
-            .Include(se => se.Supply)
-            .Where(se => se.ProcessDoneId == processDoneId)
-            .OrderByDescending(se => se.CreatedAt)
-            .ToListAsync();
+        // Use ADO.NET directly to bypass EF Core navigation issues
+        using var command = _context.Database.GetDbConnection().CreateCommand();
+        command.CommandText = @"
+            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            FROM supply_entry 
+            WHERE process_done_id = @processDoneId
+            ORDER BY created_at DESC";
+        
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@processDoneId";
+        parameter.Value = processDoneId;
+        command.Parameters.Add(parameter);
+        
+        await _context.Database.OpenConnectionAsync();
+        
+        var results = new List<SupplyEntry>();
+        using var reader = await command.ExecuteReaderAsync();
+        
+        while (await reader.ReadAsync())
+        {
+            var supplyEntry = new SupplyEntry
+            {
+                Id = reader.GetInt32(0), // id
+                Amount = reader.GetInt32(1), // amount
+                CreatedAt = reader.GetDateTime(2), // created_at
+                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
+                ProviderId = reader.GetInt32(4), // provider_id
+                SupplyId = reader.GetInt32(5), // supply_id
+                UnitCost = reader.GetInt32(6), // unit_cost
+                UpdatedAt = reader.GetDateTime(7) // updated_at
+            };
+            results.Add(supplyEntry);
+        }
+        
+        return results;
     }
 
     public async Task<decimal> GetCurrentStockAsync(int supplyId)
@@ -107,8 +217,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         if (await reader.ReadAsync())
         {
             var totalIncoming = reader.GetInt32(0); // total_incoming
-            var totalOutgoing = reader.GetInt32(1); // total_outgoing
-            return totalIncoming - totalOutgoing;
+            var totalOutgoing = reader.GetInt32(1); // total_outgoing (ya incluye valores negativos)
+            return totalIncoming + totalOutgoing; // sumar porque totalOutgoing ya es negativo
         }
         
         return 0;
@@ -149,22 +259,50 @@ public class SupplyEntryRepository : ISupplyEntryRepository
 
     public async Task<SupplyEntry> UpdateAsync(SupplyEntry supplyEntry)
     {
-        supplyEntry.UpdatedAt = DateTime.UtcNow;
+        // Use ADO.NET to avoid EF Core auto-mapping issues
+        var connectionString = _context.Database.GetConnectionString();
+        using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
         
-        _context.SupplyEntries.Update(supplyEntry);
-        await _context.SaveChangesAsync();
+        var query = @"
+            UPDATE supply_entry 
+            SET unit_cost = @unitCost, 
+                amount = @amount, 
+                provider_id = @providerId, 
+                supply_id = @supplyId, 
+                process_done_id = @processDoneId, 
+                updated_at = @updatedAt
+            WHERE id = @id";
         
-        return await GetByIdAsync(supplyEntry.Id) ?? supplyEntry;
+        using var command = new MySqlCommand(query, connection);
+        
+        var now = DateTime.UtcNow;
+        command.Parameters.AddWithValue("@id", supplyEntry.Id);
+        command.Parameters.AddWithValue("@unitCost", supplyEntry.UnitCost);
+        command.Parameters.AddWithValue("@amount", supplyEntry.Amount);
+        command.Parameters.AddWithValue("@providerId", supplyEntry.ProviderId);
+        command.Parameters.AddWithValue("@supplyId", supplyEntry.SupplyId);
+        command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
+        command.Parameters.AddWithValue("@updatedAt", now);
+        
+        await command.ExecuteNonQueryAsync();
+        
+        supplyEntry.UpdatedAt = now;
+        return supplyEntry;
     }
 
     public async Task DeleteAsync(int id)
     {
-        var supplyEntry = await _context.SupplyEntries.FindAsync(id);
-        if (supplyEntry != null)
-        {
-            _context.SupplyEntries.Remove(supplyEntry);
-            await _context.SaveChangesAsync();
-        }
+        // Use ADO.NET to avoid EF Core auto-mapping issues
+        var connectionString = _context.Database.GetConnectionString();
+        using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        var query = "DELETE FROM supply_entry WHERE id = @id";
+        using var command = new MySqlCommand(query, connection);
+        command.Parameters.AddWithValue("@id", id);
+        
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task<IEnumerable<SupplyEntry>> GetSupplyHistoryAsync(int supplyId)

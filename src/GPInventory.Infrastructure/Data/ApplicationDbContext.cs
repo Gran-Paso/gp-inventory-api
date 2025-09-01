@@ -14,6 +14,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Business> Businesses { get; set; }
     public DbSet<Role> Roles { get; set; }
     public DbSet<UserHasBusiness> UserHasBusinesses { get; set; }
+    public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<Product> Products { get; set; }
     public DbSet<ProductType> ProductTypes { get; set; }
     public DbSet<Stock> Stocks { get; set; }
@@ -269,6 +270,10 @@ public class ApplicationDbContext : DbContext
                 .HasForeignKey(e => e.FixedExpenseId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // Explicitly ignore any automatic UnitMeasure navigation property
+            // to prevent EF from generating UnitMeasureId1 columns
+            entity.Ignore("UnitMeasure");
+            
             // Temporarily removed UnitMeasure navigation to fix EF Core issue
             // entity.HasOne(e => e.UnitMeasure)
             //     .WithMany()
