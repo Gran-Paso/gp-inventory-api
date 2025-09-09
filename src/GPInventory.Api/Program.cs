@@ -71,7 +71,7 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 "http://localhost:5173", 
-                "http://localhost:5174",  // GP Factory old
+                "http://localhost:5174",  // GP Factory - Puerto específico
                 "http://localhost:3000",  // Gran Paso main
                 "http://localhost:3001",  // GP Factory
                 "http://localhost:3002",  // GP Expenses
@@ -79,7 +79,8 @@ builder.Services.AddCors(options =>
                 "http://localhost:3004",  // GP Auth
                 "http://localhost:5175",  // Gran Paso website dev
                 "https://localhost:5001", 
-                "https://localhost:5173", 
+                "https://localhost:5173",
+                "https://localhost:5174", // GP Factory HTTPS
                 "http://localhost:5000",
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
@@ -201,12 +202,18 @@ app.Use(async (context, next) =>
 {
     var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
     
+    // Log ALL requests with origin information
+    var origin = context.Request.Headers["Origin"].ToString();
+    var method = context.Request.Method;
+    var path = context.Request.Path;
+    
+    logger.LogInformation("🌐 Request: {Method} {Path} from Origin: '{Origin}'", method, path, origin);
+    
     // Log request details for CORS debugging
     if (context.Request.Method == "OPTIONS")
     {
-        var origin = context.Request.Headers["Origin"].ToString();
-        logger.LogInformation("CORS Preflight request from origin: {Origin}", origin);
-        logger.LogInformation("Request headers: {Headers}", string.Join(", ", context.Request.Headers.Keys));
+        logger.LogInformation("🔍 CORS Preflight request from origin: {Origin}", origin);
+        logger.LogInformation("📋 Request headers: {Headers}", string.Join(", ", context.Request.Headers.Keys));
     }
     
     await next();
@@ -214,9 +221,11 @@ app.Use(async (context, next) =>
     // Log response headers for CORS debugging
     if (context.Request.Method == "OPTIONS")
     {
-        logger.LogInformation("CORS Response headers: {Headers}", 
+        logger.LogInformation("✅ CORS Response headers: {Headers}", 
             string.Join(", ", context.Response.Headers.Where(h => h.Key.StartsWith("Access-Control")).Select(h => $"{h.Key}: {h.Value}")));
     }
+    
+    logger.LogInformation("📤 Response: {StatusCode} for {Method} {Path}", context.Response.StatusCode, method, path);
 });
 
 // Add error handling middleware

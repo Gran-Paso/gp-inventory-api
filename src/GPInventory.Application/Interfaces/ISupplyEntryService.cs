@@ -13,5 +13,5 @@ public interface ISupplyEntryService
     Task<SupplyEntryDto> CreateAsync(CreateSupplyEntryDto createDto);
     Task<SupplyEntryDto> UpdateAsync(int id, UpdateSupplyEntryDto updateDto);
     Task DeleteAsync(int id);
-    Task<IEnumerable<SupplyEntryDto>> GetSupplyHistoryAsync(int supplyId);
+    Task<IEnumerable<SupplyEntryDto>> GetSupplyHistoryAsync(int supplyEntryId, int supplyId);
 }

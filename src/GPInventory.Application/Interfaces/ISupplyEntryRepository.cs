@@ -13,5 +13,7 @@ public interface ISupplyEntryRepository
     Task<SupplyEntry> CreateAsync(SupplyEntry supplyEntry);
     Task<SupplyEntry> UpdateAsync(SupplyEntry supplyEntry);
     Task DeleteAsync(int id);
-    Task<IEnumerable<SupplyEntry>> GetSupplyHistoryAsync(int supplyId);
+    Task<IEnumerable<SupplyEntry>> GetSupplyHistoryAsync(int? supplyEntryId, int supplyId);
+
+    Task<SupplyEntry?> GetFirstEntryBySupplyIdAsync(int supplyId);
 }

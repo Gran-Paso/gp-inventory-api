@@ -110,11 +110,11 @@ public class SupplyEntriesController : ControllerBase
     }
 
     [HttpGet("history/{supplyId}")]
-    public async Task<ActionResult<IEnumerable<SupplyEntryDto>>> GetSupplyHistory(int supplyId)
+    public async Task<ActionResult<IEnumerable<SupplyEntryDto>>> GetSupplyHistory(int supplyId, [FromQuery] int supplyEntryId)
     {
         try
         {
-            var history = await _supplyEntryService.GetSupplyHistoryAsync(supplyId);
+            var history = await _supplyEntryService.GetSupplyHistoryAsync(supplyEntryId, supplyId);
             return Ok(history);
         }
         catch (Exception ex)

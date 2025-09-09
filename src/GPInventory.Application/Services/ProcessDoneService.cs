@@ -60,6 +60,11 @@ public class ProcessDoneService : IProcessDoneService
 
         var createdProcessDone = await _processDoneRepository.CreateAsync(processDone);
 
+        foreach (var supplyUsage in createProcessDoneDto.SupplyUsages)
+        {
+            var lastSupplyEntry = await _supplyEntryRepository.GetFirstEntryBySupplyIdAsync(supplyUsage.SupplyId);
+        }
+
         // Crear las entradas de suministros (SupplyEntry) para cada insumo utilizado
         foreach (var supplyUsage in createProcessDoneDto.SupplyUsages)
         {

@@ -274,10 +274,15 @@ public class SupplyEntryService : ISupplyEntryService
         await _repository.DeleteAsync(id);
     }
 
-    public async Task<IEnumerable<SupplyEntryDto>> GetSupplyHistoryAsync(int supplyId)
+    public async Task<IEnumerable<SupplyEntryDto>> GetSupplyHistoryAsync(int supplyEntryId, int supplyId)
     {
-        var supplyEntries = await _repository.GetSupplyHistoryAsync(supplyId);
+        var supplyEntries = await _repository.GetSupplyHistoryAsync(supplyEntryId,supplyId);
         return supplyEntries.Select(MapToDto);
+    }
+
+    public async Task<SupplyEntry?> GetFirstEntryBySupplyIdAsync(int supplyId)
+    {
+        return await _repository.GetFirstEntryBySupplyIdAsync(supplyId);
     }
 
     private static SupplyEntryDto MapToDto(SupplyEntry supplyEntry)
