@@ -232,8 +232,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         await connection.OpenAsync();
 
         var query = @"
-            INSERT INTO supply_entry (unit_cost, amount, provider_id, supply_id, process_done_id, active, created_at, updated_at)
-            VALUES (@unitCost, @amount, @providerId, @supplyId, @processDoneId, @active, @createdAt, @updatedAt);
+            INSERT INTO supply_entry (unit_cost, amount, provider_id, supply_id, process_done_id, supply_entry_id, active, created_at, updated_at)
+            VALUES (@unitCost, @amount, @providerId, @supplyId, @processDoneId, @supplyEntryId, @active, @createdAt, @updatedAt);
             SELECT LAST_INSERT_ID();";
 
         using var command = new MySqlCommand(query, connection);
@@ -244,8 +244,9 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         command.Parameters.AddWithValue("@providerId", supplyEntry.ProviderId);
         command.Parameters.AddWithValue("@supplyId", supplyEntry.SupplyId);
         command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
-        // Si es negativo (consumo), active = false; si es positivo (entrada), active = true
-        command.Parameters.AddWithValue("@active", supplyEntry.Amount > 0);
+        command.Parameters.AddWithValue("@supplyEntryId", supplyEntry.ReferenceToSupplyEntry.HasValue ? supplyEntry.ReferenceToSupplyEntry.Value : DBNull.Value); // ⭐ AUTOREFERENCIA
+        // Usar IsActive directamente de la entidad (ya configurado por el constructor)
+        command.Parameters.AddWithValue("@active", supplyEntry.IsActive);
         command.Parameters.AddWithValue("@createdAt", now);
         command.Parameters.AddWithValue("@updatedAt", now);
 
@@ -273,6 +274,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 provider_id = @providerId, 
                 supply_id = @supplyId, 
                 process_done_id = @processDoneId, 
+                supply_entry_id = @supplyEntryId,
                 active = @active,
                 updated_at = @updatedAt
             WHERE id = @id";
@@ -286,7 +288,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         command.Parameters.AddWithValue("@providerId", supplyEntry.ProviderId);
         command.Parameters.AddWithValue("@supplyId", supplyEntry.SupplyId);
         command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
-        command.Parameters.AddWithValue("@active", true); // Mantener como activo en updates
+        command.Parameters.AddWithValue("@supplyEntryId", supplyEntry.ReferenceToSupplyEntry.HasValue ? supplyEntry.ReferenceToSupplyEntry.Value : DBNull.Value); // ⭐ AUTOREFERENCIA
+        command.Parameters.AddWithValue("@active", supplyEntry.IsActive); // Usar IsActive de la entidad
         command.Parameters.AddWithValue("@updatedAt", now);
 
         await command.ExecuteNonQueryAsync();

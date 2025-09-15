@@ -52,13 +52,16 @@ public class SupplyRepository : ISupplyRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.provider_id as ProviderId, se.supply_id as SupplyId, 
-                       se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt
+                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
+                       se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt, se.active, sep.Id, sep.active as padre_active
                 FROM supply_entry se
                 LEFT JOIN process_done pd ON se.process_done_id = pd.id
-                WHERE se.supply_id = @supplyId 
-                  AND se.active = 1 
-                  AND (se.process_done_id IS NULL OR pd.active = 1)";
+                LEFT JOIN supply_entry sep ON se.supply_entry_id = sep.Id
+                WHERE se.supply_id = @supplyId
+                  AND (
+                    (se.active = 1 AND se.amount > 0) OR  
+                    (se.amount < 0 AND se.supply_entry_id IS NOT NULL AND sep.active = 1)
+                  )";;
 
             var parameter = command.CreateParameter();
             parameter.ParameterName = "@supplyId";
@@ -72,7 +75,13 @@ public class SupplyRepository : ISupplyRepository
             while (await reader.ReadAsync())
             {
                 var amount = Convert.ToInt32(reader.GetValue(2)); // se.Amount
-                totalStock += amount; // Sum all amounts to calculate total stock
+                
+                // Solo sumar al stock las entradas positivas (stock disponible)
+                // Las entradas negativas son consumos y no se suman al stock total
+                if (amount > 0)
+                {
+                    totalStock += amount;
+                }
                 
                 var supplyEntry = new SupplyEntry
                 {
@@ -81,9 +90,10 @@ public class SupplyRepository : ISupplyRepository
                     Amount = amount, // se.Amount - safe conversion
                     ProviderId = reader.GetInt32(3), // se.ProviderId
                     SupplyId = reader.GetInt32(4), // se.SupplyId
-                    ProcessDoneId = reader.IsDBNull(5) ? null : reader.GetInt32(5), // se.ProcessDoneId
-                    CreatedAt = reader.IsDBNull(6) ? DateTime.UtcNow : reader.GetDateTime(6), // se.CreatedAt
-                    UpdatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7) // se.UpdatedAt
+                    ReferenceToSupplyEntry = reader.IsDBNull(5) ? null : reader.GetInt32(5), // se.supply_entry_id
+                    ProcessDoneId = reader.IsDBNull(6) ? null : reader.GetInt32(6), // se.ProcessDoneId
+                    CreatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7), // se.CreatedAt
+                    UpdatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8) // se.UpdatedAt
                 };
 
                 supplyEntries.Add(supplyEntry);
