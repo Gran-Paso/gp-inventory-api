@@ -60,28 +60,88 @@ public class ProcessDoneService : IProcessDoneService
 
         var createdProcessDone = await _processDoneRepository.CreateAsync(processDone);
 
-        foreach (var supplyUsage in createProcessDoneDto.SupplyUsages)
-        {
-            var lastSupplyEntry = await _supplyEntryRepository.GetFirstEntryBySupplyIdAsync(supplyUsage.SupplyId);
-        }
-
-        // Crear las entradas de suministros (SupplyEntry) para cada insumo utilizado
-        foreach (var supplyUsage in createProcessDoneDto.SupplyUsages)
-        {
-            var supplyEntry = new SupplyEntry(
-                (int)supplyUsage.UnitCost,
-                -(int)supplyUsage.QuantityUsed, // Negativo porque es un consumo
-                1, // ProviderId por defecto, podríamos mejorarlo
-                supplyUsage.SupplyId,
-                createdProcessDone.Id
-            );
-
-            await _supplyEntryRepository.CreateAsync(supplyEntry);
-        }
+        // Procesar todos los insumos en una sola operación para evitar problemas de concurrencia
+        await ProcessAllSupplyConsumptionAsync(createProcessDoneDto.SupplyUsages, createdProcessDone.Id);
 
         // Recargar con detalles
         var processWithDetails = await _processDoneRepository.GetByIdWithDetailsAsync(createdProcessDone.Id);
         return MapToDto(processWithDetails!);
+    }
+
+    /// <summary>
+    /// Procesa el consumo de todos los insumos usando algoritmo FIFO con autoreferencia (versión optimizada)
+    /// </summary>
+    private async Task ProcessAllSupplyConsumptionAsync(List<CreateSupplyUsageDto> supplyUsages, int processDoneId)
+    {
+        foreach (var supplyUsage in supplyUsages)
+        {
+            await ProcessSupplyConsumptionAsync(supplyUsage, processDoneId);
+        }
+    }
+
+    /// <summary>
+    /// Procesa el consumo de un insumo usando algoritmo FIFO con autoreferencia
+    /// </summary>
+    private async Task ProcessSupplyConsumptionAsync(CreateSupplyUsageDto supplyUsage, int processDoneId)
+    {
+        var remainingQuantity = supplyUsage.QuantityUsed;
+        
+        // Obtener todos los supply_entry disponibles para este insumo (FIFO)
+        var availableEntries = await _supplyEntryRepository.GetAvailableEntriesBySupplyIdAsync(supplyUsage.SupplyId);
+        
+        if (!availableEntries.Any())
+            throw new InvalidOperationException($"No stock available for Supply ID {supplyUsage.SupplyId}");
+        
+        var entriesToUpdate = new List<SupplyEntry>(); // Entradas que necesitan actualización de active
+        
+        foreach (var availableEntry in availableEntries)
+        {
+            if (remainingQuantity <= 0) break;
+            
+            // Determinar cuánto consumir de esta entrada
+            var consumeFromThisEntry = Math.Min(remainingQuantity, availableEntry.Amount);
+            
+            // Crear supply_entry negativo con referencia al stock original
+            var supplyEntry = new SupplyEntry(
+                availableEntry.UnitCost,           // Usar el costo del stock original
+                -(int)consumeFromThisEntry,        // Cantidad negativa
+                1,                                 // ProviderId por defecto
+                supplyUsage.SupplyId,
+                processDoneId,
+                availableEntry.Id                  // ⭐ Referencia al stock original
+            );
+            
+            await _supplyEntryRepository.CreateAsync(supplyEntry);
+            
+            // Si esta entrada se queda completamente vacía, marcarla para desactivar
+            var remainingInEntry = availableEntry.Amount - consumeFromThisEntry;
+            if (remainingInEntry == 0)
+            {
+                // Obtener la entrada original para actualizar su estado
+                var originalEntry = await _supplyEntryRepository.GetByIdAsync(availableEntry.Id);
+                if (originalEntry != null)
+                {
+                    originalEntry.IsActive = false; // Marcar como inactiva
+                    entriesToUpdate.Add(originalEntry);
+                }
+            }
+            
+            // Reducir la cantidad pendiente
+            remainingQuantity -= consumeFromThisEntry;
+        }
+        
+        // Actualizar todas las entradas que se quedaron vacías
+        foreach (var entry in entriesToUpdate)
+        {
+            await _supplyEntryRepository.UpdateAsync(entry);
+        }
+        
+        // Verificar que se pudo consumir toda la cantidad necesaria
+        if (remainingQuantity > 0)
+            throw new InvalidOperationException(
+                $"Insufficient stock for Supply ID {supplyUsage.SupplyId}. " +
+                $"Missing {remainingQuantity} units"
+            );
     }
 
     public async Task<ProcessDoneDto> UpdateProcessDoneStageAsync(int id, int stage)
@@ -165,16 +225,8 @@ public class ProcessDoneService : IProcessDoneService
         if (processDone == null)
             throw new KeyNotFoundException($"ProcessDone with ID {processDoneId} not found");
 
-        // Crear la entrada de suministro negativa
-        var supplyEntry = new SupplyEntry(
-            (int)supplyUsage.UnitCost,
-            -(int)supplyUsage.QuantityUsed, // Negativo porque es un consumo
-            1, // ProviderId por defecto
-            supplyUsage.SupplyId,
-            processDoneId
-        );
-
-        await _supplyEntryRepository.CreateAsync(supplyEntry);
+        // Procesar el consumo con algoritmo FIFO
+        await ProcessSupplyConsumptionAsync(supplyUsage, processDoneId);
 
         // Recargar con detalles
         var processWithDetails = await _processDoneRepository.GetByIdWithDetailsAsync(processDoneId);

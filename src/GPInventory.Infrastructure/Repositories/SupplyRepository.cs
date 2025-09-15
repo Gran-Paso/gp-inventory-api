@@ -55,7 +55,10 @@ public class SupplyRepository : ISupplyRepository
                 SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.provider_id as ProviderId, se.supply_id as SupplyId, 
                        se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt
                 FROM supply_entry se
-                WHERE se.supply_id = @supplyId";
+                LEFT JOIN process_done pd ON se.process_done_id = pd.id
+                WHERE se.supply_id = @supplyId 
+                  AND se.active = 1 
+                  AND (se.process_done_id IS NULL OR pd.active = 1)";
 
             var parameter = command.CreateParameter();
             parameter.ParameterName = "@supplyId";

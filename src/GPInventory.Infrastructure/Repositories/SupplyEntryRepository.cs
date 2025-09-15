@@ -244,7 +244,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         command.Parameters.AddWithValue("@providerId", supplyEntry.ProviderId);
         command.Parameters.AddWithValue("@supplyId", supplyEntry.SupplyId);
         command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
-        command.Parameters.AddWithValue("@active", true); // Establecer como activo
+        // Si es negativo (consumo), active = false; si es positivo (entrada), active = true
+        command.Parameters.AddWithValue("@active", supplyEntry.Amount > 0);
         command.Parameters.AddWithValue("@createdAt", now);
         command.Parameters.AddWithValue("@updatedAt", now);
 
@@ -412,7 +413,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
 
         using var command = connection.CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, active
             FROM supply_entry 
             WHERE supply_id = @supplyId and process_done_id IS NULL and amount > 0 and active = 1
             ORDER BY created_at ASC
@@ -435,7 +436,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProviderId = reader.GetInt32(4),
                 SupplyId = reader.GetInt32(5),
                 UnitCost = reader.GetDecimal(6),
-                UpdatedAt = reader.GetDateTime(7)
+                UpdatedAt = reader.GetDateTime(7),
+                IsActive = reader.GetBoolean(8)
             };
 
             // Obtener todos los supply entries asociados al mismo supply
@@ -459,5 +461,67 @@ public class SupplyEntryRepository : ISupplyEntryRepository
 
         return null;
 
+    }
+
+    public async Task<IEnumerable<SupplyEntry>> GetAvailableEntriesBySupplyIdAsync(int supplyId)
+    {
+        // Consulta simplificada: solo obtener entradas activas con stock positivo
+        // ya que la lógica de negocio marca como active=false las entradas vacías
+        var rawSql = @"
+            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, active
+            FROM supply_entry 
+            WHERE supply_id = {0}
+              AND process_done_id IS NULL 
+              AND amount > 0 
+              AND active = 1
+            ORDER BY created_at ASC";
+
+        try
+        {
+            // Usar FromSqlRaw con Entity Framework
+            var stockEntries = await _context.Database
+                .SqlQueryRaw<SupplyEntryRawData>(rawSql, supplyId)
+                .ToListAsync();
+
+            // Convertir a SupplyEntry
+            var availableEntries = stockEntries.Select(se => new SupplyEntry
+            {
+                Id = se.id,
+                Amount = se.amount,
+                UnitCost = se.unit_cost,
+                SupplyId = se.supply_id,
+                ProviderId = se.provider_id,
+                ProcessDoneId = se.process_done_id,
+                CreatedAt = se.created_at,
+                UpdatedAt = se.updated_at,
+                IsActive = se.active == 1
+            }).ToList();
+
+            return availableEntries;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Error getting available entries for supply {supplyId}: {ex.Message}", ex);
+        }
+    }
+
+    // Clase helper para mapear resultados SQL crudos
+    private class SupplyEntryRawData
+    {
+        public int id { get; set; }
+        public int amount { get; set; }
+        public DateTime created_at { get; set; }
+        public int? process_done_id { get; set; }
+        public int provider_id { get; set; }
+        public int supply_id { get; set; }
+        public decimal unit_cost { get; set; }
+        public DateTime updated_at { get; set; }
+        public int active { get; set; }
+    }
+
+    // Clase helper para mapear resultado de suma consumida
+    private class ConsumedAmountResult
+    {
+        public int Value { get; set; }
     }
 }

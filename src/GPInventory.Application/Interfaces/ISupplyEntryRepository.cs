@@ -16,4 +16,5 @@ public interface ISupplyEntryRepository
     Task<IEnumerable<SupplyEntry>> GetSupplyHistoryAsync(int? supplyEntryId, int supplyId);
 
     Task<SupplyEntry?> GetFirstEntryBySupplyIdAsync(int supplyId);
+    Task<IEnumerable<SupplyEntry>> GetAvailableEntriesBySupplyIdAsync(int supplyId);
 }

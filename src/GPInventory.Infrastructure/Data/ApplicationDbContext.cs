@@ -82,11 +82,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Amount).HasColumnName("amount");
             entity.Property(e => e.ProviderId).HasColumnName("provider_id");
             entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");
+            entity.Property(e => e.ReferenceToSupplyEntry).HasColumnName("supply_entry_id");
             
             // BaseEntity properties - map to database columns
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
-            entity.Ignore(e => e.IsActive); // This one doesn't exist in the database
+            entity.Property(e => e.IsActive).HasColumnName("active"); // Mapear IsActive a la columna 'active'
             
             // Configure only the relationships we want
             entity.HasOne(e => e.Supply)
@@ -106,6 +107,10 @@ public class ApplicationDbContext : DbContext
                 .HasForeignKey(e => e.ProcessDoneId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
+                
+            // Configurar explícitamente para evitar shadow properties problemáticas
+            entity.Ignore("UnitMeasureId1");
+            entity.Ignore("UnitMeasureId");
         });
 
         // Apply Inventory configurations

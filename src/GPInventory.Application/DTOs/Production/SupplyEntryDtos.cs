@@ -8,6 +8,7 @@ public class SupplyEntryDto
     public int ProviderId { get; set; }
     public int SupplyId { get; set; }
     public int? ProcessDoneId { get; set; }
+    public int? ReferenceToSupplyEntry { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
@@ -24,6 +25,7 @@ public class CreateSupplyEntryDto
     public int ProviderId { get; set; }
     public int SupplyId { get; set; }
     public int? ProcessDoneId { get; set; }
+    public int? ReferenceToSupplyEntry { get; set; }
 }
 
 public class UpdateSupplyEntryDto

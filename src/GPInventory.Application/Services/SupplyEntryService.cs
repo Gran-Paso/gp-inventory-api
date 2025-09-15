@@ -159,6 +159,12 @@ public class SupplyEntryService : ISupplyEntryService
             createDto.SupplyId,
             createDto.ProcessDoneId
         );
+        
+        // Si se especifica una referencia, asignarla después de la creación
+        if (createDto.ReferenceToSupplyEntry.HasValue)
+        {
+            supplyEntry.ReferenceToSupplyEntry = createDto.ReferenceToSupplyEntry.Value;
+        }
 
         var created = await _repository.CreateAsync(supplyEntry);
 
@@ -295,6 +301,7 @@ public class SupplyEntryService : ISupplyEntryService
             ProviderId = supplyEntry.ProviderId,
             SupplyId = supplyEntry.SupplyId,
             ProcessDoneId = supplyEntry.ProcessDoneId,
+            ReferenceToSupplyEntry = supplyEntry.ReferenceToSupplyEntry, // ⭐ Agregar mapeo
             CreatedAt = supplyEntry.CreatedAt,
             UpdatedAt = supplyEntry.UpdatedAt,
             Provider = supplyEntry.Provider != null ? new ProviderDto

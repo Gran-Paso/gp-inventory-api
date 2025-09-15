@@ -194,6 +194,7 @@ public class SupplyService : ISupplyService
                 ProviderId = se.ProviderId,
                 SupplyId = se.SupplyId,
                 ProcessDoneId = se.ProcessDoneId,
+                ReferenceToSupplyEntry = se.ReferenceToSupplyEntry, // ⭐ Agregar mapeo
                 CreatedAt = se.CreatedAt,
                 UpdatedAt = se.UpdatedAt,
                 // Don't include Supply to avoid circular reference

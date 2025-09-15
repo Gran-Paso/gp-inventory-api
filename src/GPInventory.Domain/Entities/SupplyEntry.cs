@@ -17,6 +17,11 @@ public class SupplyEntry : BaseEntity
     public int SupplyId { get; set; }
     
     public int? ProcessDoneId { get; set; }
+    
+    /// <summary>
+    /// Referencia al SupplyEntry original cuando esta es una entrada de consumo (negativa)
+    /// </summary>
+    public int? ReferenceToSupplyEntry { get; set; }
 
     // Navigation properties
     public Provider Provider { get; set; } = null!;
@@ -35,5 +40,22 @@ public class SupplyEntry : BaseEntity
         ProviderId = providerId;
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;
+        // Para entradas originales (positivas), IsActive = true por defecto desde BaseEntity
+        IsActive = amount > 0;
+    }
+
+    // Constructor para autoreferencing (consumo con referencia a supply entry original)
+    public SupplyEntry(decimal unitCost, decimal amount, 
+                      int providerId, int supplyId, int? processDoneId, 
+                      int referencedSupplyEntryId)
+    {
+        UnitCost = unitCost;
+        Amount = (int)amount;
+        ProviderId = providerId;
+        SupplyId = supplyId;
+        ProcessDoneId = processDoneId;
+        ReferenceToSupplyEntry = referencedSupplyEntryId; // ⭐ Guardar la referencia
+        // Para consumos (negativos), IsActive = false
+        IsActive = amount > 0;
     }
 }

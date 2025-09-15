@@ -5,7 +5,6 @@ using GPInventory.Infrastructure.Data;
 using GPInventory.Infrastructure.Repositories;
 using GPInventory.Infrastructure.Services;
 using GPInventory.Api.Middleware;
-using GPInventory.Api.Converters;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -20,11 +19,6 @@ builder.Services.AddControllers()
         // Configure JSON to handle camelCase from frontend
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
-        
-        // Add custom DateTime converters to preserve local time
-        options.JsonSerializerOptions.Converters.Add(new LocalDateTimeConverter());
-        options.JsonSerializerOptions.Converters.Add(new LocalDateTimeConverterNonNullable());
-        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 
@@ -79,7 +73,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:3004",  // GP Auth
                 "http://localhost:5175",  // Gran Paso website dev
                 "https://localhost:5001", 
-                "https://localhost:5173",
+                "https://localhost:5173", 
                 "https://localhost:5174", // GP Factory HTTPS
                 "http://localhost:5000",
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
@@ -165,9 +159,6 @@ builder.Services.AddScoped<IProcessDoneRepository, ProcessDoneRepository>();
 builder.Services.AddScoped<IUnitMeasureRepository, UnitMeasureRepository>();
 builder.Services.AddScoped<ISupplyEntryRepository, SupplyEntryRepository>();
 
-// Gran Paso repositories
-builder.Services.AddScoped<IProspectRepository, ProspectRepository>();
-
 // Application services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
@@ -185,35 +176,27 @@ builder.Services.AddScoped<IProcessDoneService, ProcessDoneService>();
 builder.Services.AddScoped<IUnitMeasureService, UnitMeasureService>();
 builder.Services.AddScoped<ISupplyEntryService, SupplyEntryService>();
 
-// Gran Paso services
-builder.Services.AddScoped<IProspectService, ProspectService>();
-
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
 
 // Add logging middleware para debug de CORS
 app.Use(async (context, next) =>
 {
     var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
     
-    // Log ALL requests with origin information
-    var origin = context.Request.Headers["Origin"].ToString();
-    var method = context.Request.Method;
-    var path = context.Request.Path;
-    
-    logger.LogInformation("🌐 Request: {Method} {Path} from Origin: '{Origin}'", method, path, origin);
+    // Log ALL requests for debugging
+    logger.LogInformation("Incoming request: {Method} {Path} from Origin: {Origin}", 
+        context.Request.Method, 
+        context.Request.Path, 
+        context.Request.Headers["Origin"].ToString());
     
     // Log request details for CORS debugging
     if (context.Request.Method == "OPTIONS")
     {
-        logger.LogInformation("🔍 CORS Preflight request from origin: {Origin}", origin);
-        logger.LogInformation("📋 Request headers: {Headers}", string.Join(", ", context.Request.Headers.Keys));
+        var origin = context.Request.Headers["Origin"].ToString();
+        logger.LogInformation("CORS Preflight request from origin: {Origin}", origin);
+        logger.LogInformation("Request headers: {Headers}", string.Join(", ", context.Request.Headers.Keys));
     }
     
     await next();
@@ -221,18 +204,27 @@ app.Use(async (context, next) =>
     // Log response headers for CORS debugging
     if (context.Request.Method == "OPTIONS")
     {
-        logger.LogInformation("✅ CORS Response headers: {Headers}", 
+        logger.LogInformation("CORS Response headers: {Headers}", 
             string.Join(", ", context.Response.Headers.Where(h => h.Key.StartsWith("Access-Control")).Select(h => $"{h.Key}: {h.Value}")));
     }
-    
-    logger.LogInformation("📤 Response: {StatusCode} for {Method} {Path}", context.Response.StatusCode, method, path);
 });
 
 // Add error handling middleware
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 // CORS debe ir lo más arriba posible en el pipeline
-app.UseCors("AllowFrontend");
+if (app.Environment.IsDevelopment())
+{
+    // En desarrollo, usar política más permisiva para debugging
+    app.UseCors("AllowAll");
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+else
+{
+    // En producción, usar política restrictiva
+    app.UseCors("AllowFrontend");
+}
 
 app.UseHttpsRedirection();
 
