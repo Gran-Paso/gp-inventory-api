@@ -393,6 +393,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.EndDate).HasColumnName("end_date");
             entity.Property(e => e.StockId).HasColumnName("stock_id");
             entity.Property(e => e.Amount).HasColumnName("amount");
+            entity.Property(e => e.Cost).HasColumnName("cost");
             entity.Property(e => e.CompletedAt).HasColumnName("completed_at");
             entity.Property(e => e.Notes).HasColumnName("notes");
             

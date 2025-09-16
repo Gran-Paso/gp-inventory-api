@@ -91,6 +91,7 @@ public class ProcessDoneDto
     public DateTime? EndDate { get; set; }
     public int? StockId { get; set; }
     public int Amount { get; set; }
+    public decimal Cost { get; set; }
     public DateTime CompletedAt { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }

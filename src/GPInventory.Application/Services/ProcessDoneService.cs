@@ -25,7 +25,7 @@ public class ProcessDoneService : IProcessDoneService
         if (processDone == null)
             throw new KeyNotFoundException($"ProcessDone with ID {id} not found");
 
-        return MapToDto(processDone);
+        return MapToDtoWithDetails(processDone); // ⭐ Usar mapeo con detalles para obtener SupplyUsages
     }
 
     public async Task<IEnumerable<ProcessDoneDto>> GetAllProcessDonesAsync()
@@ -65,7 +65,53 @@ public class ProcessDoneService : IProcessDoneService
 
         // Recargar con detalles
         var processWithDetails = await _processDoneRepository.GetByIdWithDetailsAsync(createdProcessDone.Id);
-        return MapToDto(processWithDetails!);
+        return MapToDtoWithDetails(processWithDetails!); // ⭐ Usar mapeo con detalles
+    }
+
+    /// <summary>
+    /// Completa todo el proceso de una vez, procesando todos los insumos automáticamente
+    /// </summary>
+    public async Task<ProcessDoneDto> CompleteFullProcessAsync(int processId, int amountProduced, string? notes = null)
+    {
+        // Obtener el proceso con sus insumos
+        var process = await _processRepository.GetByIdWithDetailsAsync(processId);
+        if (process == null)
+            throw new InvalidOperationException($"Process with ID {processId} not found");
+
+        if (!process.ProcessSupplies?.Any() ?? true)
+            throw new InvalidOperationException($"Process {processId} has no supplies configured");
+
+        // Crear las SupplyUsages automáticamente basado en la configuración del proceso
+        var supplyUsages = new List<CreateSupplyUsageDto>();
+        
+        if (process.ProcessSupplies != null)
+        {
+            foreach (var processSupply in process.ProcessSupplies.OrderBy(ps => ps.Order))
+            {
+                // Por ahora, usar la cantidad base configurada en el proceso
+                // En el futuro, esto podría calcularse proporcionalmente basado en amountProduced
+                supplyUsages.Add(new CreateSupplyUsageDto
+                {
+                    SupplyId = processSupply.SupplyId,
+                    QuantityUsed = amountProduced, // Usar la cantidad producida como base
+                    UnitCost = 0 // Se calculará automáticamente usando FIFO
+                });
+            }
+        }
+
+        // Crear el ProcessDone usando el método existente
+        var createProcessDoneDto = new CreateProcessDoneDto
+        {
+            ProcessId = processId,
+            Amount = amountProduced,
+            Stage = 999, // Indicar que es completado automáticamente
+            StartDate = DateTime.UtcNow,
+            EndDate = DateTime.UtcNow, // Completado inmediatamente
+            Notes = notes ?? "Proceso completado automáticamente",
+            SupplyUsages = supplyUsages
+        };
+
+        return await CreateProcessDoneAsync(createProcessDoneDto);
     }
 
     /// <summary>
@@ -77,6 +123,45 @@ public class ProcessDoneService : IProcessDoneService
         {
             await ProcessSupplyConsumptionAsync(supplyUsage, processDoneId);
         }
+        
+        // Al terminar de procesar todos los insumos, calcular el costo unitario
+        await CalculateAndUpdateUnitCostAsync(processDoneId);
+    }
+    
+    /// <summary>
+    /// Calcula el costo unitario total de los insumos y actualiza el ProcessDone
+    /// </summary>
+    private async Task CalculateAndUpdateUnitCostAsync(int processDoneId)
+    {
+        // Calcular el costo total directamente desde la base de datos sin cargar la entidad completa
+        decimal totalSupplyCost = 0m;
+        var processDoneAmount = 0;
+        
+        // Obtener solo los datos necesarios para el cálculo
+        var supplyEntries = await _supplyEntryRepository.GetByProcessDoneIdAsync(processDoneId);
+        
+        // Obtener el amount del ProcessDone directamente
+        var processDone = await _processDoneRepository.GetByIdAsync(processDoneId);
+        if (processDone == null) return;
+        
+        processDoneAmount = processDone.Amount;
+        
+        // Calcular el costo total de los insumos consumidos
+        foreach (var supplyEntry in supplyEntries)
+        {
+            // Solo considerar entradas negativas (consumos) para este proceso
+            if (supplyEntry.Amount < 0)
+            {
+                // Calcular costo: cantidad consumida (valor absoluto) × costo unitario
+                totalSupplyCost += Math.Abs(supplyEntry.Amount) * supplyEntry.UnitCost;
+            }
+        }
+        
+        // Calcular costo unitario: costo total ÷ cantidad producida
+        decimal unitCost = processDoneAmount > 0 ? totalSupplyCost / processDoneAmount : 0;
+        
+        // Actualizar solo el campo Cost sin problemas de tracking
+        await _processDoneRepository.UpdateCostAsync(processDoneId, unitCost);
     }
 
     /// <summary>
@@ -253,6 +338,7 @@ public class ProcessDoneService : IProcessDoneService
             EndDate = processDone.EndDate,
             StockId = processDone.StockId,
             Amount = processDone.Amount,
+            Cost = processDone.Cost,
             CompletedAt = processDone.CompletedAt,
             Notes = processDone.Notes,
             CreatedAt = processDone.CreatedAt,
@@ -271,13 +357,47 @@ public class ProcessDoneService : IProcessDoneService
                 UpdatedAt = processDone.Process.UpdatedAt,
                 IsActive = processDone.Process.IsActive
             } : null,
-            SupplyUsages = processDone.SupplyEntries?.Select(se => new SupplyUsageDto
+            SupplyUsages = new List<SupplyUsageDto>() // ⭐ Lista vacía para mejor rendimiento
+        };
+    }
+    
+    private static ProcessDoneDto MapToDtoWithDetails(ProcessDone processDone)
+    {
+        return new ProcessDoneDto
+        {
+            Id = processDone.Id,
+            ProcessId = processDone.ProcessId,
+            Stage = processDone.Stage,
+            StartDate = processDone.StartDate,
+            EndDate = processDone.EndDate,
+            StockId = processDone.StockId,
+            Amount = processDone.Amount,
+            Cost = processDone.Cost,
+            CompletedAt = processDone.CompletedAt,
+            Notes = processDone.Notes,
+            CreatedAt = processDone.CreatedAt,
+            UpdatedAt = processDone.UpdatedAt,
+            IsActive = processDone.IsActive,
+            Process = processDone.Process != null ? new ProcessDto
+            {
+                Id = processDone.Process.Id,
+                Name = processDone.Process.Name,
+                Description = processDone.Process.Description,
+                ProductId = processDone.Process.ProductId,
+                ProductionTime = processDone.Process.ProductionTime,
+                TimeUnitId = processDone.Process.TimeUnitId,
+                StoreId = processDone.Process.StoreId,
+                CreatedAt = processDone.Process.CreatedAt,
+                UpdatedAt = processDone.Process.UpdatedAt,
+                IsActive = processDone.Process.IsActive
+            } : null,
+            SupplyUsages = processDone.SupplyEntries?.Where(se => se.Amount < 0).Select(se => new SupplyUsageDto
             {
                 Id = se.Id,
                 SupplyId = se.SupplyId,
-                QuantityUsed = se.Amount,
+                QuantityUsed = Math.Abs(se.Amount), // Usar valor absoluto para mostrar cantidad positiva
                 UnitCost = se.UnitCost,
-                TotalCost = se.Amount * se.UnitCost,
+                TotalCost = Math.Abs(se.Amount) * se.UnitCost, // Costo total positivo
                 SupplyName = $"Insumo {se.SupplyId}" // Temporal, podríamos hacer una consulta separada si necesitamos el nombre
             }).ToList() ?? new List<SupplyUsageDto>()
         };

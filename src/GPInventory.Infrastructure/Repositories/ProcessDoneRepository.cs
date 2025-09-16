@@ -38,6 +38,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 pd.end_date,
                 pd.stock_id,
                 pd.amount,
+                pd.cost,
                 pd.completed_at,
                 pd.notes,
                 p.id as process_id_detail,
@@ -68,6 +69,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 EndDate = reader["end_date"] as DateTime?,
                 StockId = reader["stock_id"] as int?,
                 Amount = reader.GetInt32("amount"),
+                Cost = reader["cost"] != DBNull.Value ? reader.GetDecimal("cost") : 0m,
                 CompletedAt = reader.GetDateTime("completed_at"),
                 Notes = reader["notes"] as string
             };
@@ -157,6 +159,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 pd.end_date,
                 pd.stock_id,
                 pd.amount,
+                pd.cost,
                 pd.completed_at,
                 pd.notes
             FROM process_done pd
@@ -178,6 +181,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 EndDate = reader["end_date"] as DateTime?,
                 StockId = reader["stock_id"] as int?,
                 Amount = reader.GetInt32("amount"),
+                Cost = reader["cost"] != DBNull.Value ? reader.GetDecimal("cost") : 0m,
                 CompletedAt = reader.GetDateTime("completed_at"),
                 Notes = reader["notes"] as string
             };
@@ -197,9 +201,41 @@ public class ProcessDoneRepository : IProcessDoneRepository
 
     public async Task<ProcessDone> UpdateAsync(ProcessDone processDone)
     {
+        // Desconectar cualquier entidad que esté siendo rastreada con el mismo ID
+        var tracked = _context.ChangeTracker.Entries<ProcessDone>()
+            .FirstOrDefault(e => e.Entity.Id == processDone.Id);
+        
+        if (tracked != null)
+        {
+            _context.Entry(tracked.Entity).State = EntityState.Detached;
+        }
+        
+        // Ahora actualizar la entidad
         _context.ProcessDones.Update(processDone);
         await _context.SaveChangesAsync();
         return processDone;
+    }
+    
+    /// <summary>
+    /// Actualiza solo el campo Cost de un ProcessDone sin cargar la entidad completa
+    /// </summary>
+    public async Task UpdateCostAsync(int processDoneId, decimal cost)
+    {
+        var connectionString = _context.Database.GetConnectionString();
+        using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        var query = @"
+            UPDATE process_done 
+            SET cost = @cost, updated_at = @updatedAt 
+            WHERE id = @id";
+        
+        using var command = new MySqlCommand(query, connection);
+        command.Parameters.AddWithValue("@id", processDoneId);
+        command.Parameters.AddWithValue("@cost", cost);
+        command.Parameters.AddWithValue("@updatedAt", DateTime.UtcNow);
+        
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task DeleteAsync(int id)

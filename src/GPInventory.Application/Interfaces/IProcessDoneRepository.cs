@@ -10,5 +10,6 @@ public interface IProcessDoneRepository
     Task<IEnumerable<ProcessDone>> GetByProcessIdAsync(int processId);
     Task<ProcessDone> CreateAsync(ProcessDone processDone);
     Task<ProcessDone> UpdateAsync(ProcessDone processDone);
+    Task UpdateCostAsync(int processDoneId, decimal cost);
     Task DeleteAsync(int id);
 }

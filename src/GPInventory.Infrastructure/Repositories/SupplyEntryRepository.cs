@@ -39,7 +39,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
                 ProviderId = reader.GetInt32(4), // provider_id
                 SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetInt32(6), // unit_cost
+                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
                 UpdatedAt = reader.GetDateTime(7) // updated_at
             };
             results.Add(supplyEntry);
@@ -109,7 +109,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
                 ProviderId = reader.GetInt32(4), // provider_id
                 SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetInt32(6), // unit_cost
+                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
                 UpdatedAt = reader.GetDateTime(7) // updated_at
             };
         }
@@ -147,7 +147,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
                 ProviderId = reader.GetInt32(4), // provider_id
                 SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetInt32(6), // unit_cost
+                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
                 UpdatedAt = reader.GetDateTime(7) // updated_at
             };
             results.Add(supplyEntry);
@@ -186,7 +186,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
                 ProviderId = reader.GetInt32(4), // provider_id
                 SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetInt32(6), // unit_cost
+                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
                 UpdatedAt = reader.GetDateTime(7) // updated_at
             };
             results.Add(supplyEntry);

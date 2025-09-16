@@ -17,6 +17,12 @@ public class ProcessDone : BaseEntity
     
     public int Amount { get; set; }
     
+    /// <summary>
+    /// Costo unitario del producto producido (costo total de insumos / cantidad producida)
+    /// </summary>
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal Cost { get; set; } = 0;
+    
     public DateTime CompletedAt { get; set; } = DateTime.UtcNow;
     
     [StringLength(500)]
