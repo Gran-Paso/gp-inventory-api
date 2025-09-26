@@ -150,13 +150,13 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todos los productos con filtros opcionales
+    /// Obtiene todos los productos con filtros opcionales, incluyendo cantidad de stock
     /// </summary>
     /// <param name="businessId">ID del negocio (opcional)</param>
     /// <param name="productTypeId">ID del tipo de producto (opcional)</param>
     /// <param name="search">Búsqueda por nombre (opcional)</param>
-    /// <returns>Lista de productos</returns>
-    /// <response code="200">Lista de productos obtenida exitosamente</response>
+    /// <returns>Lista de productos con información de stock</returns>
+    /// <response code="200">Lista de productos con stock obtenida exitosamente</response>
     /// <response code="401">No autorizado - Token JWT requerido</response>
     /// <response code="500">Error interno del servidor</response>
     [HttpGet]
@@ -176,6 +176,7 @@ public class ProductsController : ControllerBase
             var query = _context.Products
                 .Include(p => p.ProductType)
                 .Include(p => p.Business)
+                .Include(p => p.Stocks) // Incluir movimientos de stock
                 .AsQueryable();
 
             if (businessId.HasValue)
@@ -204,7 +205,9 @@ public class ProductsController : ControllerBase
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
-                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName }
+                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName },
+                    // Calcular stock actual sumando todos los movimientos de stock
+                    stockQuantity = p.Stocks.Sum(s => s.Amount)
                 })
                 .ToListAsync();
 
@@ -219,11 +222,11 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene un producto específico por ID
+    /// Obtiene un producto específico por ID, incluyendo cantidad de stock
     /// </summary>
     /// <param name="id">ID del producto</param>
-    /// <returns>Producto encontrado</returns>
-    /// <response code="200">Producto encontrado exitosamente</response>
+    /// <returns>Producto encontrado con información de stock</returns>
+    /// <response code="200">Producto con stock encontrado exitosamente</response>
     /// <response code="401">No autorizado - Token JWT requerido</response>
     /// <response code="404">Producto no encontrado</response>
     /// <response code="500">Error interno del servidor</response>
@@ -242,6 +245,7 @@ public class ProductsController : ControllerBase
             var product = await _context.Products
                 .Include(p => p.ProductType)
                 .Include(p => p.Business)
+                .Include(p => p.Stocks) // Incluir movimientos de stock
                 .Where(p => p.Id == id)
                 .Select(p => new
                 {
@@ -253,7 +257,9 @@ public class ProductsController : ControllerBase
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
-                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName }
+                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName },
+                    // Calcular stock actual sumando todos los movimientos de stock
+                    stockQuantity = p.Stocks.Sum(s => s.Amount)
                 })
                 .FirstOrDefaultAsync();
 
