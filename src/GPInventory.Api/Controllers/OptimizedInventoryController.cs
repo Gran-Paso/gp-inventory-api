@@ -56,10 +56,16 @@ public class OptimizedInventoryController : ControllerBase
                     StoreName = store.Name,
                     Location = store.Location,
                     TotalStock = _context.Stocks
-                        .Where(st => st.StoreId == store.Id)
+                        .Where(st => st.StoreId == store.Id && 
+                               st.StockId == null && 
+                               st.Amount > 0 && 
+                               st.IsActive == true)
                         .Sum(st => (int?)st.Amount) ?? 0,
                     ProductCount = _context.Stocks
-                        .Where(st => st.StoreId == store.Id)
+                        .Where(st => st.StoreId == store.Id && 
+                               st.StockId == null && 
+                               st.Amount > 0 && 
+                               st.IsActive == true)
                         .Select(st => st.ProductId)
                         .Distinct()
                         .Count(),
@@ -143,8 +149,13 @@ public class OptimizedInventoryController : ControllerBase
                     Name = p.Name,
                     Sku = p.Sku,
                     Price = p.Price,
+                    Cost = p.Cost,
+                    MinimumStock = p.MinimumStock,
                     CurrentStock = _context.Stocks
-                        .Where(st => st.ProductId == p.Id)
+                        .Where(st => st.ProductId == p.Id && 
+                               st.StockId == null && 
+                               st.Amount > 0 && 
+                               st.IsActive == true)
                         .Sum(st => (int?)st.Amount) ?? 0
                 })
                 .ToListAsync();
@@ -169,6 +180,8 @@ public class OptimizedInventoryController : ControllerBase
                     name = product.Name,
                     sku = product.Sku,
                     price = product.Price,
+                    cost = product.Cost,
+                    minimumStock = product.MinimumStock,
                     currentStock = product.CurrentStock,
                     monthSalesAmount = monthSalesAmount,
                     monthQuantitySold = monthQuantitySold
@@ -185,7 +198,7 @@ public class OptimizedInventoryController : ControllerBase
             var businessSummary = new
             {
                 totalProducts = await _context.Products.CountAsync(p => p.BusinessId == businessId),
-                totalStock = stores.Sum(s => s.TotalStock),
+                totalStock = stores.Sum(s => s.TotalStock), // Ya filtrado con la lógica FIFO
                 todaySales = new
                 {
                     amount = totalTodaySales,

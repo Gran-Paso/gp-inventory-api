@@ -39,4 +39,11 @@ public interface IStockRepository : IRepository<Stock>
 {
     Task<IEnumerable<Stock>> GetByProductIdAsync(int productId);
     Task<int> GetCurrentStockAsync(int productId);
+    Task<int> GetCurrentStockOptimizedAsync(int productId);
+    
+    // Métodos FIFO para gestión avanzada de stock
+    Task<Stock?> GetFirstAvailableStockAsync(int productId, int storeId);
+    Task<IEnumerable<Stock>> GetAvailableStockEntriesAsync(int productId, int storeId);
+    Task<IEnumerable<Stock>> GetStockHistoryAsync(int productId, int storeId, int? specificStockId = null);
+    Task<int> GetCurrentStockFIFOAsync(int productId, int storeId);
 }

@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
+using GPInventory.Infrastructure.Services;
+using GPInventory.Domain.Entities;
+using System.Security.Claims;
 
 namespace GPInventory.Api.Controllers;
 
@@ -13,11 +16,13 @@ public class ProductsController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<ProductsController> _logger;
+    private readonly IProductAuditService _auditService;
 
-    public ProductsController(ApplicationDbContext context, ILogger<ProductsController> logger)
+    public ProductsController(ApplicationDbContext context, ILogger<ProductsController> logger, IProductAuditService auditService)
     {
         _context = context;
         _logger = logger;
+        _auditService = auditService;
     }
 
     [HttpOptions("types")]
@@ -207,7 +212,8 @@ public class ProductsController : ControllerBase
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
                     business = new { id = p.Business.Id, companyName = p.Business.CompanyName },
                     // Calcular stock actual sumando todos los movimientos de stock
-                    stockQuantity = p.Stocks.Sum(s => s.Amount)
+                    stockQuantity = p.Stocks.Sum(s => s.Amount),
+                    minimumStock = p.MinimumStock
                 })
                 .ToListAsync();
 
@@ -259,7 +265,8 @@ public class ProductsController : ControllerBase
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
                     business = new { id = p.Business.Id, companyName = p.Business.CompanyName },
                     // Calcular stock actual sumando todos los movimientos de stock
-                    stockQuantity = p.Stocks.Sum(s => s.Amount)
+                    stockQuantity = p.Stocks.Sum(s => s.Amount),
+                    minimumStock = p.MinimumStock
                 })
                 .FirstOrDefaultAsync();
 
@@ -274,6 +281,61 @@ public class ProductsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error al obtener producto con ID: {id}", id);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene los logs de auditoría de un producto específico
+    /// </summary>
+    /// <param name="id">ID del producto</param>
+    /// <param name="limit">Límite de resultados (por defecto 50)</param>
+    /// <returns>Lista de logs de auditoría del producto</returns>
+    /// <response code="200">Logs de auditoría obtenidos exitosamente</response>
+    /// <response code="401">No autorizado - Token JWT requerido</response>
+    /// <response code="404">Producto no encontrado</response>
+    /// <response code="500">Error interno del servidor</response>
+    [HttpGet("{id}/audit-logs")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<IEnumerable<object>>> GetProductAuditLogs(int id, [FromQuery] int limit = 50)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo logs de auditoría para producto ID: {id}", id);
+
+            // Verificar que el producto existe
+            var productExists = await _context.Products.AnyAsync(p => p.Id == id);
+            if (!productExists)
+            {
+                return NotFound(new { message = "Producto no encontrado" });
+            }
+
+            var logs = await _auditService.GetProductLogsAsync(id, limit);
+
+            var auditLogs = logs.Select(log => new
+            {
+                id = log.Id,
+                productId = log.ProductId,
+                userId = log.UserId,
+                userName = log.User?.Name ?? "Usuario desconocido",
+                actionType = log.ActionType,
+                tableName = log.TableName,
+                timestamp = log.Timestamp,
+                changes = log.Changes,
+                oldValues = log.OldValues,
+                newValues = log.NewValues
+            }).ToList();
+
+            _logger.LogInformation("Se encontraron {count} logs de auditoría para el producto ID: {id}", auditLogs.Count, id);
+            return Ok(auditLogs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener logs de auditoría para producto ID: {id}", id);
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
     }
@@ -381,11 +443,35 @@ public class ProductsController : ControllerBase
                 Image = request.Image?.Trim(),
                 ProductTypeId = request.ProductTypeId,
                 BusinessId = request.BusinessId,
+                MinimumStock = request.MinimumStock,
                 Date = DateTime.UtcNow
             };
 
             _context.Products.Add(newProduct);
             await _context.SaveChangesAsync();
+
+            // Log de auditoría para creación de producto
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("userId")?.Value;
+            var currentUserId = int.TryParse(userId, out var parsedUserId) ? parsedUserId : (int?)null;
+            
+            await _auditService.LogProductActionAsync(
+                productId: newProduct.Id,
+                actionType: ProductLogActionTypes.CREATE,
+                oldValues: null,
+                newValues: new
+                {
+                    name = newProduct.Name,
+                    sku = newProduct.Sku,
+                    price = newProduct.Price,
+                    cost = newProduct.Cost,
+                    image = newProduct.Image,
+                    productTypeId = newProduct.ProductTypeId,
+                    businessId = newProduct.BusinessId,
+                    minimumStock = newProduct.MinimumStock
+                },
+                changes: "Producto creado",
+                userId: currentUserId
+            );
 
             // Obtener el producto creado con sus relaciones
             var createdProduct = await _context.Products
@@ -461,6 +547,19 @@ public class ProductsController : ControllerBase
                 return NotFound(new { message = "Producto no encontrado" });
             }
 
+            // Capturar valores anteriores para auditoría
+            var oldValues = new
+            {
+                name = existingProduct.Name,
+                sku = existingProduct.Sku,
+                price = existingProduct.Price,
+                cost = existingProduct.Cost,
+                image = existingProduct.Image,
+                productTypeId = existingProduct.ProductTypeId,
+                businessId = existingProduct.BusinessId,
+                minimumStock = existingProduct.MinimumStock
+            };
+
             // Verificar que el tipo de producto existe
             _logger.LogInformation("Verificando existencia del tipo de producto con ID: {productTypeId} para actualización", request.ProductTypeId);
             
@@ -509,8 +608,34 @@ public class ProductsController : ControllerBase
             existingProduct.Image = request.Image?.Trim();
             existingProduct.ProductTypeId = request.ProductTypeId;
             existingProduct.BusinessId = request.BusinessId;
+            existingProduct.MinimumStock = request.MinimumStock;
 
             await _context.SaveChangesAsync();
+
+            // Log de auditoría para actualización de producto
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("userId")?.Value;
+            var currentUserId = int.TryParse(userId, out var parsedUserId) ? parsedUserId : (int?)null;
+            
+            var newValues = new
+            {
+                name = existingProduct.Name,
+                sku = existingProduct.Sku,
+                price = existingProduct.Price,
+                cost = existingProduct.Cost,
+                image = existingProduct.Image,
+                productTypeId = existingProduct.ProductTypeId,
+                businessId = existingProduct.BusinessId,
+                minimumStock = existingProduct.MinimumStock
+            };
+
+            await _auditService.LogProductActionAsync(
+                productId: existingProduct.Id,
+                actionType: ProductLogActionTypes.UPDATE,
+                oldValues: oldValues,
+                newValues: newValues,
+                changes: "Producto actualizado",
+                userId: currentUserId
+            );
 
             // Obtener el producto actualizado con sus relaciones
             var updatedProduct = await _context.Products
@@ -570,6 +695,19 @@ public class ProductsController : ControllerBase
                 return NotFound(new { message = "Producto no encontrado" });
             }
 
+            // Capturar valores del producto antes de eliminarlo para auditoría
+            var deletedProductValues = new
+            {
+                name = existingProduct.Name,
+                sku = existingProduct.Sku,
+                price = existingProduct.Price,
+                cost = existingProduct.Cost,
+                image = existingProduct.Image,
+                productTypeId = existingProduct.ProductTypeId,
+                businessId = existingProduct.BusinessId,
+                minimumStock = existingProduct.MinimumStock
+            };
+
             // Verificar si tiene stock asociado
             var hasStock = await _context.Stocks.AnyAsync(s => s.ProductId == id);
             if (hasStock)
@@ -579,6 +717,19 @@ public class ProductsController : ControllerBase
 
             _context.Products.Remove(existingProduct);
             await _context.SaveChangesAsync();
+
+            // Log de auditoría para eliminación de producto
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("userId")?.Value;
+            var currentUserId = int.TryParse(userId, out var parsedUserId) ? parsedUserId : (int?)null;
+            
+            await _auditService.LogProductActionAsync(
+                productId: id,
+                actionType: ProductLogActionTypes.DELETE,
+                oldValues: deletedProductValues,
+                newValues: null,
+                changes: "Producto eliminado",
+                userId: currentUserId
+            );
 
             _logger.LogInformation("Producto eliminado exitosamente: {productName} con ID: {id}", existingProduct.Name, id);
             return Ok(new { message = "Producto eliminado exitosamente", productId = id });
@@ -713,6 +864,133 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene productos con stock bajo (en el mínimo, por debajo o cerca del mínimo)
+    /// </summary>
+    /// <param name="businessId">ID del negocio (opcional)</param>
+    /// <param name="threshold">Umbral adicional para considerar "cerca del mínimo" (por defecto 5)</param>
+    /// <returns>Lista de productos con stock bajo</returns>
+    /// <response code="200">Lista de productos con stock bajo obtenida exitosamente</response>
+    /// <response code="401">No autorizado - Token JWT requerido</response>
+    /// <response code="500">Error interno del servidor</response>
+    [HttpGet("low-stock")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<IEnumerable<object>>> GetLowStockProducts(
+        [FromQuery] int? businessId = null,
+        [FromQuery] int threshold = 5)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo productos con stock bajo para businessId: {businessId}, threshold: {threshold}", businessId, threshold);
+
+            var query = _context.Products
+                .Include(p => p.ProductType)
+                .Include(p => p.Business)
+                .Include(p => p.Stocks)
+                .AsQueryable();
+
+            if (businessId.HasValue)
+            {
+                query = query.Where(p => p.BusinessId == businessId.Value);
+            }
+
+            var lowStockProducts = await query
+                .Select(p => new
+                {
+                    id = p.Id,
+                    name = p.Name,
+                    sku = p.Sku,
+                    price = p.Price,
+                    cost = p.Cost,
+                    image = p.Image,
+                    date = p.Date,
+                    productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
+                    business = new { id = p.Business.Id, companyName = p.Business.CompanyName },
+                    stockQuantity = p.Stocks.Sum(s => s.Amount),
+                    minimumStock = p.MinimumStock,
+                    // Calcular el estado del stock
+                    stockStatus = p.Stocks.Sum(s => s.Amount) <= 0 ? "sin_stock" :
+                                 p.Stocks.Sum(s => s.Amount) <= p.MinimumStock ? "critico" :
+                                 p.Stocks.Sum(s => s.Amount) <= (p.MinimumStock + threshold) ? "bajo" : "normal",
+                    // Diferencia con el stock mínimo
+                    stockDifference = p.Stocks.Sum(s => s.Amount) - p.MinimumStock
+                })
+                .Where(p => p.stockQuantity <= (p.minimumStock + threshold))
+                .OrderBy(p => p.stockQuantity)
+                .ThenBy(p => p.name)
+                .ToListAsync();
+
+            _logger.LogInformation("Se encontraron {count} productos con stock bajo", lowStockProducts.Count);
+            return Ok(lowStockProducts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener productos con stock bajo");
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene estadísticas de stock para el dashboard
+    /// </summary>
+    /// <param name="businessId">ID del negocio (opcional)</param>
+    /// <returns>Estadísticas de stock</returns>
+    /// <response code="200">Estadísticas de stock obtenidas exitosamente</response>
+    /// <response code="401">No autorizado - Token JWT requerido</response>
+    /// <response code="500">Error interno del servidor</response>
+    [HttpGet("stock-stats")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetStockStats([FromQuery] int? businessId = null)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo estadísticas de stock para businessId: {businessId}", businessId);
+
+            var query = _context.Products
+                .Include(p => p.Stocks)
+                .AsQueryable();
+
+            if (businessId.HasValue)
+            {
+                query = query.Where(p => p.BusinessId == businessId.Value);
+            }
+
+            var products = await query
+                .Select(p => new
+                {
+                    id = p.Id,
+                    stockQuantity = p.Stocks.Sum(s => s.Amount),
+                    minimumStock = p.MinimumStock
+                })
+                .ToListAsync();
+
+            var stats = new
+            {
+                totalProducts = products.Count,
+                productsWithoutStock = products.Count(p => p.stockQuantity <= 0),
+                productsCriticalStock = products.Count(p => p.stockQuantity > 0 && p.stockQuantity <= p.minimumStock),
+                productsLowStock = products.Count(p => p.stockQuantity > p.minimumStock && p.stockQuantity <= (p.minimumStock + 5)),
+                productsNormalStock = products.Count(p => p.stockQuantity > (p.minimumStock + 5)),
+                averageStock = products.Any() ? products.Average(p => p.stockQuantity) : 0,
+                totalStockValue = products.Sum(p => p.stockQuantity)
+            };
+
+            _logger.LogInformation("Estadísticas calculadas: {stats}", stats);
+            return Ok(stats);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener estadísticas de stock");
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
     /// Obtiene todos los negocios disponibles
     /// </summary>
     /// <returns>Lista de negocios</returns>
@@ -803,6 +1081,12 @@ public class CreateProductRequest
     /// </summary>
     /// <example>1</example>
     public int BusinessId { get; set; }
+
+    /// <summary>
+    /// Stock mínimo del producto
+    /// </summary>
+    /// <example>10</example>
+    public int MinimumStock { get; set; } = 0;
 }
 
 /// <summary>
@@ -851,4 +1135,10 @@ public class UpdateProductRequest
     /// </summary>
     /// <example>1</example>
     public int BusinessId { get; set; }
+
+    /// <summary>
+    /// Stock mínimo del producto
+    /// </summary>
+    /// <example>10</example>
+    public int MinimumStock { get; set; } = 0;
 }

@@ -18,6 +18,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Product> Products { get; set; }
     public DbSet<ProductType> ProductTypes { get; set; }
     public DbSet<Stock> Stocks { get; set; }
+    public DbSet<ProductLog> ProductLogs { get; set; }
     public DbSet<FlowType> FlowTypes { get; set; }
     public DbSet<Provider> Providers { get; set; }
     public DbSet<Sale> Sales { get; set; }

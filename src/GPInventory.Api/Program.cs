@@ -72,10 +72,15 @@ builder.Services.AddCors(options =>
                 "http://localhost:3003",  // GP Inventory  
                 "http://localhost:3004",  // GP Auth
                 "http://localhost:5175",  // Gran Paso website dev
+                "http://localhost:4173",  // Vite preview mode
+                "http://localhost:4174",  // Vite preview mode alternate
                 "https://localhost:5001", 
                 "https://localhost:5173", 
                 "https://localhost:5174", // GP Factory HTTPS
+                "https://localhost:4173", // Vite preview HTTPS
                 "http://localhost:5000",
+                "http://127.0.0.1:5173",  // Local IP variant
+                "http://127.0.0.1:5000",  // Local IP variant
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
                 "https://factory.granpasochile.cl",    // GP Factory producción
@@ -164,6 +169,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IProductAuditService, ProductAuditService>();
 
 // Expense services
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
@@ -213,9 +219,14 @@ app.Use(async (context, next) =>
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 // CORS debe ir lo más arriba posible en el pipeline
+var corsLogger = app.Services.GetRequiredService<ILogger<Program>>();
+corsLogger.LogInformation("Environment: {Environment}", app.Environment.EnvironmentName);
+corsLogger.LogInformation("Is Development: {IsDevelopment}", app.Environment.IsDevelopment());
+
 if (app.Environment.IsDevelopment())
 {
     // En desarrollo, usar política más permisiva para debugging
+    corsLogger.LogInformation("Using CORS policy: AllowAll (Development)");
     app.UseCors("AllowAll");
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -223,6 +234,7 @@ if (app.Environment.IsDevelopment())
 else
 {
     // En producción, usar política restrictiva
+    corsLogger.LogInformation("Using CORS policy: AllowFrontend (Production)");
     app.UseCors("AllowFrontend");
 }
 

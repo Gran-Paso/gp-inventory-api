@@ -48,7 +48,35 @@ public class StockConfiguration : IEntityTypeConfiguration<Stock>
             .HasColumnName("id_store")
             .IsRequired();
 
-        // Relationships
+        builder.Property(e => e.SaleId)
+            .HasColumnName("sale_id");
+
+        // Configurar propiedades de BaseEntity con manejo de NULL
+        builder.Property(e => e.CreatedAt)
+            .HasColumnName("created_at")
+            .HasDefaultValueSql("NOW()")
+            .HasConversion(
+                v => (DateTime?)v,
+                v => v ?? DateTime.UtcNow); // Si es NULL, usar fecha actual
+
+        builder.Property(e => e.UpdatedAt)
+            .HasColumnName("updated_at")
+            .HasDefaultValueSql("NOW()")
+            .HasConversion(
+                v => (DateTime?)v,
+                v => v ?? DateTime.UtcNow); // Si es NULL, usar fecha actual
+
+        builder.Property(e => e.IsActive)
+            .HasColumnName("active")
+            .HasDefaultValue(true)
+            .HasConversion(
+                v => (int?)(v ? 1 : 0),
+                v => v.HasValue ? v.Value != 0 : false);
+
+        // Configurar el nuevo campo StockId para relaciones FIFO
+        builder.Property(e => e.StockId)
+            .HasColumnName("stock_id")
+            .IsRequired(false);        // Relationships
         builder.HasOne(e => e.Product)
             .WithMany(p => p.Stocks)
             .HasForeignKey(e => e.ProductId)
@@ -73,16 +101,17 @@ public class StockConfiguration : IEntityTypeConfiguration<Stock>
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_Stock_Store");
 
-        // BaseEntity properties - ignore since they don't exist in the database
-        builder.Ignore(e => e.CreatedAt);
-        builder.Ignore(e => e.UpdatedAt);
-        builder.Ignore(e => e.IsActive);
+        // BaseEntity properties are now mapped above
 
         // Indexes for performance
         builder.HasIndex(e => e.ProductId).HasDatabaseName("IX_Stock_ProductId");
         builder.HasIndex(e => e.Date).HasDatabaseName("IX_Stock_Date");
         builder.HasIndex(e => e.FlowTypeId).HasDatabaseName("IX_Stock_FlowTypeId");
         builder.HasIndex(e => e.StoreId).HasDatabaseName("IX_Stock_StoreId");
+        builder.HasIndex(e => e.IsActive).HasDatabaseName("IX_Stock_IsActive");
+        builder.HasIndex(e => e.StockId).HasDatabaseName("IX_Stock_StockId");
+        builder.HasIndex(e => e.SaleId).HasDatabaseName("IX_Stock_SaleId");
         builder.HasIndex(e => new { e.ProductId, e.Date }).HasDatabaseName("IX_Stock_Product_Date");
+        builder.HasIndex(e => new { e.ProductId, e.StoreId, e.IsActive }).HasDatabaseName("IX_Stock_Product_Store_Active");
     }
 }

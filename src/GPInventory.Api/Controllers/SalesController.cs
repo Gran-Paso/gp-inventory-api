@@ -659,7 +659,8 @@ public class SalesController : ControllerBase
                         Cost = specificStock.Cost, // Usar el costo del stock específico
                         StoreId = request.StoreId,
                         SaleId = sale.Id, // Vincular con la venta
-                        Notes = $"Venta #{sale.Id} - Stock lote #{item.StockId.Value}"
+                        Notes = $"Venta #{sale.Id} - Stock lote #{item.StockId.Value}",
+                        IsActive = true // ✅ Establecer como activo
                     };
 
                     _context.Stocks.Add(saleStockMovement);
@@ -679,7 +680,8 @@ public class SalesController : ControllerBase
                         Cost = null, // No se especifica costo en las ventas
                         StoreId = request.StoreId,
                         SaleId = sale.Id, // Vincular con la venta
-                        Notes = $"Venta #{sale.Id}"
+                        Notes = $"Venta #{sale.Id}",
+                        IsActive = true // ✅ Establecer como activo
                     };
 
                     _context.Stocks.Add(stockMovement);
@@ -1276,6 +1278,498 @@ public class SalesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Procesa una venta aplicando FIFO automáticamente (First In, First Out)
+    /// </summary>
+    /// <param name="request">Datos de la venta</param>
+    /// <returns>Venta procesada con detalles de los lotes consumidos</returns>
+    [HttpPost("fifo-sale")]
+    [Authorize]
+    [ProducesResponseType(201)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> ProcessFifoSale([FromBody] FifoSaleRequest request)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        
+        try
+        {
+            // Validación del request
+            if (request == null)
+            {
+                return BadRequest(new { message = "Request no puede ser null" });
+            }
+
+            // Validaciones básicas
+            if (request.StoreId <= 0)
+            {
+                return BadRequest(new { message = "ID de store inválido" });
+            }
+
+            if (request.Items == null || !request.Items.Any())
+            {
+                return BadRequest(new { message = "La venta debe tener al menos un producto" });
+            }
+
+            // Validar que no haya elementos null en la lista
+            if (request.Items.Any(i => i == null))
+            {
+                return BadRequest(new { message = "La lista de productos contiene elementos inválidos" });
+            }
+
+            _logger.LogInformation("🔄 Procesando venta FIFO para store: {storeId}", request.StoreId);
+
+            // Verificar que el store existe y está activo
+            var store = await _context.Stores
+                .Include(s => s.Business)
+                .FirstOrDefaultAsync(s => s.Id == request.StoreId);
+            
+            if (store == null)
+            {
+                return BadRequest(new { message = "El store especificado no existe" });
+            }
+
+            if (!store.Active)
+            {
+                return BadRequest(new { message = "El store especificado no está activo" });
+            }
+
+            // Verificar que todos los productos existen y pertenecen al mismo business del store
+            // Usar una lista temporal para evitar problemas con LINQ
+            var tempProductIds = new List<int>();
+            foreach (var item in request.Items)
+            {
+                if (item != null && item.ProductId > 0)
+                {
+                    tempProductIds.Add(item.ProductId);
+                }
+            }
+            var productIds = tempProductIds.Distinct().ToList();
+            
+            var products = await _context.Products
+                .Where(p => productIds.Contains(p.Id) && p.BusinessId == store.BusinessId)
+                .ToListAsync();
+
+            if (products.Count != productIds.Count)
+            {
+                return BadRequest(new { message = "Uno o más productos no existen o no pertenecen al negocio del store" });
+            }
+
+            // Validar stock disponible y aplicar FIFO para cada producto
+            var fifoAllocations = new List<object>();
+            
+            foreach (var item in request.Items.ToList())
+            {
+                // Validaciones defensivas para evitar null reference
+                if (item == null)
+                {
+                    _logger.LogError("❌ Item is null in request.Items during FIFO validation");
+                    continue;
+                }
+
+                if (item.ProductId <= 0)
+                {
+                    _logger.LogError("❌ Invalid ProductId: {productId}", item.ProductId);
+                    continue;
+                }
+
+                var product = products.FirstOrDefault(p => p.Id == item.ProductId);
+                if (product == null)
+                {
+                    _logger.LogError("❌ Product not found for ProductId: {productId}", item.ProductId);
+                    continue;
+                }
+                
+                // Usar consulta SQL directa para evitar problemas con valores NULL
+                List<GPInventory.Domain.Entities.Stock> availableStocks;
+                
+                _logger.LogInformation("🔍 Obteniendo stocks FIFO para producto {productId} en store {storeId}", item.ProductId, request.StoreId);
+                
+                // Obtener stocks usando SQL directo para manejar correctamente valores NULL
+                var stocksRawQuery = await _context.Database.SqlQueryRaw<StockRawResult>(
+                    @"SELECT
+                        s.id                          AS Id,
+                        COALESCE(s.product, 0)        AS ProductId,
+                        COALESCE(s.`date`, NOW())     AS `Date`,
+                        COALESCE(s.`flow`, 1)         AS FlowTypeId,
+                        s.amount                      AS Amount,
+                        s.cost                        AS Cost,
+                        s.provider                    AS ProviderId,
+                        s.notes                       AS Notes,
+                        s.id_store                    AS StoreId,
+                        s.sale_id                     AS SaleId,
+                        s.stock_id                    AS StockId,
+                        COALESCE(s.active, 1)         AS IsActive,
+                        COALESCE(s.created_at, NOW()) AS CreatedAt,
+                        COALESCE(s.updated_at, NOW()) AS UpdatedAt
+                    FROM stock s
+                    LEFT JOIN stock sp on s.stock_id = sp.id
+                    WHERE COALESCE(s.product, 0) = {0}
+                    AND s.id_store = {1}
+                    AND ((s.amount > 0 AND COALESCE(s.active, 1) = 1) OR (s.amount < 0 AND COALESCE(sp.active, 1) = 1))
+                    ORDER BY COALESCE(s.`date`, NOW()) ASC, s.id ASC;",
+                    item.ProductId, request.StoreId).ToListAsync();
+
+                // Convertir los resultados SQL a objetos Stock
+                availableStocks = stocksRawQuery.Select(sr => new GPInventory.Domain.Entities.Stock
+                {
+                    Id = sr.Id,
+                    ProductId = sr.ProductId ?? 0, // Usar 0 como fallback si es NULL
+                    Date = sr.Date ?? DateTime.UtcNow, // Usar fecha actual como fallback
+                    FlowTypeId = sr.FlowTypeId ?? 1, // Usar FlowType por defecto
+                    Amount = sr.Amount,
+                    Cost = sr.Cost.HasValue && sr.Cost.Value > 0 ? sr.Cost.Value : null,
+                    ProviderId = sr.ProviderId.HasValue && sr.ProviderId.Value > 0 ? sr.ProviderId.Value : null,
+                    Notes = string.IsNullOrEmpty(sr.Notes) ? null : sr.Notes,
+                    StoreId = sr.StoreId,
+                    SaleId = sr.SaleId.HasValue && sr.SaleId.Value > 0 ? sr.SaleId.Value : null,
+                    StockId = sr.StockId,
+                    IsActive = sr.IsActive.HasValue ? sr.IsActive.Value == 1 : true,
+                    CreatedAt = sr.CreatedAt ?? DateTime.UtcNow,
+                    UpdatedAt = sr.UpdatedAt ?? DateTime.UtcNow
+                }).ToList();
+
+                _logger.LogInformation("✅ Encontrados {stockCount} lotes disponibles para producto {productId}", availableStocks.Count, item.ProductId);
+
+                // Calcular stock real disponible considerando las ventas previas
+                var stocksWithAvailable = new List<(GPInventory.Domain.Entities.Stock Stock, int Available)>();
+                
+                foreach (var stock in availableStocks)
+                {
+                    var saleDetailsForStock = await _context.SaleDetails
+                        .Where(sd => sd.StockId == stock.Id)
+                        .Select(sd => sd.Amount)
+                        .ToListAsync();
+                        
+                    var stockUsedInSales = saleDetailsForStock.Sum(amount => int.Parse(amount));
+                    var availableInLot = stock.Amount - stockUsedInSales;
+                    
+                    if (availableInLot > 0)
+                    {
+                        stocksWithAvailable.Add((stock, availableInLot));
+                    }
+                }
+
+                var totalAvailable = stocksWithAvailable.Sum(s => s.Available);
+                
+                if (totalAvailable < item.Quantity)
+                {
+                    return BadRequest(new { 
+                        message = $"Stock insuficiente para {product.Name}. Disponible: {totalAvailable}, Solicitado: {item.Quantity}",
+                        productId = item.ProductId,
+                        available = totalAvailable,
+                        requested = item.Quantity
+                    });
+                }
+
+                // Aplicar FIFO: asignar cantidades desde los lotes más antiguos
+                var remainingToAllocate = item.Quantity;
+                var allocations = new List<object>();
+                
+                foreach (var (stock, available) in stocksWithAvailable)
+                {
+                    if (remainingToAllocate <= 0) break;
+                    
+                    var toAllocate = Math.Min(remainingToAllocate, available);
+                    
+                    allocations.Add(new
+                    {
+                        stockId = stock.Id,
+                        stockDate = stock.Date,
+                        originalAmount = stock.Amount,
+                        availableBeforeSale = available,
+                        allocatedQuantity = toAllocate,
+                        cost = stock.Cost,
+                        notes = stock.Notes
+                    });
+                    
+                    remainingToAllocate -= toAllocate;
+                    
+                    _logger.LogInformation("📦 FIFO - Producto {productId}: Lote {stockId} ({stockDate:yyyy-MM-dd}) - Asignando {allocated} de {available} disponibles",
+                        item.ProductId, stock.Id, stock.Date, toAllocate, available);
+                }
+                
+                if (remainingToAllocate > 0)
+                {
+                    return BadRequest(new { 
+                        message = $"Error en asignación FIFO para {product.Name}. No se pudo asignar completamente la cantidad solicitada.",
+                        productId = item.ProductId,
+                        remainingToAllocate = remainingToAllocate
+                    });
+                }
+                
+                fifoAllocations.Add(new
+                {
+                    productId = item.ProductId,
+                    productName = product.Name,
+                    requestedQuantity = item.Quantity,
+                    totalAllocated = allocations.Sum(a => ((dynamic)a).allocatedQuantity),
+                    allocations = allocations
+                });
+            }
+
+            _logger.LogInformation("✅ FIFO validation passed. Creating sale...");
+
+            // Crear la venta
+            var sale = new GPInventory.Domain.Entities.Sale
+            {
+                StoreId = request.StoreId,
+                Date = DateTime.UtcNow,
+                CustomerName = request.CustomerName?.Trim(),
+                CustomerRut = request.CustomerRut?.Trim(),
+                PaymentMethodId = request.PaymentMethodId,
+                Notes = request.Notes?.Trim(),
+                Total = 0 // Se calculará después
+            };
+
+            _context.Sales.Add(sale);
+            await _context.SaveChangesAsync(); // Para obtener el ID de la venta
+
+            // Crear detalles de venta basados en las asignaciones FIFO
+            int totalAmount = 0;
+            var saleDetails = new List<object>();
+
+            // Filtrar items válidos antes del loop para evitar problemas
+            var validItems = request.Items?.Where(i => i != null && i.ProductId > 0).ToList() ?? new List<FifoSaleItem>();
+            
+            if (!validItems.Any())
+            {
+                _logger.LogWarning("⚠️ No hay items válidos para procesar");
+                return BadRequest(new { message = "No hay productos válidos para procesar en la venta" });
+            }
+            
+            foreach (var item in validItems)
+            {
+                try
+                {
+                    // Logging detallado para debugging
+                    _logger.LogInformation("🔍 Procesando item: {item}", item?.ToString() ?? "NULL");
+                    
+                    // Validaciones defensivas para evitar null reference (aunque ya fueron filtrados)
+                    if (item == null)
+                    {
+                        _logger.LogError("❌ Item is null in request.Items");
+                        continue;
+                    }
+
+                    _logger.LogInformation("🔍 ProductId: {productId}", item.ProductId);
+                    
+                    if (item.ProductId <= 0)
+                    {
+                        _logger.LogError("❌ Invalid ProductId: {productId}", item.ProductId);
+                        continue;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Error accediendo a las propiedades del item");
+                    continue;
+                }
+
+                var product = products.FirstOrDefault(p => p.Id == item.ProductId);
+                if (product == null)
+                {
+                    _logger.LogError("❌ Product not found for ProductId: {productId}", item.ProductId);
+                    continue;
+                }
+
+                var unitPrice = item.UnitPrice ?? product.Price;
+                var subtotal = unitPrice * item.Quantity;
+                totalAmount += subtotal;
+                
+                // Guardar referencias locales para evitar problemas de contexto
+                var currentItemProductId = item.ProductId;
+                var currentItemQuantity = item.Quantity;
+                var currentItemDiscount = item.Discount;
+                
+                var fifoAllocation = fifoAllocations.FirstOrDefault(fa => ((dynamic)fa).productId == currentItemProductId);
+                if (fifoAllocation == null)
+                {
+                    _logger.LogError("❌ No FIFO allocation found for ProductId: {productId}", currentItemProductId);
+                    continue;
+                }
+                var allocations = ((dynamic)fifoAllocation).allocations;
+                
+                // Validar que existan asignaciones
+                if (allocations == null)
+                {
+                    _logger.LogError("❌ No allocations found for ProductId: {productId}", currentItemProductId);
+                    continue;
+                }
+                
+                // Crear un SaleDetail por cada lote asignado
+                var itemDetails = new List<object>();
+                
+                foreach (dynamic allocation in allocations)
+                {
+                    // Validación defensiva para allocation
+                    if (allocation == null)
+                    {
+                        _logger.LogError("❌ Allocation is null for ProductId: {productId}", currentItemProductId);
+                        continue;
+                    }
+                    
+                    var allocatedQty = (int)allocation.allocatedQuantity;
+                    var stockId = (int)allocation.stockId;
+                    var stockCost = allocation.cost;
+                    
+                    // Convertir stockCost de manera segura
+                    decimal? costValue = null;
+                    if (stockCost != null)
+                    {
+                        if (stockCost is decimal decimalCost)
+                        {
+                            costValue = decimalCost;
+                        }
+                        else if (decimal.TryParse(stockCost.ToString(), out decimal parsedCost))
+                        {
+                            costValue = parsedCost;
+                        }
+                    }
+                    
+                    var proportionalSubtotal = (int)Math.Round((decimal)subtotal * allocatedQty / currentItemQuantity);
+                    var proportionalDiscount = currentItemDiscount.HasValue ? 
+                        (int)Math.Round((decimal)currentItemDiscount.Value * allocatedQty / currentItemQuantity) : 0;
+                    
+                    // Crear SaleDetail usando SQL directo
+                    await _context.Database.ExecuteSqlRawAsync(
+                        @"INSERT INTO sales_detail (product, amount, price, discount, sale, stock_id) 
+                          VALUES ({0}, {1}, {2}, {3}, {4}, {5})",
+                        currentItemProductId,
+                        allocatedQty.ToString(),
+                        unitPrice,
+                        proportionalDiscount > 0 ? proportionalDiscount : 0,
+                        sale.Id,
+                        stockId);
+
+                    // Crear movimiento de stock negativo (salida por venta FIFO) usando SQL directo
+                    var stockNotes = $"Venta FIFO #{sale.Id} - Stock lote #{stockId}";
+                    await RelationalDatabaseFacadeExtensions.ExecuteSqlRawAsync(
+                        _context.Database,
+                        @"INSERT INTO stock (product, `date`, `flow`, amount, cost, id_store, sale_id, stock_id, notes, active, created_at, updated_at) 
+                          VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, {11})",
+                        currentItemProductId,
+                        DateTime.UtcNow,
+                        11, // FlowType "Venta"
+                        -allocatedQty, // Cantidad negativa para salida
+                        costValue.HasValue ? (object)costValue.Value : DBNull.Value, // Usar DBNull.Value para NULL
+                        request.StoreId,
+                        sale.Id,
+                        stockId,
+                        stockNotes,
+                        true, // activo
+                        DateTime.UtcNow,
+                        DateTime.UtcNow);
+
+                    // Verificar si el stock padre se agotó completamente y marcarlo como inactivo
+                    // Usar SQL directo para evitar problemas con valores NULL
+                    var parentStockRaw = await _context.Database.SqlQueryRaw<StockRawResult>(
+                        @"SELECT
+                            s.id                          AS Id,
+                            COALESCE(s.product, 0)        AS ProductId,
+                            COALESCE(s.`date`, NOW())     AS `Date`,
+                            COALESCE(s.`flow`, 1)         AS FlowTypeId,
+                            s.amount                      AS Amount,
+                            s.cost                        AS Cost,
+                            s.provider                    AS ProviderId,
+                            s.notes                       AS Notes,
+                            s.id_store                    AS StoreId,
+                            s.sale_id                     AS SaleId,
+                            s.stock_id                    AS StockId,
+                            COALESCE(s.active, 1)         AS IsActive,
+                            COALESCE(s.created_at, NOW()) AS CreatedAt,
+                            COALESCE(s.updated_at, NOW()) AS UpdatedAt
+                        FROM stock s
+                        WHERE s.id = {0}", stockId).ToListAsync();
+                    
+                    if (parentStockRaw.Any())
+                    {
+                        var parentStockData = parentStockRaw.First();
+                        // Calcular el total usado de este lote incluyendo esta venta
+                        var saleDetailsForLot = await _context.SaleDetails
+                            .Where(sd => sd.StockId == stockId)
+                            .Select(sd => sd.Amount)
+                            .ToListAsync();
+                        
+                        var totalUsedFromLot = saleDetailsForLot.Sum(amount => int.Parse(amount));
+                        
+                        // Sumar la cantidad que se está vendiendo ahora
+                        totalUsedFromLot += allocatedQty;
+                        
+                        // Si se agotó el lote completamente, marcarlo como inactivo usando SQL directo
+                        if (totalUsedFromLot >= parentStockData.Amount)
+                        {
+                            await _context.Database.ExecuteSqlRawAsync(
+                                "UPDATE stock SET active = 0 WHERE id = {0}", stockId);
+                            _logger.LogInformation("🔄 Stock lote #{stockId} agotado completamente, marcado como inactivo", stockId);
+                        }
+                    }
+                    
+                    itemDetails.Add(new
+                    {
+                        stockId = stockId,
+                        stockDate = allocation.stockDate,
+                        quantity = allocatedQty,
+                        unitPrice = unitPrice,
+                        subtotal = proportionalSubtotal,
+                        discount = proportionalDiscount > 0 ? proportionalDiscount : (int?)null,
+                        cost = costValue
+                    });
+                    
+                    _logger.LogInformation("💰 Sale detail created: Product {productId}, Stock {stockId}, Qty {qty}, Price {price}",
+                        currentItemProductId, stockId, allocatedQty, unitPrice);
+                }
+                
+                saleDetails.Add(new
+                {
+                    productId = currentItemProductId,
+                    productName = product.Name,
+                    totalQuantity = currentItemQuantity,
+                    unitPrice = unitPrice,
+                    totalSubtotal = subtotal,
+                    totalDiscount = currentItemDiscount ?? 0,
+                    lotsUsed = itemDetails.Count,
+                    details = itemDetails
+                });
+            }
+
+            // Actualizar total de la venta usando SQL directo con parámetros seguros
+            await _context.Database.ExecuteSqlRawAsync(
+                "UPDATE sales SET total = {0} WHERE id = {1}", totalAmount, sale.Id);
+
+            await transaction.CommitAsync();
+
+            _logger.LogInformation("🎉 Venta FIFO procesada exitosamente: {saleId}, Total: ${total}", sale.Id, totalAmount);
+
+            var result = new
+            {
+                saleId = sale.Id,
+                storeId = sale.StoreId,
+                storeName = store.Name,
+                businessId = store.BusinessId,
+                businessName = store.Business?.CompanyName,
+                date = sale.Date,
+                customerName = sale.CustomerName,
+                customerRut = sale.CustomerRut,
+                total = sale.Total,
+                paymentMethodId = sale.PaymentMethodId,
+                notes = sale.Notes,
+                fifoDetails = fifoAllocations,
+                items = saleDetails,
+                message = "Venta procesada exitosamente aplicando FIFO automático"
+            };
+
+            return CreatedAtAction(nameof(GetSale), new { id = sale.Id }, result);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "❌ Error al procesar venta FIFO");
+            return StatusCode(500, new { message = "Error al procesar la venta FIFO", details = ex.Message });
+        }
+    }
+
     #endregion
 }
 
@@ -1344,4 +1838,113 @@ public class QuickSaleItem
     /// ID del stock específico del cual se está vendiendo el producto (opcional)
     /// </summary>
     public int? StockId { get; set; }
+}
+
+/// <summary>
+/// Modelo para venta con FIFO automático
+/// </summary>
+public class FifoSaleRequest
+{
+    /// <summary>
+    /// ID del store donde se realiza la venta
+    /// </summary>
+    public int StoreId { get; set; }
+
+    /// <summary>
+    /// Nombre del cliente (opcional)
+    /// </summary>
+    public string? CustomerName { get; set; }
+
+    /// <summary>
+    /// RUT del cliente (opcional)
+    /// </summary>
+    public string? CustomerRut { get; set; }
+
+    /// <summary>
+    /// ID del método de pago
+    /// </summary>
+    public int PaymentMethodId { get; set; }
+
+    /// <summary>
+    /// Lista de productos a vender (sin especificar StockId)
+    /// </summary>
+    public List<FifoSaleItem> Items { get; set; } = new();
+
+    /// <summary>
+    /// Notas adicionales de la venta (opcional)
+    /// </summary>
+    public string? Notes { get; set; }
+}
+
+/// <summary>
+/// Item de venta con FIFO automático
+/// </summary>
+public class FifoSaleItem
+{
+    /// <summary>
+    /// ID del producto
+    /// </summary>
+    public int ProductId { get; set; }
+
+    /// <summary>
+    /// Cantidad a vender
+    /// </summary>
+    public int Quantity { get; set; }
+
+    /// <summary>
+    /// Precio unitario (opcional, se usará el precio del producto si no se especifica)
+    /// </summary>
+    public int? UnitPrice { get; set; }
+
+    /// <summary>
+    /// Descuento aplicado (opcional)
+    /// </summary>
+    public int? Discount { get; set; }
+}
+
+/// <summary>
+/// Clase para mapear IDs de consultas SQL
+/// </summary>
+public class IdResult
+{
+    public int Id { get; set; }
+}
+
+/// <summary>
+/// Clase para mapear resultados SQL directos de la tabla stock
+/// </summary>
+public class StockRawResult
+{
+    public int Id { get; set; }
+    public int? ProductId { get; set; }
+    public DateTime? Date { get; set; }
+    public int? FlowTypeId { get; set; }
+    public int Amount { get; set; }
+    public int? Cost { get; set; }
+    public int? ProviderId { get; set; }
+    public string? Notes { get; set; }
+    public int StoreId { get; set; }
+    public int? SaleId { get; set; }
+    public int? StockId { get; set; }
+    public int? IsActive { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+}
+
+public class Item
+{
+
+/*     Discount[int ?] =
+0
+ProductId[int] =
+5
+Quantity[int] =
+11
+UnitPrice[int ?] =
+3000 */
+
+    public int? Discount { get; set; }
+    public int ProductId { get; set; }
+    public int Quantity { get; set; }
+    public int? UnitPrice { get; set; }
 }

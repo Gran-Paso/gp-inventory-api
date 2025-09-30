@@ -291,7 +291,8 @@ public class ProcessDoneService : IProcessDoneService
                     Cost = (int)Math.Round(totalSupplyCost), // Costo total de los insumos
                     StoreId = process.StoreId,
                     Date = DateTime.UtcNow,
-                    Notes = $"Producción del proceso: {process.Name}. Costo total insumos: {totalSupplyCost:C}. Costo unitario: {(amount > 0 ? totalSupplyCost / amount : 0):C}"
+                    Notes = $"Producción del proceso: {process.Name}. Costo total insumos: {totalSupplyCost:C}. Costo unitario: {(amount > 0 ? totalSupplyCost / amount : 0):C}",
+                    IsActive = true // ✅ Establecer como activo
                 };
                 
                 await _stockRepository.AddAsync(stock);

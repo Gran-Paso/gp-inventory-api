@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
+using GPInventory.Infrastructure.Services;
+using GPInventory.Domain.Entities;
+using System.Security.Claims;
 
 namespace GPInventory.Api.Controllers;
 
@@ -13,11 +16,13 @@ public class StockController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<StockController> _logger;
+    private readonly IProductAuditService _auditService;
 
-    public StockController(ApplicationDbContext context, ILogger<StockController> logger)
+    public StockController(ApplicationDbContext context, ILogger<StockController> logger, IProductAuditService auditService)
     {
         _context = context;
         _logger = logger;
+        _auditService = auditService;
     }
 
     /// <summary>
@@ -140,7 +145,11 @@ public class StockController : ControllerBase
             }
 
             var currentStock = await _context.Stocks
-                .Where(s => s.ProductId == productId && businessStores.Contains(s.StoreId))
+                .Where(s => s.ProductId == productId && 
+                           businessStores.Contains(s.StoreId) &&
+                           s.StockId == null && 
+                           s.Amount > 0 && 
+                           s.IsActive == true)
                 .SumAsync(s => s.Amount);
 
             var result = new
@@ -231,46 +240,85 @@ public class StockController : ControllerBase
                 providerId = await GetOrCreateProviderForStore(request.ProviderName.Trim(), request.StoreId);
             }
 
-            // Crear movimiento de stock
-            var stockMovement = new GPInventory.Domain.Entities.Stock
+            // Usar SQL directo para evitar problemas con Entity Framework y valores NULL
+            var date = request.Date ?? DateTime.UtcNow;
+            var notes = request.Notes?.Trim();
+            var cost = request.Cost;
+            
+            // Debug: Log valores antes de guardar
+            _logger.LogInformation("🔍 Debug - Valores del stock antes de insertar:");
+            _logger.LogInformation("  ProductId: {ProductId}", request.ProductId);
+            _logger.LogInformation("  StoreId: {StoreId}", request.StoreId);
+            _logger.LogInformation("  FlowTypeId: {FlowTypeId}", request.FlowTypeId);
+            _logger.LogInformation("  Amount: {Amount}", request.Amount);
+            _logger.LogInformation("  Cost: {Cost}", cost);
+            _logger.LogInformation("  ProviderId: {ProviderId}", providerId);
+            _logger.LogInformation("  Notes: '{Notes}'", notes);
+            _logger.LogInformation("  Date: {Date}", date);
+
+            // Construir SQL con valores explícitos para manejar NULL correctamente
+            var costValue = cost?.ToString() ?? "NULL";
+            var providerValue = providerId?.ToString() ?? "NULL";
+            var notesValue = notes != null ? $"'{notes.Replace("'", "''")}'" : "NULL";
+            var dateString = date.ToString("yyyy-MM-dd HH:mm:ss");
+
+            // Usar transacción y conexión directa para obtener el LAST_INSERT_ID() correctamente
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                ProductId = request.ProductId,
-                Date = request.Date ?? DateTime.UtcNow,
-                FlowTypeId = request.FlowTypeId,
-                Amount = request.Amount,
-                Cost = request.Cost,
-                ProviderId = providerId,
-                StoreId = request.StoreId,
-                Notes = request.Notes?.Trim()
-            };
+                // Ejecutar INSERT 
+                var insertSql = $@"
+                    INSERT INTO stock (product, date, flow, amount, cost, provider, notes, id_store, active, created_at, updated_at)
+                    VALUES ({request.ProductId}, '{dateString}', {request.FlowTypeId}, {request.Amount}, {costValue}, {providerValue}, {notesValue}, {request.StoreId}, 1, NOW(), NOW())";
 
-            _context.Stocks.Add(stockMovement);
-            await _context.SaveChangesAsync();
+                var affectedRows = await _context.Database.ExecuteSqlRawAsync(insertSql);
+                _logger.LogInformation("🔍 Rows afectadas por INSERT: {affectedRows}", affectedRows);
 
-            // Obtener el movimiento creado con sus relaciones
-            var createdMovement = await _context.Stocks
-                .Include(s => s.Product)
-                .Include(s => s.FlowType)
-                .Include(s => s.Provider)
-                .Include(s => s.Store)
-                .Where(s => s.Id == stockMovement.Id)
-                .Select(s => new
+                // En MySQL, obtener el último ID insertado usando una variable de sesión
+                var lastIdQuery = await _context.Database.SqlQueryRaw<LastInsertIdResult>("SELECT @@IDENTITY as Id").FirstAsync();
+                var lastInsertId = lastIdQuery.Id;
+                
+                _logger.LogInformation("🔍 ID obtenido con @@IDENTITY: {lastInsertId}", lastInsertId);
+                
+                await transaction.CommitAsync();
+
+                _logger.LogInformation("Movimiento de stock creado exitosamente: {stockId}", lastInsertId);
+                
+                // Retornar respuesta simple sin consulta adicional para evitar problemas de NULL
+                var simpleResponse = new
                 {
-                    id = s.Id,
-                    productId = s.ProductId,
-                    productName = s.Product.Name,
-                    date = s.Date,
-                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
-                    amount = s.Amount,
-                    cost = s.Cost,
-                    provider = s.Provider != null ? new { id = s.Provider.Id, name = s.Provider.Name } : null,
-                    store = new { id = s.Store.Id, name = s.Store.Name, location = s.Store.Location },
-                    notes = s.Notes
-                })
-                .FirstOrDefaultAsync();
-
-            _logger.LogInformation("Movimiento de stock creado exitosamente: {stockId}", stockMovement.Id);
-            return CreatedAtAction(nameof(GetStockMovements), createdMovement);
+                    id = lastInsertId,
+                    productId = request.ProductId,
+                    storeId = request.StoreId,
+                    amount = request.Amount,
+                    cost = cost,
+                    date = date,
+                    message = "Movimiento de stock creado exitosamente"
+                };
+                
+                return CreatedAtAction(nameof(GetStockMovements), simpleResponse);
+            }
+            catch (Exception transactionEx)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(transactionEx, "Error en la transacción al crear movimiento de stock");
+                throw; // Re-lanzar para que sea capturado por el catch principal
+            }
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException dbEx)
+        {
+            _logger.LogError(dbEx, "Error de base de datos al crear movimiento de stock");
+            _logger.LogError("Inner exception: {InnerException}", dbEx.InnerException?.Message);
+            
+            if (dbEx.InnerException is InvalidCastException castEx)
+            {
+                _logger.LogError("Error de conversión de tipos: {CastException}", castEx.Message);
+            }
+            
+            return StatusCode(500, new { 
+                message = "Error al guardar en la base de datos", 
+                details = dbEx.InnerException?.Message ?? dbEx.Message 
+            });
         }
         catch (Exception ex)
         {
@@ -321,7 +369,13 @@ public class StockController : ControllerBase
                 })
                 .ToListAsync();
 
-            var currentStock = movements.Sum(m => m.amount);
+            // Calcular stock actual solo con movimientos activos usando lógica FIFO
+            var currentStock = await _context.Stocks
+                .Where(s => s.ProductId == productId && 
+                           s.StockId == null && 
+                           s.Amount > 0 && 
+                           s.IsActive == true)
+                .SumAsync(s => s.Amount);
 
             var result = new
             {
@@ -529,8 +583,12 @@ public class StockController : ControllerBase
             var storeIds = stores.Select(s => s.Id).ToList();
 
             // Obtener todos los stocks y ventas de una vez para optimizar
+            // Solo stocks activos con lógica FIFO: stock_id es null, amount > 0 y activo = 1
             var allStocks = await _context.Stocks
-                .Where(s => storeIds.Contains(s.StoreId))
+                .Where(s => storeIds.Contains(s.StoreId) && 
+                           s.StockId == null && 
+                           s.Amount > 0 && 
+                           s.IsActive == true)
                 .ToListAsync();
 
             var allSalesDetails = await _context.SaleDetails
@@ -696,6 +754,7 @@ public class StockController : ControllerBase
                         sku = product.Sku,
                         price = product.Price,
                         cost = product.Cost,
+                        minimumStock = product.MinimumStock,
                         image = product.Image,
                         productType = product.ProductType != null ? new { id = product.ProductType.Id, name = product.ProductType.Name } : null,
                         business = new { id = product.Business.Id, companyName = product.Business.CompanyName },
@@ -791,4 +850,12 @@ public class CreateStockMovementRequest
     /// Notas adicionales (opcional)
     /// </summary>
     public string? Notes { get; set; }
+}
+
+/// <summary>
+/// Clase para mapear el resultado de LAST_INSERT_ID()
+/// </summary>
+public class LastInsertIdResult
+{
+    public int Id { get; set; }
 }

@@ -14,6 +14,7 @@ public class Product : BaseEntity
     public string? Sku { get; set; }
     public DateTime Date { get; set; }
     public int BusinessId { get; set; }
+    public int MinimumStock { get; set; } = 0;
 
     // Navigation properties
     public ProductType ProductType { get; set; } = null!;

@@ -70,6 +70,14 @@ public class Stock : BaseEntity
     [Column("sale_id")]
     public int? SaleId { get; set; }
 
+    /// <summary>
+    /// ID del stock padre (para relaciones FIFO entre entrada y salida)
+    /// </summary>
+    [Column("stock_id")]
+    public int? StockId { get; set; }
+
+
+
     // Propiedades de navegación
     /// <summary>
     /// Producto asociado
@@ -104,9 +112,10 @@ public class Stock : BaseEntity
     public Stock()
     {
         Date = DateTime.UtcNow;
+        IsActive = true; // ✅ Por defecto activo
     }
 
-    public Stock(int productId, int flowTypeId, int amount, int storeId, int? auctionPrice = null, int? cost = null, int? providerId = null, string? notes = null, int? saleId = null)
+    public Stock(int productId, int flowTypeId, int amount, int storeId, int? auctionPrice = null, int? cost = null, int? providerId = null, string? notes = null, int? saleId = null, int? stockId = null)
     {
         ProductId = productId;
         FlowTypeId = flowTypeId;
@@ -117,6 +126,8 @@ public class Stock : BaseEntity
         ProviderId = providerId;
         Notes = notes;
         SaleId = saleId;
+        StockId = stockId;
         Date = DateTime.UtcNow;
+        IsActive = true; // ✅ Por defecto activo
     }
 }
