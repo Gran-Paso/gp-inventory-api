@@ -4,8 +4,6 @@ using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
 using GPInventory.Infrastructure.Services;
-using GPInventory.Domain.Entities;
-using System.Security.Claims;
 
 namespace GPInventory.Api.Controllers;
 
