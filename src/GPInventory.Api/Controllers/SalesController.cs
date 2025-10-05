@@ -183,105 +183,132 @@ public class SalesController : ControllerBase
         {
             _logger.LogInformation("Obteniendo productos disponibles para store: {storeId}", storeId);
 
-            // Verificar que el store existe y está activo
-            var store = await _context.Stores
-                .Include(s => s.Business)
-                .FirstOrDefaultAsync(s => s.Id == storeId && s.Active);
+            // Verificar que el store existe y está activo usando SQL directo
+            var storeQuery = @"
+                SELECT 
+                    s.id AS Id,
+                    s.name AS Name,
+                    s.location AS Location,
+                    s.id_business AS BusinessId,
+                    COALESCE(s.active, 0) AS Active,
+                    b.company_name AS BusinessCompanyName
+                FROM store s
+                LEFT JOIN business b ON s.id_business = b.id
+                WHERE s.id = {0} AND COALESCE(s.active, 0) = 1";
 
-            if (store == null)
+            var storeResult = await _context.Database
+                .SqlQueryRaw<StoreWithBusinessResult>(storeQuery, storeId)
+                .FirstOrDefaultAsync();
+
+            if (storeResult == null)
             {
                 return NotFound(new { message = "Store no encontrado o no está activo" });
             }
 
-            // Obtener todos los productos del business del store
-            var businessProducts = await _context.Products
-                .Include(p => p.ProductType)
-                .Include(p => p.Business)
-                .Where(p => p.BusinessId == store.BusinessId)
+            // Obtener productos con stock disponible usando SQL directo con cálculo FIFO
+            var productsQuery = @"
+                SELECT 
+                    p.id AS Id,
+                    p.name AS Name,
+                    p.sku AS Sku,
+                    COALESCE(p.price, 0) AS Price,
+                    COALESCE(p.cost, 0) AS Cost,
+                    p.image AS Image,
+                    p.product_type AS ProductTypeId,
+                    pt.name AS ProductTypeName,
+                    p.business AS BusinessId,
+                    b.company_name AS BusinessCompanyName,
+                    COALESCE(p.minimumStock, 0) AS MinimumStock,
+                    COALESCE(
+                        (SELECT SUM(s.amount)
+                         FROM stock s
+                         LEFT JOIN stock sp ON s.stock_id = sp.id
+                         WHERE s.product = p.id 
+                         AND s.id_store = {0}
+                         AND ((s.amount > 0 AND COALESCE(s.active, 0) = 1) OR (s.amount < 0 AND COALESCE(sp.active, 0) = 1))),
+                        0
+                    ) AS CurrentStock,
+                    -- Calcular costo promedio ponderado (FIFO) basado en lotes de entrada con stock disponible
+                    COALESCE(
+                        (SELECT 
+                            CASE 
+                                WHEN SUM(GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0), 
+                                    0
+                                )) > 0
+                                THEN SUM(
+                                    GREATEST(
+                                        s.amount - COALESCE((
+                                            SELECT SUM(CAST(sd.amount AS SIGNED))
+                                            FROM sales_detail sd
+                                            WHERE sd.stock_id = s.id
+                                        ), 0), 
+                                        0
+                                    ) * COALESCE(s.cost, 0)
+                                ) / SUM(GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0), 
+                                    0
+                                ))
+                                ELSE NULL
+                            END
+                         FROM stock s
+                         WHERE s.product = p.id 
+                         AND s.id_store = {0}
+                         AND s.amount > 0
+                         AND COALESCE(s.active, 1) = 1
+                         AND s.cost IS NOT NULL 
+                         AND s.cost > 0),
+                        NULL
+                    ) AS AverageCost
+                FROM product p
+                LEFT JOIN product_type pt ON p.product_type = pt.id
+                LEFT JOIN business b ON p.business = b.id
+                WHERE p.business = {1}
+                HAVING CurrentStock > 0
+                ORDER BY p.name ASC";
+
+            var productsResult = await _context.Database
+                .SqlQueryRaw<ProductWithStockResult>(productsQuery, storeId, storeResult.BusinessId)
                 .ToListAsync();
 
-            // Calcular stock para cada producto en el store específico
-            var availableProducts = new List<object>();
-
-            foreach (var product in businessProducts)
+            var availableProducts = productsResult.Select(p => new
             {
-                // Obtener todos los stocks del producto en el store
-                var stockLots = await _context.Stocks
-                    .Where(s => s.ProductId == product.Id && s.StoreId == storeId && s.Amount > 0)
-                    .ToListAsync();
-
-                // Calcular stock real disponible considerando las ventas
-                var currentStock = 0;
-                foreach (var stock in stockLots)
-                {
-                    var saleDetailsForStock = await _context.SaleDetails
-                        .Where(sd => sd.StockId == stock.Id)
-                        .Select(sd => sd.Amount)
-                        .ToListAsync();
-                        
-                    var stockUsedInSales = saleDetailsForStock.Sum(amount => int.Parse(amount));
-
-                    var availableInLot = stock.Amount - stockUsedInSales;
-                    if (availableInLot > 0)
-                    {
-                        currentStock += availableInLot;
-                    }
+                id = p.Id,
+                name = p.Name,
+                sku = p.Sku,
+                price = p.Price,
+                cost = p.Cost,
+                image = p.Image,
+                currentStock = p.CurrentStock,
+                minimumStock = p.MinimumStock,
+                averageCost = p.AverageCost.HasValue ? Math.Round(p.AverageCost.Value, 2) : (decimal?)null,
+                productType = p.ProductTypeId.HasValue ? new { 
+                    id = p.ProductTypeId.Value, 
+                    name = p.ProductTypeName 
+                } : null,
+                business = new { 
+                    id = p.BusinessId, 
+                    companyName = p.BusinessCompanyName 
                 }
-
-                // Solo incluir productos con stock disponible
-                if (currentStock > 0)
-                {
-                    // Calcular precio promedio basado en ventas del store
-                    var salesData = await _context.SaleDetails
-                        .Include(sd => sd.Sale)
-                        .Where(sd => sd.ProductId == product.Id && sd.Sale.StoreId == storeId)
-                        .ToListAsync();
-
-                    var averagePrice = salesData.Any() ? (decimal?)salesData.Average(s => s.Price) : null;
-
-                    // Calcular costo promedio basado en movimientos de stock del store
-                    var stockMovements = await _context.Stocks
-                        .Where(s => s.ProductId == product.Id && s.StoreId == storeId && s.Cost.HasValue && s.Cost.Value > 0)
-                        .ToListAsync();
-
-                    decimal? averageCost = null;
-                    if (stockMovements.Any())
-                    {
-                        var totalCostValue = stockMovements.Sum(s => (decimal)s.Amount * (decimal)s.Cost!.Value);
-                        var totalQuantity = stockMovements.Sum(s => (decimal)s.Amount);
-                        
-                        if (totalQuantity > 0)
-                        {
-                            averageCost = totalCostValue / totalQuantity;
-                        }
-                    }
-
-                    availableProducts.Add(new
-                    {
-                        id = product.Id,
-                        name = product.Name,
-                        sku = product.Sku,
-                        price = product.Price,
-                        cost = product.Cost,
-                        image = product.Image,
-                        currentStock = currentStock,
-                        averagePrice = averagePrice.HasValue ? Math.Round(averagePrice.Value, 2) : (decimal?)null,
-                        averageCost = averageCost.HasValue ? Math.Round(averageCost.Value, 2) : (decimal?)null,
-                        productType = product.ProductType != null ? new { id = product.ProductType.Id, name = product.ProductType.Name } : null,
-                        business = new { id = product.Business.Id, companyName = product.Business.CompanyName }
-                    });
-                }
-            }
+            }).ToList();
 
             var result = new
             {
-                storeId = store.Id,
-                storeName = store.Name,
-                storeLocation = store.Location,
-                businessId = store.BusinessId,
-                businessName = store.Business?.CompanyName,
+                storeId = storeResult.Id,
+                storeName = storeResult.Name,
+                storeLocation = storeResult.Location,
+                businessId = storeResult.BusinessId,
+                businessName = storeResult.BusinessCompanyName,
                 totalAvailableProducts = availableProducts.Count,
-                products = availableProducts.OrderBy(p => ((dynamic)p).name)
+                products = availableProducts
             };
 
             _logger.LogInformation($"Se encontraron {availableProducts.Count} productos disponibles en store {storeId}");
@@ -290,7 +317,7 @@ public class SalesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error al obtener productos disponibles del store: {storeId}", storeId);
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            return StatusCode(500, new { message = "Error interno del servidor", details = ex.Message });
         }
     }
 
@@ -1386,7 +1413,8 @@ public class SalesController : ControllerBase
                 
                 _logger.LogInformation("🔍 Obteniendo stocks FIFO para producto {productId} en store {storeId}", item.ProductId, request.StoreId);
                 
-                // Obtener stocks usando SQL directo para manejar correctamente valores NULL
+                // Obtener SOLO lotes de ENTRADA (amount > 0) activos para aplicar FIFO correctamente
+                // NO incluir movimientos negativos en la selección FIFO
                 var stocksRawQuery = await _context.Database.SqlQueryRaw<StockRawResult>(
                     @"SELECT
                         s.id                          AS Id,
@@ -1404,10 +1432,10 @@ public class SalesController : ControllerBase
                         COALESCE(s.created_at, NOW()) AS CreatedAt,
                         COALESCE(s.updated_at, NOW()) AS UpdatedAt
                     FROM stock s
-                    LEFT JOIN stock sp on s.stock_id = sp.id
                     WHERE COALESCE(s.product, 0) = {0}
                     AND s.id_store = {1}
-                    AND ((s.amount > 0 AND COALESCE(s.active, 1) = 1) OR (s.amount < 0 AND COALESCE(sp.active, 1) = 1))
+                    AND s.amount > 0
+                    AND COALESCE(s.active, 0) = 1
                     ORDER BY COALESCE(s.`date`, NOW()) ASC, s.id ASC;",
                     item.ProductId, request.StoreId).ToListAsync();
 
@@ -1644,23 +1672,29 @@ public class SalesController : ControllerBase
                         stockId);
 
                     // Crear movimiento de stock negativo (salida por venta FIFO) usando SQL directo
-                    var stockNotes = $"Venta FIFO #{sale.Id} - Stock lote #{stockId}";
-                    await RelationalDatabaseFacadeExtensions.ExecuteSqlRawAsync(
-                        _context.Database,
+                    // Este movimiento DEBE tener stock_id apuntando al lote padre del cual se saca el stock
+                    var stockNotes = $"Venta FIFO #{sale.Id} - Desde lote #{stockId}";
+                    
+                    _logger.LogInformation("📦 Creando movimiento de stock NEGATIVO: Producto={productId}, Cantidad={qty}, StockPadre={stockId}, Venta={saleId}",
+                        currentItemProductId, -allocatedQty, stockId, sale.Id);
+                    
+                    await _context.Database.ExecuteSqlRawAsync(
                         @"INSERT INTO stock (product, `date`, `flow`, amount, cost, id_store, sale_id, stock_id, notes, active, created_at, updated_at) 
                           VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, {11})",
                         currentItemProductId,
                         DateTime.UtcNow,
                         11, // FlowType "Venta"
                         -allocatedQty, // Cantidad negativa para salida
-                        costValue.HasValue ? (object)costValue.Value : DBNull.Value, // Usar DBNull.Value para NULL
+                        costValue.HasValue ? (object)costValue.Value : DBNull.Value,
                         request.StoreId,
                         sale.Id,
-                        stockId,
+                        stockId, // ✅ stock_id apunta al lote padre del cual se saca el inventario
                         stockNotes,
-                        true, // activo
+                        1, // active = 1 (activo)
                         DateTime.UtcNow,
                         DateTime.UtcNow);
+                    
+                    _logger.LogInformation("✅ Movimiento de stock negativo creado exitosamente para lote #{stockId}", stockId);
 
                     // Verificar si el stock padre se agotó completamente y marcarlo como inactivo
                     // Usar SQL directo para evitar problemas con valores NULL
@@ -1738,6 +1772,9 @@ public class SalesController : ControllerBase
             await _context.Database.ExecuteSqlRawAsync(
                 "UPDATE sales SET total = {0} WHERE id = {1}", totalAmount, sale.Id);
 
+            // Actualizar el objeto sale en memoria para que refleje el total correcto
+            sale.Total = totalAmount;
+
             await transaction.CommitAsync();
 
             _logger.LogInformation("🎉 Venta FIFO procesada exitosamente: {saleId}, Total: ${total}", sale.Id, totalAmount);
@@ -1752,7 +1789,7 @@ public class SalesController : ControllerBase
                 date = sale.Date,
                 customerName = sale.CustomerName,
                 customerRut = sale.CustomerRut,
-                total = sale.Total,
+                total = totalAmount, // Usar totalAmount directamente en lugar de sale.Total
                 paymentMethodId = sale.PaymentMethodId,
                 notes = sale.Notes,
                 fifoDetails = fifoAllocations,
@@ -1929,6 +1966,39 @@ public class StockRawResult
     public int? IsActive { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// Clase para mapear resultados de consulta SQL de producto con stock
+/// </summary>
+public class ProductWithStockResult
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Sku { get; set; }
+    public int Price { get; set; }
+    public int Cost { get; set; }
+    public string? Image { get; set; }
+    public int? ProductTypeId { get; set; }
+    public string? ProductTypeName { get; set; }
+    public int BusinessId { get; set; }
+    public string? BusinessCompanyName { get; set; }
+    public int MinimumStock { get; set; }
+    public int CurrentStock { get; set; }
+    public decimal? AverageCost { get; set; }
+}
+
+/// <summary>
+/// Clase extendida para mapear resultados de consulta SQL de store con info del business
+/// </summary>
+public class StoreWithBusinessResult
+{
+    public int Id { get; set; }
+    public string? Name { get; set; }
+    public string? Location { get; set; }
+    public int BusinessId { get; set; }
+    public bool Active { get; set; }
+    public string? BusinessCompanyName { get; set; }
 }
 
 public class Item

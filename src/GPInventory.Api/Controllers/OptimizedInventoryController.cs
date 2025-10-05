@@ -144,10 +144,9 @@ public class OptimizedInventoryController : ControllerBase
                         s.product as product_id,
                         SUM(s.amount) as current_stock
                     FROM stock s
-                    LEFT JOIN stock sp ON s.stock_id = sp.id
                     INNER JOIN store st ON s.id_store = st.id
                     WHERE st.id_business = {0}
-                    AND ((s.amount > 0 AND COALESCE(s.active, 0) = 1) OR (s.amount < 0 AND COALESCE(sp.active, 0) = 1))
+                    AND COALESCE(s.active, 1) = 1
                     " + (storeId.HasValue ? "AND s.id_store = {1}" : "") + @"
                     GROUP BY s.product
                 ) stock_data ON p.id = stock_data.product_id
@@ -366,7 +365,7 @@ public class OptimizedInventoryController : ControllerBase
 
             // Verificar que el lote existe y tiene stock suficiente
             var lotQuery = @"
-                SELECT s.id, s.amount, s.unit_cost, s.product_id, s.store_id
+                SELECT s.id, s.amount, s.cost as UnitCost, s.product as ProductId, s.id_store as StoreId
                 FROM stock s
                 WHERE s.id = {0} AND s.amount > 0 AND COALESCE(s.active, 0) = 1";
 
