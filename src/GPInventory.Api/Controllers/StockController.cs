@@ -259,15 +259,18 @@ public class StockController : ControllerBase
             var providerValue = providerId?.ToString() ?? "NULL";
             var notesValue = notes != null ? $"'{notes.Replace("'", "''")}'" : "NULL";
             var dateString = date.ToString("yyyy-MM-dd HH:mm:ss");
+            var expirationDateValue = request.ExpirationDate.HasValue 
+                ? $"'{request.ExpirationDate.Value:yyyy-MM-dd}'" 
+                : "NULL";
 
             // Usar transacción y conexión directa para obtener el LAST_INSERT_ID() correctamente
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // Ejecutar INSERT 
+                // Ejecutar INSERT con expiration_date
                 var insertSql = $@"
-                    INSERT INTO stock (product, date, flow, amount, cost, provider, notes, id_store, active, created_at, updated_at)
-                    VALUES ({request.ProductId}, '{dateString}', {request.FlowTypeId}, {request.Amount}, {costValue}, {providerValue}, {notesValue}, {request.StoreId}, 1, NOW(), NOW())";
+                    INSERT INTO stock (product, date, flow, amount, cost, provider, expiration_date, notes, id_store, active, created_at, updated_at)
+                    VALUES ({request.ProductId}, '{dateString}', {request.FlowTypeId}, {request.Amount}, {costValue}, {providerValue}, {expirationDateValue}, {notesValue}, {request.StoreId}, 1, NOW(), NOW())";
 
                 var affectedRows = await _context.Database.ExecuteSqlRawAsync(insertSql);
                 _logger.LogInformation("🔍 Rows afectadas por INSERT: {affectedRows}", affectedRows);
@@ -388,6 +391,112 @@ public class StockController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error al obtener historial de stock para producto: {productId}", productId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene los lotes de stock disponibles de un producto en un store específico
+    /// </summary>
+    /// <param name="productId">ID del producto</param>
+    /// <param name="storeId">ID del store</param>
+    /// <returns>Lista de lotes con stock disponible</returns>
+    [HttpGet("product/{productId}/store/{storeId}/lots")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetProductStockLots(int productId, int storeId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo lotes de stock para producto {productId} en store {storeId}", productId, storeId);
+
+            // Verificar que el producto existe
+            var product = await _context.Products.FindAsync(productId);
+            if (product == null)
+            {
+                return NotFound(new { message = "Producto no encontrado" });
+            }
+
+            // Verificar que el store existe
+            var store = await _context.Stores.FindAsync(storeId);
+            if (store == null)
+            {
+                return NotFound(new { message = "Store no encontrado" });
+            }
+
+            // Obtener todos los lotes de entrada (amount > 0) activos del producto en el store
+            var stockLots = await _context.Stocks
+                .Include(s => s.FlowType)
+                .Include(s => s.Provider)
+                .Where(s => s.ProductId == productId && 
+                           s.StoreId == storeId && 
+                           s.Amount > 0 && 
+                           s.IsActive == true)
+                .OrderBy(s => s.Date) // FIFO: más antiguos primero
+                .ToListAsync();
+
+            // Para cada lote, calcular cuánto se ha usado en ventas
+            var lotsWithAvailability = new List<object>();
+            var totalAvailable = 0;
+
+            foreach (var lot in stockLots)
+            {
+                // Calcular cuánto se ha vendido de este lote específico
+                var salesFromLot = await _context.SaleDetails
+                    .Where(sd => sd.StockId == lot.Id)
+                    .ToListAsync();
+
+                var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
+
+                var availableInLot = lot.Amount - soldFromLot;
+
+                // Solo incluir lotes con stock disponible
+                if (availableInLot > 0)
+                {
+                    totalAvailable += availableInLot;
+
+                    lotsWithAvailability.Add(new
+                    {
+                        id = lot.Id,
+                        date = lot.Date,
+                        expirationDate = lot.ExpirationDate,
+                        flowType = new { id = lot.FlowType.Id, name = lot.FlowType.Name },
+                        originalAmount = lot.Amount,
+                        soldAmount = soldFromLot,
+                        availableAmount = availableInLot,
+                        cost = lot.Cost,
+                        provider = lot.Provider != null ? new { id = lot.Provider.Id, name = lot.Provider.Name } : null,
+                        notes = lot.Notes,
+                        isExpired = lot.ExpirationDate.HasValue && lot.ExpirationDate.Value < DateTime.Today,
+                        daysUntilExpiration = lot.ExpirationDate.HasValue 
+                            ? (lot.ExpirationDate.Value - DateTime.Today).Days 
+                            : (int?)null
+                    });
+                }
+            }
+
+            var result = new
+            {
+                productId = product.Id,
+                productName = product.Name,
+                storeId = store.Id,
+                storeName = store.Name,
+                totalAvailable = totalAvailable,
+                totalLots = lotsWithAvailability.Count,
+                lots = lotsWithAvailability
+            };
+
+            _logger.LogInformation("Encontrados {count} lotes con stock disponible para producto {productId} en store {storeId}", 
+                lotsWithAvailability.Count, productId, storeId);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener lotes de stock para producto {productId} en store {storeId}", productId, storeId);
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
     }
@@ -843,6 +952,11 @@ public class CreateStockMovementRequest
     /// Nombre del proveedor (opcional, se creará automáticamente si no existe)
     /// </summary>
     public string? ProviderName { get; set; }
+
+    /// <summary>
+    /// Fecha de vencimiento del producto (opcional)
+    /// </summary>
+    public DateTime? ExpirationDate { get; set; }
 
     /// <summary>
     /// Notas adicionales (opcional)

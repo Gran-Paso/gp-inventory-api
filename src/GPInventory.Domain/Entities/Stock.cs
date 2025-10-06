@@ -76,6 +76,12 @@ public class Stock : BaseEntity
     [Column("stock_id")]
     public int? StockId { get; set; }
 
+    /// <summary>
+    /// Fecha de expiración del lote (opcional)
+    /// </summary>
+    [Column("expiration_date")]
+    public DateTime? ExpirationDate { get; set; }
+
 
 
     // Propiedades de navegación
