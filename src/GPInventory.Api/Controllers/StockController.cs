@@ -502,6 +502,432 @@ public class StockController : ControllerBase
     }
 
     /// <summary>
+    /// Actualiza un lote de stock
+    /// </summary>
+    /// <param name="stockId">ID del lote de stock</param>
+    /// <param name="request">Datos a actualizar</param>
+    /// <returns>Lote actualizado</returns>
+    [HttpPut("{stockId}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> UpdateStockLot(int stockId, [FromBody] UpdateStockLotRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("Actualizando lote de stock {stockId}", stockId);
+
+            var stock = await _context.Stocks.FindAsync(stockId);
+            if (stock == null)
+            {
+                return NotFound(new { message = "Lote de stock no encontrado" });
+            }
+
+            // Actualizar campos si se proporcionan
+            if (request.ExpirationDate.HasValue)
+            {
+                stock.ExpirationDate = request.ExpirationDate.Value;
+            }
+
+            if (request.Cost.HasValue)
+            {
+                stock.Cost = request.Cost.Value;
+            }
+
+            if (request.Notes != null)
+            {
+                stock.Notes = request.Notes;
+            }
+
+            stock.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Lote de stock {stockId} actualizado correctamente", stockId);
+
+            return Ok(new
+            {
+                id = stock.Id,
+                expirationDate = stock.ExpirationDate,
+                cost = stock.Cost,
+                notes = stock.Notes,
+                message = "Lote actualizado correctamente"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al actualizar lote de stock {stockId}", stockId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene los movimientos hijos (salidas/ventas) de un lote de stock
+    /// </summary>
+    /// <param name="stockId">ID del lote de stock padre</param>
+    /// <returns>Lista de movimientos relacionados</returns>
+    [HttpGet("{stockId}/movements")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetStockLotMovements(int stockId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo movimientos del lote {stockId}", stockId);
+
+            var stockLot = await _context.Stocks.FindAsync(stockId);
+            if (stockLot == null)
+            {
+                return NotFound(new { message = "Lote de stock no encontrado" });
+            }
+
+            // Obtener todos los movimientos de salida que referencian este lote
+            var movements = await _context.Stocks
+                .Include(s => s.FlowType)
+                .Include(s => s.Sale)
+                .Where(s => s.StockId == stockId && s.Amount < 0)
+                .OrderByDescending(s => s.Date)
+                .Select(s => new
+                {
+                    id = s.Id,
+                    date = s.Date,
+                    amount = s.Amount,
+                    cost = s.Cost,
+                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
+                    saleId = s.SaleId,
+                    sale = s.Sale != null ? new
+                    {
+                        id = s.Sale.Id,
+                        total = s.Sale.Total,
+                        paymentMethod = s.Sale.PaymentMethod
+                    } : null,
+                    notes = s.Notes,
+                    createdAt = s.CreatedAt
+                })
+                .ToListAsync();
+
+            _logger.LogInformation("Encontrados {count} movimientos para lote {stockId}", movements.Count, stockId);
+
+            return Ok(new
+            {
+                stockId = stockId,
+                totalMovements = movements.Count,
+                movements = movements
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener movimientos del lote {stockId}", stockId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene el historial PLANO de todos los movimientos de stock de todos los productos en un store
+    /// Todos los movimientos se muestran al mismo nivel indicando su relación padre-hijo
+    /// </summary>
+    /// <param name="storeId">ID del store</param>
+    /// <returns>Lista plana de todos los movimientos con indicadores de relación</returns>
+    [HttpGet("store/{storeId}/flat-timeline")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetStoreStockFlatTimeline(int storeId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo timeline plano para store {storeId}", storeId);
+
+            // Verificar que el store existe
+            var store = await _context.Stores.FindAsync(storeId);
+            if (store == null)
+            {
+                return NotFound(new { message = "Store no encontrado" });
+            }
+
+            // Query SQL puro para obtener todos los movimientos con sus relaciones
+            var sql = $@"SELECT 
+                    s.id,
+                    s.product as productId,
+                    prod.name as productName,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.expiration_date as expirationDate,
+                    s.notes,
+                    s.stock_id as parentStockId,
+                    s.sale_id as saleId,
+                    s.active as isActive,
+                    s.created_at as createdAt,
+                    ft.id as flowTypeId,
+                    ft.`type` as flowTypeName,
+                    p.id as providerId,
+                    p.name as providerName,
+                    sale.total as saleTotal,
+                    sale.payment_method as salePaymentMethod,
+                    -- Determinar si es padre (entrada) o hijo (salida)
+                    CASE WHEN s.stock_id IS NULL THEN 1 ELSE 0 END as isParent,
+                    -- Si es hijo, obtener info del padre
+                    parent.date as parentDate,
+                    parent.amount as parentAmount
+                FROM stock s
+                INNER JOIN product prod ON s.product = prod.id
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN provider p ON s.provider = p.id
+                LEFT JOIN sales sale ON s.sale_id = sale.id
+                LEFT JOIN stock parent ON s.stock_id = parent.id
+                WHERE s.id_store = { storeId }
+                  AND (
+                    -- Si es padre (entrada): debe estar activo
+                    (s.stock_id IS NULL AND COALESCE(s.active, 0) = 1)
+                    OR
+                    -- Si es hijo (salida): solo debe estar activo el hijo (no importa si el padre está inactivo)
+                    (s.stock_id IS NOT NULL AND COALESCE(s.active, 0) = 1 and COALESCE(parent.active, 0) = 1)
+                  )
+                ORDER BY s.date DESC, s.created_at DESC;";
+
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            var movements = new List<object>();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        var isParent = reader.GetInt32(reader.GetOrdinal("isParent")) == 1;
+                        var parentStockId = reader.IsDBNull(reader.GetOrdinal("parentStockId")) 
+                            ? (int?)null 
+                            : reader.GetInt32(reader.GetOrdinal("parentStockId"));
+
+                        movements.Add(new
+                        {
+                            id = reader.GetInt32(reader.GetOrdinal("id")),
+                            productId = reader.GetInt32(reader.GetOrdinal("productId")),
+                            productName = reader.GetString(reader.GetOrdinal("productName")),
+                            date = reader.GetDateTime(reader.GetOrdinal("date")),
+                            amount = reader.GetInt32(reader.GetOrdinal("amount")),
+                            cost = reader.IsDBNull(reader.GetOrdinal("cost")) 
+                                ? (decimal?)null 
+                                : (decimal)reader.GetInt32(reader.GetOrdinal("cost")),
+                            expirationDate = reader.IsDBNull(reader.GetOrdinal("expirationDate")) 
+                                ? (DateTime?)null 
+                                : reader.GetDateTime(reader.GetOrdinal("expirationDate")),
+                            notes = reader.IsDBNull(reader.GetOrdinal("notes")) 
+                                ? null 
+                                : reader.GetString(reader.GetOrdinal("notes")),
+                            isActive = reader.IsDBNull(reader.GetOrdinal("isActive"))
+                                ? true
+                                : reader.GetBoolean(reader.GetOrdinal("isActive")),
+                            createdAt = reader.GetDateTime(reader.GetOrdinal("createdAt")),
+                            flowType = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("flowTypeId")),
+                                name = reader.GetString(reader.GetOrdinal("flowTypeName"))
+                            },
+                            provider = reader.IsDBNull(reader.GetOrdinal("providerId"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("providerId")),
+                                    name = reader.GetString(reader.GetOrdinal("providerName"))
+                                },
+                            sale = reader.IsDBNull(reader.GetOrdinal("saleId"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("saleId")),
+                                    total = reader.GetInt32(reader.GetOrdinal("saleTotal")),
+                                    paymentMethod = reader.GetInt32(reader.GetOrdinal("salePaymentMethod")).ToString()
+                                },
+                            // Indicadores de relación
+                            isParent = isParent,
+                            parentStockId = parentStockId,
+                            parentInfo = parentStockId.HasValue
+                                ? new
+                                {
+                                    id = parentStockId.Value,
+                                    date = reader.IsDBNull(reader.GetOrdinal("parentDate"))
+                                        ? (DateTime?)null
+                                        : reader.GetDateTime(reader.GetOrdinal("parentDate")),
+                                    amount = reader.IsDBNull(reader.GetOrdinal("parentAmount"))
+                                        ? (int?)null
+                                        : reader.GetInt32(reader.GetOrdinal("parentAmount"))
+                                }
+                                : null
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
+
+            var result = new
+            {
+                storeId = store.Id,
+                storeName = store.Name,
+                totalMovements = movements.Count,
+                movements = movements
+            };
+
+            _logger.LogInformation("Timeline plano generado con {totalMovements} movimientos para store {storeId}", 
+                movements.Count, storeId);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener timeline plano para store {storeId}", storeId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene el historial completo de movimientos de stock de un producto en un store
+    /// Incluye movimientos padres (entradas) y sus movimientos hijos (salidas/ventas) ordenados cronológicamente
+    /// </summary>
+    /// <param name="productId">ID del producto</param>
+    /// <param name="storeId">ID del store</param>
+    /// <returns>Lista cronológica de movimientos con estructura jerárquica</returns>
+    [HttpGet("product/{productId}/store/{storeId}/timeline")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetProductStockTimeline(int productId, int storeId)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo timeline de movimientos para producto {productId} en store {storeId}", productId, storeId);
+
+            // Verificar que el producto existe
+            var product = await _context.Products.FindAsync(productId);
+            if (product == null)
+            {
+                return NotFound(new { message = "Producto no encontrado" });
+            }
+
+            // Verificar que el store existe
+            var store = await _context.Stores.FindAsync(storeId);
+            if (store == null)
+            {
+                return NotFound(new { message = "Store no encontrado" });
+            }
+
+            // Obtener TODOS los movimientos (padres e hijos) del producto en el store
+            var allMovements = await _context.Stocks
+                .Include(s => s.FlowType)
+                .Include(s => s.Provider)
+                .Include(s => s.Sale)
+                .Where(s => s.ProductId == productId && s.StoreId == storeId)
+                .OrderByDescending(s => s.Date)
+                .ThenByDescending(s => s.CreatedAt)
+                .Select(s => new
+                {
+                    id = s.Id,
+                    date = s.Date,
+                    amount = s.Amount,
+                    cost = s.Cost,
+                    expirationDate = s.ExpirationDate,
+                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
+                    provider = s.Provider != null ? new { id = s.Provider.Id, name = s.Provider.Name } : null,
+                    notes = s.Notes,
+                    stockId = s.StockId, // ID del padre (null si es padre)
+                    saleId = s.SaleId,
+                    sale = s.Sale != null ? new
+                    {
+                        id = s.Sale.Id,
+                        total = s.Sale.Total,
+                        paymentMethod = s.Sale.PaymentMethod
+                    } : null,
+                    isActive = s.IsActive,
+                    createdAt = s.CreatedAt
+                })
+                .ToListAsync();
+
+            // Construir estructura jerárquica: movimientos padres con sus hijos
+            var timelineData = new List<object>();
+
+            foreach (var movement in allMovements.Where(m => m.stockId == null)) // Solo movimientos padres
+            {
+                // Obtener los hijos de este movimiento padre
+                var childMovements = allMovements
+                    .Where(m => m.stockId == movement.id)
+                    .OrderByDescending(m => m.date)
+                    .ThenByDescending(m => m.createdAt)
+                    .Select(child => new
+                    {
+                        id = child.id,
+                        date = child.date,
+                        amount = child.amount,
+                        cost = child.cost,
+                        flowType = child.flowType,
+                        saleId = child.saleId,
+                        sale = child.sale,
+                        notes = child.notes,
+                        isActive = child.isActive,
+                        createdAt = child.createdAt
+                    })
+                    .ToList();
+
+                // Calcular stock disponible del lote padre
+                var soldFromLot = childMovements.Sum(c => Math.Abs(c.amount));
+                var availableInLot = movement.amount - soldFromLot;
+
+                timelineData.Add(new
+                {
+                    id = movement.id,
+                    date = movement.date,
+                    amount = movement.amount,
+                    cost = movement.cost,
+                    expirationDate = movement.expirationDate,
+                    flowType = movement.flowType,
+                    provider = movement.provider,
+                    notes = movement.notes,
+                    isActive = movement.isActive,
+                    availableStock = availableInLot,
+                    soldAmount = soldFromLot,
+                    createdAt = movement.createdAt,
+                    childMovements = childMovements,
+                    hasChildren = childMovements.Any()
+                });
+            }
+
+            var result = new
+            {
+                productId = product.Id,
+                productName = product.Name,
+                storeId = store.Id,
+                storeName = store.Name,
+                totalMovements = allMovements.Count,
+                parentMovements = timelineData.Count,
+                timeline = timelineData
+            };
+
+            _logger.LogInformation("Timeline generado con {totalMovements} movimientos totales ({parentMovements} padres) para producto {productId} en store {storeId}", 
+                allMovements.Count, timelineData.Count, productId, storeId);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener timeline de movimientos para producto {productId} en store {storeId}", productId, storeId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
     /// Obtiene todos los tipos de flujo disponibles
     /// </summary>
     /// <returns>Lista de tipos de flujo</returns>
@@ -957,6 +1383,27 @@ public class CreateStockMovementRequest
     /// Fecha de vencimiento del producto (opcional)
     /// </summary>
     public DateTime? ExpirationDate { get; set; }
+
+    /// <summary>
+    /// Notas adicionales (opcional)
+    /// </summary>
+    public string? Notes { get; set; }
+}
+
+/// <summary>
+/// Modelo para actualizar un lote de stock
+/// </summary>
+public class UpdateStockLotRequest
+{
+    /// <summary>
+    /// Fecha de vencimiento del lote (opcional)
+    /// </summary>
+    public DateTime? ExpirationDate { get; set; }
+
+    /// <summary>
+    /// Costo unitario (opcional)
+    /// </summary>
+    public int? Cost { get; set; }
 
     /// <summary>
     /// Notas adicionales (opcional)

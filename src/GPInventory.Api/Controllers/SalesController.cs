@@ -263,7 +263,7 @@ public class SalesController : ControllerBase
                          WHERE s.product = p.id 
                          AND s.id_store = {0}
                          AND s.amount > 0
-                         AND COALESCE(s.active, 1) = 1
+                         AND COALESCE(s.active, 0) = 1
                          AND s.cost IS NOT NULL 
                          AND s.cost > 0),
                         NULL
@@ -1428,7 +1428,7 @@ public class SalesController : ControllerBase
                         s.id_store                    AS StoreId,
                         s.sale_id                     AS SaleId,
                         s.stock_id                    AS StockId,
-                        COALESCE(s.active, 1)         AS IsActive,
+                        COALESCE(s.active, 0)         AS IsActive,
                         COALESCE(s.created_at, NOW()) AS CreatedAt,
                         COALESCE(s.updated_at, NOW()) AS UpdatedAt
                     FROM stock s
@@ -1711,7 +1711,7 @@ public class SalesController : ControllerBase
                             s.id_store                    AS StoreId,
                             s.sale_id                     AS SaleId,
                             s.stock_id                    AS StockId,
-                            COALESCE(s.active, 1)         AS IsActive,
+                            COALESCE(s.active, 0)         AS IsActive,
                             COALESCE(s.created_at, NOW()) AS CreatedAt,
                             COALESCE(s.updated_at, NOW()) AS UpdatedAt
                         FROM stock s

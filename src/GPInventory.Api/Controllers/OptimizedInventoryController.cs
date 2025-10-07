@@ -142,11 +142,20 @@ public class OptimizedInventoryController : ControllerBase
                 LEFT JOIN (
                     SELECT 
                         s.product as product_id,
-                        SUM(s.amount) as current_stock
+                        SUM(
+                            s.amount + COALESCE((
+                                SELECT SUM(child.amount)
+                                FROM stock child
+                                WHERE child.stock_id = s.id
+                                AND COALESCE(child.active, 0) = 1
+                            ), 0)
+                        ) as current_stock
                     FROM stock s
                     INNER JOIN store st ON s.id_store = st.id
                     WHERE st.id_business = {0}
-                    AND COALESCE(s.active, 1) = 1
+                    AND COALESCE(s.active, 0) = 1
+                    AND s.amount > 0
+                    AND s.stock_id IS NULL
                     " + (storeId.HasValue ? "AND s.id_store = {1}" : "") + @"
                     GROUP BY s.product
                 ) stock_data ON p.id = stock_data.product_id
@@ -385,7 +394,7 @@ public class OptimizedInventoryController : ControllerBase
 
             // Crear registro negativo vinculado al lote original
             var removeStockQuery = @"
-                INSERT INTO stock (amount, unit_cost, product_id, store_id, parent_stock_id, active, created_at)
+                INSERT INTO stock (amount, cost, product, id_store, stock_id, active, created_at)
                 VALUES ({0}, {1}, {2}, {3}, {4}, 1, NOW())";
 
             await _context.Database.ExecuteSqlRawAsync(
