@@ -299,10 +299,18 @@ public class OptimizedInventoryController : ControllerBase
         {
             _logger.LogInformation("🔄 Obteniendo lotes activos para producto {productId} en tienda {storeId}", productId, storeId);
 
+            // Debug: Log de parámetros
+            _logger.LogInformation("🔍 Debug - ProductId: {productId}, StoreId: {storeId}", productId, storeId);
+
             // Primero verificar si existen registros en stock para este producto
             var stockCountQuery = "SELECT COUNT(*) as Value FROM stock WHERE product = {0} AND id_store = {1}";
             var totalStockCount = await _context.Database.SqlQueryRaw<int>(stockCountQuery, productId, storeId).FirstOrDefaultAsync();
             _logger.LogInformation("📊 Total registros en stock para producto {productId}: {count}", productId, totalStockCount);
+
+            // También verificar todos los registros sin filtros para debug
+            var allStockQuery = "SELECT COUNT(*) as Value FROM stock WHERE product = {0}";
+            var allStockCount = await _context.Database.SqlQueryRaw<int>(allStockQuery, productId).FirstOrDefaultAsync();
+            _logger.LogInformation("🔍 Debug - Total registros SIN filtro de tienda: {count}", allStockCount);
 
             var query = @"
                 SELECT 
@@ -317,7 +325,10 @@ public class OptimizedInventoryController : ControllerBase
                     AND s.id_store = {1}
                     AND s.amount > 0 
                     AND COALESCE(s.active, 0) = 1
-                ORDER BY COALESCE(s.created_at, '1900-01-01') ASC"; // FIFO order
+                    AND s.stock_id IS NULL
+                ORDER BY COALESCE(s.created_at, '1900-01-01') ASC";
+
+            _logger.LogInformation("🔍 Debug - Ejecutando query con parámetros: productId={productId}, storeId={storeId}", productId, storeId);
 
             var lots = await _context.Database
                 .SqlQueryRaw<StockLotResult>(query, productId, storeId)
@@ -394,8 +405,8 @@ public class OptimizedInventoryController : ControllerBase
 
             // Crear registro negativo vinculado al lote original
             var removeStockQuery = @"
-                INSERT INTO stock (amount, cost, product, id_store, stock_id, active, created_at)
-                VALUES ({0}, {1}, {2}, {3}, {4}, 1, NOW())";
+                INSERT INTO stock (amount, cost, product, id_store, stock_id, active, date, created_at, updated_at, flow)
+                VALUES ({0}, {1}, {2}, {3}, {4}, 1, NOW(), NOW(), NOW(), 12)";
 
             await _context.Database.ExecuteSqlRawAsync(
                 removeStockQuery,
