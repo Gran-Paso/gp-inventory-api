@@ -653,7 +653,8 @@ public class StockController : ControllerBase
             }
 
             // Query SQL puro para obtener todos los movimientos con sus relaciones
-            var sql = $@"SELECT 
+            var sql = $@"
+                SELECT 
                     s.id,
                     s.product as productId,
                     prod.name as productName,
@@ -691,7 +692,7 @@ public class StockController : ControllerBase
                     -- Si es hijo (salida): solo debe estar activo el hijo (no importa si el padre está inactivo)
                     (s.stock_id IS NOT NULL AND COALESCE(s.active, 0) = 1 and COALESCE(parent.active, 0) = 1)
                   )
-                ORDER BY s.date DESC, s.created_at DESC;";
+                ORDER BY s.date DESC, s.created_at DESC";
 
             var connection = _context.Database.GetDbConnection();
             await connection.OpenAsync();
