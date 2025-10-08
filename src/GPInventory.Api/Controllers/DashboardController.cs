@@ -107,15 +107,15 @@ public class DashboardController : ControllerBase
                 kpisResult = new KPIsRawData();
             }
 
-            // Query para obtener capital en stock (valor total del inventario)
+            // Query para calcular el capital en stock (al costo)
+            // Suma TODOS los stocks: entradas (amount > 0) + salidas (amount < 0)
+            // El resultado es el stock disponible actual
             var stockCapitalQuery = @"
                 SELECT 
-                    COALESCE(SUM(s.amount * COALESCE(s.cost, 0)), 0) as TodayStockCapital
+                    COALESCE(SUM(s.amount * s.cost), 0) as TodayStockCapital
                 FROM stock s
-                INNER JOIN store st ON s.id_store = st.id
-                WHERE st.id_business = {0}
-                    AND COALESCE(s.active, 0) = 1
-                    AND s.amount > 0
+                INNER JOIN product p ON s.product = p.id
+                WHERE p.business = {0}
                     " + (storeId.HasValue ? "AND s.id_store = {1}" : "");
 
             var stockCapitalResult = storeId.HasValue
@@ -130,35 +130,24 @@ public class DashboardController : ControllerBase
             // Nota: Esto es una aproximación, idealmente debería haber un snapshot histórico
             var yesterdayStockCapital = todayStockCapital; // Por ahora usamos el mismo valor
 
-            // Query para obtener total de alertas (productos con stock bajo o agotados)
-            var alertsQuery = @"
+            // Query para obtener valor potencial de ventas (precio de venta * cantidad en stock)
+            // Suma TODOS los stocks: entradas (amount > 0) + salidas (amount < 0)
+            var stockRevenueQuery = @"
                 SELECT 
-                    COUNT(DISTINCT p.id) as TotalAlerts
-                FROM product p
-                LEFT JOIN (
-                    SELECT 
-                        s.product,
-                        SUM(s.amount) as total_stock
-                    FROM stock s
-                    INNER JOIN store st ON s.id_store = st.id
-                    WHERE st.id_business = {0}
-                        AND COALESCE(s.active, 0) = 1
-                        " + (storeId.HasValue ? "AND s.id_store = {1}" : "") + @"
-                    GROUP BY s.product
-                ) stock_data ON p.id = stock_data.product
+                    COALESCE(SUM(s.amount * p.price), 0) as StockRevenuePotential
+                FROM stock s
+                INNER JOIN product p ON s.product = p.id
                 WHERE p.business = {0}
-                    AND (
-                        COALESCE(stock_data.total_stock, 0) = 0 
-                        OR COALESCE(stock_data.total_stock, 0) <= COALESCE(p.minimumStock, 0)
-                    )";
+                    " + (storeId.HasValue ? "AND s.id_store = {1}" : "");
 
-            var alertsResult = storeId.HasValue
-                ? await _context.Database.SqlQueryRaw<AlertsData>(alertsQuery, businessId, storeId.Value)
+            var stockRevenueResult = storeId.HasValue
+                ? await _context.Database.SqlQueryRaw<StockRevenueData>(stockRevenueQuery, businessId, storeId.Value)
                     .FirstOrDefaultAsync()
-                : await _context.Database.SqlQueryRaw<AlertsData>(alertsQuery, businessId)
+                : await _context.Database.SqlQueryRaw<StockRevenueData>(stockRevenueQuery, businessId)
                     .FirstOrDefaultAsync();
 
-            int totalAlerts = alertsResult?.TotalAlerts ?? 0;
+            decimal todayStockRevenue = stockRevenueResult?.StockRevenuePotential ?? 0;
+            var yesterdayStockRevenue = todayStockRevenue; // Por ahora usamos el mismo valor
 
             // Calcular tickets promedio
             decimal todayTicketAverage = kpisResult.TodaySalesCount > 0
@@ -178,6 +167,9 @@ public class DashboardController : ControllerBase
 
             decimal? stockCapitalChangePercent = CalculateChangePercent(
                 todayStockCapital, yesterdayStockCapital);
+
+            decimal? stockRevenueChangePercent = CalculateChangePercent(
+                todayStockRevenue, yesterdayStockRevenue);
 
             // Construir respuesta con los 4 KPIs
             var response = new DailyKPIsResponse
@@ -211,7 +203,7 @@ public class DashboardController : ControllerBase
                         Trend = GetTrend(todayTicketAverage, yesterdayTicketAverage),
                         IsAlert = false
                     },
-                    // 3. Capital en stock
+                    // 3. Capital en stock (costo)
                     new DailyKPI
                     {
                         Name = "Capital en stock",
@@ -223,17 +215,17 @@ public class DashboardController : ControllerBase
                         Trend = GetTrend(todayStockCapital, yesterdayStockCapital),
                         IsAlert = false
                     },
-                    // 4. Total de alertas
+                    // 4. Valor potencial de ventas (precio de venta * stock)
                     new DailyKPI
                     {
-                        Name = "Total de alertas",
-                        Value = totalAlerts,
-                        FormattedValue = totalAlerts.ToString(),
-                        ChangePercentage = null,
-                        ChangeAmount = null,
-                        PreviousValue = null,
-                        Trend = "neutral",
-                        IsAlert = totalAlerts > 0
+                        Name = "Valor potencial",
+                        Value = todayStockRevenue,
+                        FormattedValue = FormatCurrency(todayStockRevenue),
+                        ChangePercentage = stockRevenueChangePercent,
+                        ChangeAmount = todayStockRevenue - yesterdayStockRevenue,
+                        PreviousValue = yesterdayStockRevenue,
+                        Trend = GetTrend(todayStockRevenue, yesterdayStockRevenue),
+                        IsAlert = false
                     }
                 },
                 ExecutionTimeMs = stopwatch.ElapsedMilliseconds
@@ -249,6 +241,551 @@ public class DashboardController : ControllerBase
             _logger.LogError(ex, "❌ Error obteniendo KPIs diarios para negocio: {businessId}", businessId);
             return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Obtiene los productos top del día según el criterio seleccionado
+    /// </summary>
+    /// <param name="businessId">ID del negocio</param>
+    /// <param name="storeId">ID de la tienda (opcional)</param>
+    /// <param name="criteria">Criterio de ordenamiento: volume, revenue, margin</param>
+    /// <param name="limit">Número de productos a retornar (default: 5)</param>
+    /// <returns>Lista de productos top ordenados por el criterio seleccionado</returns>
+    [HttpGet("top-products")]
+    public async Task<ActionResult<TopProductsResponse>> GetTopProducts(
+        [FromQuery] int businessId,
+        [FromQuery] int? storeId = null,
+        [FromQuery] string criteria = "volume",
+        [FromQuery] int limit = 5)
+    {
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            _logger.LogInformation("🔄 Obteniendo productos top para negocio: {businessId}, tienda: {storeId}, criterio: {criteria}", 
+                businessId, storeId, criteria);
+
+            // Validar criterio
+            var validCriteria = new[] { "volume", "revenue", "margin" };
+            if (!validCriteria.Contains(criteria.ToLower()))
+            {
+                return BadRequest(new { message = "Criterio inválido. Use: volume, revenue o margin" });
+            }
+
+            // Validar límite
+            if (limit < 1 || limit > 50)
+            {
+                return BadRequest(new { message = "El límite debe estar entre 1 y 50" });
+            }
+
+            // Verificar que el negocio existe
+            var businessExists = await _context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) as Value FROM business WHERE id = {0}", businessId)
+                .FirstOrDefaultAsync() > 0;
+
+            if (!businessExists)
+            {
+                return NotFound(new { message = "Negocio no encontrado" });
+            }
+
+            // Query base para obtener productos con sus ventas del día
+            // Usamos el stock_id de sales_detail para obtener el costo correcto (FIFO)
+            var topProductsQuery = @"
+                SELECT 
+                    p.id as ProductId,
+                    p.name as ProductName,
+                    p.sku as ProductCode,
+                    SUM(sd.amount) as TotalUnits,
+                    SUM(sd.amount * sd.price) as TotalRevenue,
+                    SUM(sd.amount * (sd.price - COALESCE(s.cost, 0))) as TotalMargin,
+                    AVG(COALESCE(s.cost, 0)) as AverageCost,
+                    AVG(sd.price) as AveragePrice
+                FROM sales_detail sd
+                INNER JOIN sales sa ON sd.sale = sa.id
+                INNER JOIN store st ON sa.id_store = st.id
+                INNER JOIN product p ON sd.product = p.id
+                LEFT JOIN stock s ON sd.stock_id = s.id
+                WHERE st.id_business = {0}
+                    AND DATE(sa.date) = CURDATE()
+                    " + (storeId.HasValue ? "AND sa.id_store = {1}" : "") + @"
+                GROUP BY p.id, p.name, p.sku
+                ORDER BY " + GetOrderByClause(criteria) + @"
+                LIMIT {" + (storeId.HasValue ? "2" : "1") + "}";
+
+            List<TopProductData> products;
+            
+            if (storeId.HasValue)
+            {
+                products = await _context.Database
+                    .SqlQueryRaw<TopProductData>(topProductsQuery, businessId, storeId.Value, limit)
+                    .ToListAsync();
+            }
+            else
+            {
+                products = await _context.Database
+                    .SqlQueryRaw<TopProductData>(topProductsQuery, businessId, limit)
+                    .ToListAsync();
+            }
+
+            // Mapear a respuesta
+            var response = new TopProductsResponse
+            {
+                BusinessId = businessId,
+                StoreId = storeId,
+                Date = DateTime.UtcNow,
+                Criteria = criteria,
+                Products = products.Select((p, index) => new TopProduct
+                {
+                    Rank = index + 1,
+                    ProductId = p.ProductId,
+                    ProductName = p.ProductName,
+                    ProductCode = p.ProductCode,
+                    TotalUnits = p.TotalUnits,
+                    TotalRevenue = p.TotalRevenue,
+                    TotalMargin = p.TotalMargin,
+                    MarginPercentage = p.AveragePrice > 0 
+                        ? Math.Round(((p.AveragePrice - p.AverageCost) / p.AveragePrice) * 100, 2) 
+                        : 0,
+                    AverageCost = p.AverageCost,
+                    AveragePrice = p.AveragePrice
+                }).ToList(),
+                ExecutionTimeMs = stopwatch.ElapsedMilliseconds
+            };
+
+            stopwatch.Stop();
+            _logger.LogInformation("✅ Productos top obtenidos en {elapsed}ms", stopwatch.ElapsedMilliseconds);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error obteniendo productos top para negocio: {businessId}", businessId);
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene métricas comparativas entre todas las tiendas del negocio
+    /// </summary>
+    /// <param name="businessId">ID del negocio</param>
+    /// <returns>Comparativa de métricas por tienda con indicadores de salud</returns>
+    [HttpGet("stores-comparison")]
+    public async Task<ActionResult<StoresComparisonResponse>> GetStoresComparison(
+        [FromQuery] int businessId)
+    {
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            _logger.LogInformation("🔄 Obteniendo comparativa de tiendas para negocio: {businessId}", businessId);
+
+            // Verificar que el negocio existe
+            var businessExists = await _context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) as Value FROM business WHERE id = {0}", businessId)
+                .FirstOrDefaultAsync() > 0;
+
+            if (!businessExists)
+            {
+                return NotFound(new { message = "Negocio no encontrado" });
+            }
+
+            // Query para obtener métricas de todas las tiendas
+            var storesQuery = @"
+                SELECT 
+                    st.id as StoreId,
+                    st.name as StoreName,
+                    -- Ventas del día
+                    COALESCE(SUM(CASE 
+                        WHEN DATE(s.date) = CURDATE() 
+                        THEN s.total 
+                    END), 0) as TodayRevenue,
+                    -- Ventas de ayer
+                    COALESCE(SUM(CASE 
+                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        THEN s.total 
+                    END), 0) as YesterdayRevenue,
+                    -- Número de ventas del día
+                    COUNT(DISTINCT CASE 
+                        WHEN DATE(s.date) = CURDATE() 
+                        THEN s.id 
+                    END) as TodaySalesCount,
+                    -- Número de ventas de ayer
+                    COUNT(DISTINCT CASE 
+                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        THEN s.id 
+                    END) as YesterdaySalesCount,
+                    -- Ventas del mes actual
+                    COALESCE(SUM(CASE 
+                        WHEN MONTH(s.date) = MONTH(CURDATE()) 
+                        AND YEAR(s.date) = YEAR(CURDATE())
+                        THEN s.total 
+                    END), 0) as MonthRevenue,
+                    -- Ventas del mes anterior
+                    COALESCE(SUM(CASE 
+                        WHEN MONTH(s.date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                        AND YEAR(s.date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                        THEN s.total 
+                    END), 0) as LastMonthRevenue
+                FROM store st
+                LEFT JOIN sales s ON st.id = s.id_store
+                WHERE st.id_business = {0}
+                    AND st.active = 1
+                    AND (s.date IS NULL OR s.date >= DATE_SUB(CURDATE(), INTERVAL 2 MONTH))
+                GROUP BY st.id, st.name
+                ORDER BY TodayRevenue DESC";
+
+            var storesData = await _context.Database
+                .SqlQueryRaw<StoreMetricsData>(storesQuery, businessId)
+                .ToListAsync();
+
+            // Query para obtener stock por tienda
+            var stockQuery = @"
+                SELECT 
+                    st.id as StoreId,
+                    -- Capital en stock (costo)
+                    COALESCE(SUM(s.amount * s.cost), 0) as StockCapital,
+                    -- Valor potencial (precio)
+                    COALESCE(SUM(s.amount * p.price), 0) as StockValue,
+                    -- Productos con stock bajo (menos de minimumStock)
+                    COUNT(DISTINCT CASE 
+                        WHEN (
+                            SELECT COALESCE(SUM(stock.amount), 0)
+                            FROM stock
+                            WHERE stock.product = p.id 
+                            AND stock.id_store = st.id
+                        ) < COALESCE(p.minimumStock, 0)
+                        AND COALESCE(p.minimumStock, 0) > 0
+                        THEN p.id
+                    END) as LowStockProducts
+                FROM store st
+                CROSS JOIN product p
+                LEFT JOIN stock s ON s.product = p.id AND s.id_store = st.id
+                WHERE st.id_business = {0}
+                    AND st.active = 1
+                    AND p.business = {0}
+                GROUP BY st.id";
+
+            var stockData = await _context.Database
+                .SqlQueryRaw<StoreStockData>(stockQuery, businessId)
+                .ToListAsync();
+
+            // Combinar datos y calcular métricas
+            var stores = storesData.Select(store =>
+            {
+                var stock = stockData.FirstOrDefault(s => s.StoreId == store.StoreId);
+                
+                // Calcular ticket promedio
+                decimal todayTicketAverage = store.TodaySalesCount > 0 
+                    ? store.TodayRevenue / store.TodaySalesCount 
+                    : 0;
+                
+                decimal yesterdayTicketAverage = store.YesterdaySalesCount > 0 
+                    ? store.YesterdayRevenue / store.YesterdaySalesCount 
+                    : 0;
+
+                // Calcular cambios porcentuales
+                decimal? revenueChange = CalculateChangePercent(store.TodayRevenue, store.YesterdayRevenue);
+                decimal? ticketChange = CalculateChangePercent(todayTicketAverage, yesterdayTicketAverage);
+                decimal? monthChange = CalculateChangePercent(store.MonthRevenue, store.LastMonthRevenue);
+
+                // Determinar estado de salud de la tienda
+                var healthStatus = CalculateStoreHealthStatus(
+                    revenueChange,
+                    store.TodaySalesCount,
+                    stock?.LowStockProducts ?? 0
+                );
+
+                return new StoreComparison
+                {
+                    StoreId = store.StoreId,
+                    StoreName = store.StoreName,
+                    TodayRevenue = store.TodayRevenue,
+                    YesterdayRevenue = store.YesterdayRevenue,
+                    RevenueChangePercent = revenueChange,
+                    TodaySalesCount = store.TodaySalesCount,
+                    YesterdaySalesCount = store.YesterdaySalesCount,
+                    TodayTicketAverage = todayTicketAverage,
+                    YesterdayTicketAverage = yesterdayTicketAverage,
+                    TicketChangePercent = ticketChange,
+                    MonthRevenue = store.MonthRevenue,
+                    LastMonthRevenue = store.LastMonthRevenue,
+                    MonthChangePercent = monthChange,
+                    StockCapital = stock?.StockCapital ?? 0,
+                    StockValue = stock?.StockValue ?? 0,
+                    LowStockProducts = stock?.LowStockProducts ?? 0,
+                    HealthStatus = healthStatus.Status,
+                    HealthScore = healthStatus.Score,
+                    HealthIndicators = healthStatus.Indicators
+                };
+            }).ToList();
+
+            // Calcular totales del negocio
+            var totals = new BusinessTotals
+            {
+                TotalRevenue = stores.Sum(s => s.TodayRevenue),
+                TotalSalesCount = stores.Sum(s => s.TodaySalesCount),
+                TotalStockCapital = stores.Sum(s => s.StockCapital),
+                TotalStockValue = stores.Sum(s => s.StockValue),
+                AverageTicket = stores.Sum(s => s.TodaySalesCount) > 0 
+                    ? stores.Sum(s => s.TodayRevenue) / stores.Sum(s => s.TodaySalesCount)
+                    : 0,
+                ActiveStores = stores.Count,
+                HealthyStores = stores.Count(s => s.HealthStatus == "healthy"),
+                WarningStores = stores.Count(s => s.HealthStatus == "warning"),
+                CriticalStores = stores.Count(s => s.HealthStatus == "critical")
+            };
+
+            var response = new StoresComparisonResponse
+            {
+                BusinessId = businessId,
+                Date = DateTime.UtcNow,
+                Stores = stores,
+                Totals = totals,
+                ExecutionTimeMs = stopwatch.ElapsedMilliseconds
+            };
+
+            stopwatch.Stop();
+            _logger.LogInformation("✅ Comparativa de tiendas obtenida en {elapsed}ms", stopwatch.ElapsedMilliseconds);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error obteniendo comparativa de tiendas para negocio: {businessId}", businessId);
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
+        }
+    }
+
+    private static (string Status, int Score, List<string> Indicators) CalculateStoreHealthStatus(
+        decimal? revenueChange, 
+        int todaySalesCount, 
+        int lowStockProducts)
+    {
+        var indicators = new List<string>();
+        int score = 100; // Empieza con score perfecto
+
+        // Evaluar cambio en ingresos
+        if (revenueChange.HasValue)
+        {
+            if (revenueChange.Value < -20)
+            {
+                score -= 40;
+                indicators.Add("Caída significativa en ventas");
+            }
+            else if (revenueChange.Value < -10)
+            {
+                score -= 20;
+                indicators.Add("Disminución en ventas");
+            }
+            else if (revenueChange.Value > 20)
+            {
+                indicators.Add("Crecimiento destacado");
+            }
+        }
+        else if (todaySalesCount == 0)
+        {
+            score -= 50;
+            indicators.Add("Sin ventas hoy");
+        }
+
+        // Evaluar productos con stock bajo
+        if (lowStockProducts > 10)
+        {
+            score -= 30;
+            indicators.Add($"{lowStockProducts} productos con stock crítico");
+        }
+        else if (lowStockProducts > 5)
+        {
+            score -= 15;
+            indicators.Add($"{lowStockProducts} productos con stock bajo");
+        }
+        else if (lowStockProducts > 0)
+        {
+            indicators.Add($"{lowStockProducts} productos requieren reabastecimiento");
+        }
+
+        // Evaluar volumen de ventas
+        if (todaySalesCount < 5 && todaySalesCount > 0)
+        {
+            score -= 10;
+            indicators.Add("Volumen de ventas bajo");
+        }
+
+        // Determinar estado según el score
+        string status = score switch
+        {
+            >= 70 => "healthy",
+            >= 40 => "warning",
+            _ => "critical"
+        };
+
+        if (indicators.Count == 0)
+        {
+            indicators.Add("Operación normal");
+        }
+
+        return (status, score, indicators);
+    }
+
+    /// <summary>
+    /// Obtiene los movimientos de stock diarios del mes actual comparando todas las tiendas
+    /// </summary>
+    /// <param name="businessId">ID del negocio</param>
+    /// <returns>Movimientos de stock diarios por tienda del mes actual</returns>
+    [HttpGet("monthly-stock-chart")]
+    public async Task<ActionResult<MonthlyStockChartResponse>> GetMonthlyStockChart(
+        [FromQuery] int businessId)
+    {
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            _logger.LogInformation("🔄 Obteniendo gráfico de movimientos de stock mensuales para negocio: {businessId}", businessId);
+
+            // Verificar que el negocio existe
+            var businessExists = await _context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) as Value FROM business WHERE id = {0}", businessId)
+                .FirstOrDefaultAsync() > 0;
+
+            if (!businessExists)
+            {
+                return NotFound(new { message = "Negocio no encontrado" });
+            }
+
+            // Obtener primer y último día del mes actual
+            var today = DateTime.Today;
+            var firstDayOfMonth = new DateTime(today.Year, today.Month, 1);
+            var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
+
+            // Query para obtener movimientos de stock diarios por tienda
+            // Incluye tanto entradas (amount > 0) como salidas (amount < 0)
+            var dailyStockQuery = @"
+                SELECT 
+                    DATE(s.date) as MovementDate,
+                    st.id as StoreId,
+                    st.name as StoreName,
+                    -- Entradas de stock (compras, producciones)
+                    COALESCE(SUM(CASE WHEN s.amount > 0 THEN s.amount ELSE 0 END), 0) as DailyEntries,
+                    -- Salidas de stock (ventas, pérdidas)
+                    COALESCE(ABS(SUM(CASE WHEN s.amount < 0 THEN s.amount ELSE 0 END)), 0) as DailyExits,
+                    -- Movimiento neto
+                    COALESCE(SUM(s.amount), 0) as NetMovement,
+                    -- Conteo de movimientos
+                    COUNT(s.id) as MovementCount
+                FROM store st
+                LEFT JOIN stock s ON st.id = s.id_store 
+                    AND DATE(s.date) >= {1}
+                    AND DATE(s.date) <= {2}
+                INNER JOIN product p ON s.product = p.id
+                WHERE st.id_business = {0}
+                    AND st.active = 1
+                    AND p.business = {0}
+                GROUP BY DATE(s.date), st.id, st.name
+                ORDER BY DATE(s.date), st.name";
+
+            var stockData = await _context.Database
+                .SqlQueryRaw<DailyStockData>(
+                    dailyStockQuery,
+                    businessId,
+                    firstDayOfMonth.ToString("yyyy-MM-dd"),
+                    today.ToString("yyyy-MM-dd")
+                )
+                .ToListAsync();
+
+            // Obtener todas las tiendas activas
+            var stores = await _context.Database
+                .SqlQueryRaw<StoreBasicInfo>(
+                    "SELECT id as StoreId, name as StoreName FROM store WHERE id_business = {0} AND active = 1 ORDER BY name",
+                    businessId
+                )
+                .ToListAsync();
+
+            if (!stores.Any())
+            {
+                return Ok(new MonthlyStockChartResponse
+                {
+                    BusinessId = businessId,
+                    Month = today.ToString("MMMM yyyy"),
+                    StartDate = firstDayOfMonth,
+                    EndDate = today,
+                    Stores = new List<StoreStockChartInfo>(),
+                    DailyData = new List<DailyStockChartData>(),
+                    ExecutionTimeMs = stopwatch.ElapsedMilliseconds
+                });
+            }
+
+            // Asignar colores únicos a cada tienda
+            var storeColors = new[] { "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316" };
+            var storesInfo = stores.Select((store, index) => new StoreStockChartInfo
+            {
+                StoreId = store.StoreId,
+                StoreName = store.StoreName,
+                Color = storeColors[index % storeColors.Length],
+                TotalEntries = stockData.Where(s => s.StoreId == store.StoreId).Sum(s => s.DailyEntries),
+                TotalExits = stockData.Where(s => s.StoreId == store.StoreId).Sum(s => s.DailyExits),
+                NetMovement = stockData.Where(s => s.StoreId == store.StoreId).Sum(s => s.NetMovement),
+                TotalMovements = stockData.Where(s => s.StoreId == store.StoreId).Sum(s => s.MovementCount)
+            }).ToList();
+
+            // Construir datos diarios - incluir TODOS los días del mes hasta hoy
+            var dailyData = new List<DailyStockChartData>();
+
+            for (var date = firstDayOfMonth; date <= today; date = date.AddDays(1))
+            {
+                var dayData = new DailyStockChartData
+                {
+                    Date = date,
+                    Day = date.Day,
+                    DayName = date.ToString("ddd", new System.Globalization.CultureInfo("es-ES")),
+                    Stores = new Dictionary<string, StockMovementData>()
+                };
+
+                // Agregar movimientos de cada tienda para este día
+                foreach (var store in stores)
+                {
+                    var storeStock = stockData.FirstOrDefault(s => 
+                        s.MovementDate.Date == date.Date && s.StoreId == store.StoreId);
+
+                    dayData.Stores[$"store_{store.StoreId}"] = new StockMovementData
+                    {
+                        Entries = storeStock?.DailyEntries ?? 0,
+                        Exits = storeStock?.DailyExits ?? 0,
+                        Net = storeStock?.NetMovement ?? 0
+                    };
+                }
+
+                dailyData.Add(dayData);
+            }
+
+            var response = new MonthlyStockChartResponse
+            {
+                BusinessId = businessId,
+                Month = today.ToString("MMMM yyyy", new System.Globalization.CultureInfo("es-ES")),
+                StartDate = firstDayOfMonth,
+                EndDate = today,
+                Stores = storesInfo,
+                DailyData = dailyData,
+                ExecutionTimeMs = stopwatch.ElapsedMilliseconds
+            };
+
+            stopwatch.Stop();
+            _logger.LogInformation("✅ Gráfico de movimientos de stock mensuales obtenido en {elapsed}ms", stopwatch.ElapsedMilliseconds);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error obteniendo gráfico de movimientos de stock mensuales para negocio: {businessId}", businessId);
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
+        }
+    }
+
+    private static string GetOrderByClause(string criteria)
+    {
+        return criteria.ToLower() switch
+        {
+            "volume" => "TotalUnits DESC",
+            "revenue" => "TotalRevenue DESC",
+            "margin" => "TotalMargin DESC",
+            _ => "TotalUnits DESC"
+        };
     }
 
     private static decimal? CalculateChangePercent(decimal current, decimal previous)
@@ -308,7 +845,218 @@ public class StockCapitalData
     public decimal TodayStockCapital { get; set; }
 }
 
+public class StockRevenueData
+{
+    public decimal StockRevenuePotential { get; set; }
+}
+
 public class AlertsData
 {
     public int TotalAlerts { get; set; }
+}
+
+// DTOs para productos top
+
+public class TopProductsResponse
+{
+    public int BusinessId { get; set; }
+    public int? StoreId { get; set; }
+    public DateTime Date { get; set; }
+    public string Criteria { get; set; } = string.Empty;
+    public List<TopProduct> Products { get; set; } = new();
+    public long ExecutionTimeMs { get; set; }
+}
+
+public class TopProduct
+{
+    public int Rank { get; set; }
+    public int ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string ProductCode { get; set; } = string.Empty;
+    public decimal TotalUnits { get; set; }
+    public decimal TotalRevenue { get; set; }
+    public decimal TotalMargin { get; set; }
+    public decimal MarginPercentage { get; set; }
+    public decimal AverageCost { get; set; }
+    public decimal AveragePrice { get; set; }
+}
+
+public class TopProductData
+{
+    public int ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string ProductCode { get; set; } = string.Empty;
+    public decimal TotalUnits { get; set; }
+    public decimal TotalRevenue { get; set; }
+    public decimal TotalMargin { get; set; }
+    public decimal AverageCost { get; set; }
+    public decimal AveragePrice { get; set; }
+}
+
+// DTOs para comparativa de tiendas
+
+public class StoresComparisonResponse
+{
+    public int BusinessId { get; set; }
+    public DateTime Date { get; set; }
+    public List<StoreComparison> Stores { get; set; } = new();
+    public BusinessTotals Totals { get; set; } = new();
+    public long ExecutionTimeMs { get; set; }
+}
+
+public class StoreComparison
+{
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+    public decimal TodayRevenue { get; set; }
+    public decimal YesterdayRevenue { get; set; }
+    public decimal? RevenueChangePercent { get; set; }
+    public int TodaySalesCount { get; set; }
+    public int YesterdaySalesCount { get; set; }
+    public decimal TodayTicketAverage { get; set; }
+    public decimal YesterdayTicketAverage { get; set; }
+    public decimal? TicketChangePercent { get; set; }
+    public decimal MonthRevenue { get; set; }
+    public decimal LastMonthRevenue { get; set; }
+    public decimal? MonthChangePercent { get; set; }
+    public decimal StockCapital { get; set; }
+    public decimal StockValue { get; set; }
+    public int LowStockProducts { get; set; }
+    public string HealthStatus { get; set; } = "healthy"; // healthy, warning, critical
+    public int HealthScore { get; set; }
+    public List<string> HealthIndicators { get; set; } = new();
+}
+
+public class BusinessTotals
+{
+    public decimal TotalRevenue { get; set; }
+    public int TotalSalesCount { get; set; }
+    public decimal TotalStockCapital { get; set; }
+    public decimal TotalStockValue { get; set; }
+    public decimal AverageTicket { get; set; }
+    public int ActiveStores { get; set; }
+    public int HealthyStores { get; set; }
+    public int WarningStores { get; set; }
+    public int CriticalStores { get; set; }
+}
+
+public class StoreMetricsData
+{
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+    public decimal TodayRevenue { get; set; }
+    public decimal YesterdayRevenue { get; set; }
+    public int TodaySalesCount { get; set; }
+    public int YesterdaySalesCount { get; set; }
+    public decimal MonthRevenue { get; set; }
+    public decimal LastMonthRevenue { get; set; }
+}
+
+public class StoreStockData
+{
+    public int StoreId { get; set; }
+    public decimal StockCapital { get; set; }
+    public decimal StockValue { get; set; }
+    public int LowStockProducts { get; set; }
+}
+
+// DTOs para gráfico de movimientos de stock mensuales
+
+public class MonthlyStockChartResponse
+{
+    public int BusinessId { get; set; }
+    public string Month { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public List<StoreStockChartInfo> Stores { get; set; } = new();
+    public List<DailyStockChartData> DailyData { get; set; } = new();
+    public long ExecutionTimeMs { get; set; }
+}
+
+public class StoreStockChartInfo
+{
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+    public string Color { get; set; } = string.Empty;
+    public decimal TotalEntries { get; set; }
+    public decimal TotalExits { get; set; }
+    public decimal NetMovement { get; set; }
+    public int TotalMovements { get; set; }
+}
+
+public class DailyStockChartData
+{
+    public DateTime Date { get; set; }
+    public int Day { get; set; }
+    public string DayName { get; set; } = string.Empty;
+    public Dictionary<string, StockMovementData> Stores { get; set; } = new();
+}
+
+public class StockMovementData
+{
+    public decimal Entries { get; set; }
+    public decimal Exits { get; set; }
+    public decimal Net { get; set; }
+}
+
+public class DailyStockData
+{
+    public DateTime MovementDate { get; set; }
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+    public decimal DailyEntries { get; set; }
+    public decimal DailyExits { get; set; }
+    public decimal NetMovement { get; set; }
+    public int MovementCount { get; set; }
+}
+
+public class StorBasicInfo
+{
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+}
+
+// DTOs obsoletos de ventas mensuales (mantener por compatibilidad)
+
+public class MonthlySalesChartResponse
+{
+    public int BusinessId { get; set; }
+    public string Month { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public List<StoreChartInfo> Stores { get; set; } = new();
+    public List<DailyChartData> DailyData { get; set; } = new();
+    public long ExecutionTimeMs { get; set; }
+}
+
+public class StoreChartInfo
+{
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+    public string Color { get; set; } = string.Empty;
+    public decimal TotalRevenue { get; set; }
+    public int TotalTransactions { get; set; }
+}
+
+public class DailyChartData
+{
+    public DateTime Date { get; set; }
+    public int Day { get; set; }
+    public string DayName { get; set; } = string.Empty;
+    public Dictionary<string, decimal> Stores { get; set; } = new();
+}
+
+public class DailySalesData
+{
+    public DateTime SaleDate { get; set; }
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
+    public decimal DailyRevenue { get; set; }
+    public int TransactionCount { get; set; }
+}
+
+public class StoreBasicInfo
+{
+    public int StoreId { get; set; }
+    public string StoreName { get; set; } = string.Empty;
 }
