@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using GPInventory.Infrastructure.Data;
+using GPInventory.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
 
@@ -467,10 +468,23 @@ public class DashboardController : ControllerBase
                 .SqlQueryRaw<StoreStockData>(stockQuery, businessId)
                 .ToListAsync();
 
+            // Obtener configuración de stores para el score
+            var storeConfigs = await _context.Stores
+                .Where(s => s.BusinessId == businessId && s.Active)
+                .ToDictionaryAsync(s => s.Id, s => s);
+
             // Combinar datos y calcular métricas
             var stores = storesData.Select(store =>
             {
                 var stock = stockData.FirstOrDefault(s => s.StoreId == store.StoreId);
+                var storeConfig = storeConfigs.GetValueOrDefault(store.StoreId);
+                
+                // Si no hay configuración, usar valores por defecto
+                if (storeConfig == null)
+                {
+                    _logger.LogWarning("No se encontró configuración para store {StoreId}, usando valores por defecto", store.StoreId);
+                    storeConfig = new Store(); // Usa valores por defecto
+                }
                 
                 // Calcular ticket promedio
                 decimal todayTicketAverage = store.TodaySalesCount > 0 
@@ -486,11 +500,12 @@ public class DashboardController : ControllerBase
                 decimal? ticketChange = CalculateChangePercent(todayTicketAverage, yesterdayTicketAverage);
                 decimal? monthChange = CalculateChangePercent(store.MonthRevenue, store.LastMonthRevenue);
 
-                // Determinar estado de salud de la tienda
+                // Determinar estado de salud de la tienda usando su configuración
                 var healthStatus = CalculateStoreHealthStatus(
                     revenueChange,
                     store.TodaySalesCount,
-                    stock?.LowStockProducts ?? 0
+                    stock?.LowStockProducts ?? 0,
+                    storeConfig
                 );
 
                 return new StoreComparison
@@ -554,25 +569,29 @@ public class DashboardController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Calcula el estado de salud de una tienda usando su configuración personalizada
+    /// </summary>
     private static (string Status, int Score, List<string> Indicators) CalculateStoreHealthStatus(
         decimal? revenueChange, 
         int todaySalesCount, 
-        int lowStockProducts)
+        int lowStockProducts,
+        Store store)
     {
         var indicators = new List<string>();
-        int score = 100; // Empieza con score perfecto
+        int score = store.ScoreBase; // Usa el score base configurable
 
-        // Evaluar cambio en ingresos
+        // Evaluar cambio en ingresos usando umbrales configurables
         if (revenueChange.HasValue)
         {
-            if (revenueChange.Value < -20)
+            if (revenueChange.Value < store.ScoreHighDropThreshold)
             {
-                score -= 40;
+                score -= store.ScoreHighDropPenalty;
                 indicators.Add("Caída significativa en ventas");
             }
-            else if (revenueChange.Value < -10)
+            else if (revenueChange.Value < store.ScoreMediumDropThreshold)
             {
-                score -= 20;
+                score -= store.ScoreMediumDropPenalty;
                 indicators.Add("Disminución en ventas");
             }
             else if (revenueChange.Value > 20)
@@ -582,19 +601,19 @@ public class DashboardController : ControllerBase
         }
         else if (todaySalesCount == 0)
         {
-            score -= 50;
+            score -= store.ScoreNoSalesPenalty;
             indicators.Add("Sin ventas hoy");
         }
 
-        // Evaluar productos con stock bajo
-        if (lowStockProducts > 10)
+        // Evaluar productos con stock bajo usando umbrales configurables
+        if (lowStockProducts > store.ScoreCriticalStockThreshold)
         {
-            score -= 30;
+            score -= store.ScoreCriticalStockPenalty;
             indicators.Add($"{lowStockProducts} productos con stock crítico");
         }
-        else if (lowStockProducts > 5)
+        else if (lowStockProducts > store.ScoreLowStockThreshold)
         {
-            score -= 15;
+            score -= store.ScoreLowStockPenalty;
             indicators.Add($"{lowStockProducts} productos con stock bajo");
         }
         else if (lowStockProducts > 0)
@@ -602,18 +621,18 @@ public class DashboardController : ControllerBase
             indicators.Add($"{lowStockProducts} productos requieren reabastecimiento");
         }
 
-        // Evaluar volumen de ventas
-        if (todaySalesCount < 5 && todaySalesCount > 0)
+        // Evaluar volumen de ventas usando umbral configurable
+        if (todaySalesCount < store.ScoreLowVolumeThreshold && todaySalesCount > 0)
         {
-            score -= 10;
+            score -= store.ScoreLowVolumePenalty;
             indicators.Add("Volumen de ventas bajo");
         }
 
-        // Determinar estado según el score
+        // Determinar estado según los umbrales configurables
         string status = score switch
         {
-            >= 70 => "healthy",
-            >= 40 => "warning",
+            var s when s >= store.ScoreHealthyThreshold => "healthy",
+            var s when s >= store.ScoreWarningThreshold => "warning",
             _ => "critical"
         };
 

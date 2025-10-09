@@ -53,6 +53,55 @@ public class Store : BaseEntity
     [Column("active")]
     public bool Active { get; set; } = true;
 
+    // Configuración de Score de Salud
+    /// <summary>
+    /// Score base inicial antes de aplicar penalizaciones
+    /// </summary>
+    [Column("score_base")]
+    public int ScoreBase { get; set; } = 100;
+
+    // Penalizaciones por ventas
+    [Column("score_no_sales_penalty")]
+    public int ScoreNoSalesPenalty { get; set; } = 50;
+
+    [Column("score_high_drop_penalty")]
+    public int ScoreHighDropPenalty { get; set; } = 40;
+
+    [Column("score_high_drop_threshold")]
+    public decimal ScoreHighDropThreshold { get; set; } = -20m;
+
+    [Column("score_medium_drop_penalty")]
+    public int ScoreMediumDropPenalty { get; set; } = 20;
+
+    [Column("score_medium_drop_threshold")]
+    public decimal ScoreMediumDropThreshold { get; set; } = -10m;
+
+    [Column("score_low_volume_penalty")]
+    public int ScoreLowVolumePenalty { get; set; } = 10;
+
+    [Column("score_low_volume_threshold")]
+    public int ScoreLowVolumeThreshold { get; set; } = 5;
+
+    // Penalizaciones por stock
+    [Column("score_critical_stock_penalty")]
+    public int ScoreCriticalStockPenalty { get; set; } = 30;
+
+    [Column("score_critical_stock_threshold")]
+    public int ScoreCriticalStockThreshold { get; set; } = 10;
+
+    [Column("score_low_stock_penalty")]
+    public int ScoreLowStockPenalty { get; set; } = 15;
+
+    [Column("score_low_stock_threshold")]
+    public int ScoreLowStockThreshold { get; set; } = 5;
+
+    // Umbrales de clasificación
+    [Column("score_healthy_threshold")]
+    public int ScoreHealthyThreshold { get; set; } = 70;
+
+    [Column("score_warning_threshold")]
+    public int ScoreWarningThreshold { get; set; } = 40;
+
     // Propiedades de navegación
     /// <summary>
     /// Negocio al que pertenece la tienda
