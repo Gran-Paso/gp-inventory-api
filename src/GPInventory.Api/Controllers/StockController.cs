@@ -4,6 +4,7 @@ using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
 using GPInventory.Infrastructure.Services;
+using MySqlConnector;
 
 namespace GPInventory.Api.Controllers;
 
@@ -720,7 +721,7 @@ public class StockController : ControllerBase
                             amount = reader.GetInt32(reader.GetOrdinal("amount")),
                             cost = reader.IsDBNull(reader.GetOrdinal("cost")) 
                                 ? (decimal?)null 
-                                : (decimal)reader.GetInt32(reader.GetOrdinal("cost")),
+                                : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("cost"))),
                             expirationDate = reader.IsDBNull(reader.GetOrdinal("expirationDate")) 
                                 ? (DateTime?)null 
                                 : reader.GetDateTime(reader.GetOrdinal("expirationDate")),
@@ -748,7 +749,7 @@ public class StockController : ControllerBase
                                 : new
                                 {
                                     id = reader.GetInt32(reader.GetOrdinal("saleId")),
-                                    total = reader.GetInt32(reader.GetOrdinal("saleTotal")),
+                                    total = Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("saleTotal"))),
                                     paymentMethod = reader.GetInt32(reader.GetOrdinal("salePaymentMethod")).ToString()
                                 },
                             // Indicadores de relación
@@ -790,6 +791,227 @@ public class StockController : ControllerBase
         {
             _logger.LogError(ex, "Error al obtener timeline plano para store {storeId}", storeId);
             return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene el timeline plano de movimientos de stock de un store con PAGINACIÓN
+    /// Muestra todos los movimientos en orden cronológico inverso (más reciente primero)
+    /// Similar a un chat/feed, con paginación para cargar más registros
+    /// </summary>
+    /// <param name="storeId">ID del store</param>
+    /// <param name="page">Número de página (base 1)</param>
+    /// <param name="pageSize">Cantidad de items por página (default: 20, máx: 100)</param>
+    /// <returns>Página de movimientos con metadata de paginación</returns>
+    [HttpGet("store/{storeId}/flat-timeline/paginated")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetStoreStockFlatTimelinePaginated(
+        int storeId, 
+        [FromQuery] int page = 1, 
+        [FromQuery] int pageSize = 20)
+    {
+        try
+        {
+            // Validación de parámetros
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+            if (pageSize > 100) pageSize = 100; // Límite máximo
+
+            var skip = (page - 1) * pageSize;
+
+            _logger.LogInformation("Obteniendo timeline plano paginado para store {storeId} - Página {page}, Tamaño {pageSize}", 
+                storeId, page, pageSize);
+
+            // Verificar que el store existe
+            var store = await _context.Stores.FindAsync(storeId);
+            if (store == null)
+            {
+                return NotFound(new { message = "Store no encontrado" });
+            }
+
+            // SQL para contar el total de movimientos (sin filtro de activo para mostrar historial completo)
+            var countSql = $@"
+                SELECT COUNT(*)
+                FROM stock s
+                WHERE s.id_store = {storeId}";
+
+            // SQL para obtener los movimientos paginados
+            var sql = $@"
+                SELECT 
+                    s.id,
+                    s.product as productId,
+                    prod.name as productName,
+                    prod.sku as productSku,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.expiration_date as expirationDate,
+                    s.notes,
+                    s.stock_id as parentStockId,
+                    s.sale_id as saleId,
+                    s.active as isActive,
+                    s.created_at as createdAt,
+                    ft.id as flowTypeId,
+                    ft.`type` as flowTypeName,
+                    p.id as providerId,
+                    p.name as providerName,
+                    sale.id as saleIdFull,
+                    sale.total as saleTotal,
+                    sale.payment_method as salePaymentMethodId,
+                    pm.name as salePaymentMethodName,
+                    sale.customer_name as saleCustomerName,
+                    CASE WHEN s.stock_id IS NULL THEN 1 ELSE 0 END as isParent,
+                    parent.date as parentDate,
+                    parent.amount as parentAmount,
+                    parent.cost as parentCost,
+                    (SELECT COUNT(*) FROM stock WHERE stock_id = s.id) as childrenCount
+                FROM stock s
+                INNER JOIN product prod ON s.product = prod.id
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN provider p ON s.provider = p.id
+                LEFT JOIN sales sale ON s.sale_id = sale.id
+                LEFT JOIN payment_methods pm ON sale.payment_method = pm.id
+                LEFT JOIN stock parent ON s.stock_id = parent.id
+                WHERE s.id_store = {storeId}
+                ORDER BY s.date DESC, s.created_at DESC
+                LIMIT {pageSize} OFFSET {skip}";
+
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            // Obtener total de registros
+            int totalCount = 0;
+            using (var countCommand = connection.CreateCommand())
+            {
+                countCommand.CommandText = countSql;
+                var countResult = await countCommand.ExecuteScalarAsync();
+                totalCount = Convert.ToInt32(countResult);
+            }
+
+            var movements = new List<object>();
+
+            // Obtener movimientos paginados
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        var isParent = reader.GetInt32(reader.GetOrdinal("isParent")) == 1;
+                        var parentStockId = reader.IsDBNull(reader.GetOrdinal("parentStockId")) 
+                            ? (int?)null 
+                            : reader.GetInt32(reader.GetOrdinal("parentStockId"));
+                        var childrenCount = reader.GetInt32(reader.GetOrdinal("childrenCount"));
+
+                        movements.Add(new
+                        {
+                            id = reader.GetInt32(reader.GetOrdinal("id")),
+                            productId = reader.GetInt32(reader.GetOrdinal("productId")),
+                            productName = reader.GetString(reader.GetOrdinal("productName")),
+                            productSku = reader.IsDBNull(reader.GetOrdinal("productSku"))
+                                ? null
+                                : reader.GetString(reader.GetOrdinal("productSku")),
+                            date = reader.GetDateTime(reader.GetOrdinal("date")),
+                            amount = reader.GetInt32(reader.GetOrdinal("amount")),
+                            cost = reader.IsDBNull(reader.GetOrdinal("cost")) 
+                                ? (decimal?)null 
+                                : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("cost"))),
+                            expirationDate = reader.IsDBNull(reader.GetOrdinal("expirationDate")) 
+                                ? (DateTime?)null 
+                                : reader.GetDateTime(reader.GetOrdinal("expirationDate")),
+                            notes = reader.IsDBNull(reader.GetOrdinal("notes")) 
+                                ? null 
+                                : reader.GetString(reader.GetOrdinal("notes")),
+                            isActive = reader.IsDBNull(reader.GetOrdinal("isActive"))
+                                ? true
+                                : reader.GetBoolean(reader.GetOrdinal("isActive")),
+                            createdAt = reader.GetDateTime(reader.GetOrdinal("createdAt")),
+                            flowType = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("flowTypeId")),
+                                name = reader.GetString(reader.GetOrdinal("flowTypeName"))
+                            },
+                            provider = reader.IsDBNull(reader.GetOrdinal("providerId"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("providerId")),
+                                    name = reader.GetString(reader.GetOrdinal("providerName"))
+                                },
+                            sale = reader.IsDBNull(reader.GetOrdinal("saleIdFull"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("saleIdFull")),
+                                    total = Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("saleTotal"))),
+                                    paymentMethod = new
+                                    {
+                                        id = reader.GetInt32(reader.GetOrdinal("salePaymentMethodId")),
+                                        name = reader.IsDBNull(reader.GetOrdinal("salePaymentMethodName"))
+                                            ? "No especificado"
+                                            : reader.GetString(reader.GetOrdinal("salePaymentMethodName"))
+                                    },
+                                    customerName = reader.IsDBNull(reader.GetOrdinal("saleCustomerName"))
+                                        ? null
+                                        : reader.GetString(reader.GetOrdinal("saleCustomerName"))
+                                },
+                            isParent = isParent,
+                            parentStockId = parentStockId,
+                            parentInfo = parentStockId.HasValue
+                                ? new
+                                {
+                                    id = parentStockId.Value,
+                                    date = reader.IsDBNull(reader.GetOrdinal("parentDate"))
+                                        ? (DateTime?)null
+                                        : reader.GetDateTime(reader.GetOrdinal("parentDate")),
+                                    amount = reader.IsDBNull(reader.GetOrdinal("parentAmount"))
+                                        ? (int?)null
+                                        : reader.GetInt32(reader.GetOrdinal("parentAmount")),
+                                    cost = reader.IsDBNull(reader.GetOrdinal("parentCost"))
+                                        ? (decimal?)null
+                                        : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("parentCost")))
+                                }
+                                : null,
+                            hasChildren = childrenCount > 0
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
+
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+            var result = new
+            {
+                storeId = store.Id,
+                storeName = store.Name,
+                pagination = new
+                {
+                    currentPage = page,
+                    pageSize = pageSize,
+                    totalItems = totalCount,
+                    totalPages = totalPages,
+                    hasNextPage = page < totalPages,
+                    hasPreviousPage = page > 1
+                },
+                movements = movements
+            };
+
+            _logger.LogInformation("Timeline plano paginado generado: {count} movimientos (página {page}/{totalPages}) para store {storeId}", 
+                movements.Count, page, totalPages, storeId);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener timeline plano paginado para store {storeId}", storeId);
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
         }
     }
 
@@ -1338,7 +1560,414 @@ public class StockController : ControllerBase
             return StatusCode(500, new { message = "Error interno del servidor" });
         }
     }
+
+    /// <summary>
+    /// Anula un movimiento de stock (solo mermas y sin movimientos hijos) eliminándolo físicamente
+    /// </summary>
+    /// <param name="stockId">ID del movimiento de stock a anular</param>
+    /// <param name="request">Datos de la anulación</param>
+    /// <returns>Resultado de la operación</returns>
+    [HttpPost("{stockId}/anular")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> AnularMovimiento(int stockId, [FromBody] AnularStockRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("Intentando anular (eliminar) movimiento de stock {stockId}", stockId);
+
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return BadRequest(new { message = "La razón es requerida" });
+            }
+
+            using var connection = new MySqlConnection(_context.Database.GetConnectionString());
+            await connection.OpenAsync();
+
+            // Verificar que el movimiento existe y es una merma
+            var checkQuery = @"
+                SELECT s.id, s.active, s.stock_id, ft.type as FlowTypeName, p.name as ProductName
+                FROM stock s
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                INNER JOIN product p ON s.product = p.id
+                WHERE s.id = @stockId";
+
+            using var checkCmd = new MySqlCommand(checkQuery, connection);
+            checkCmd.Parameters.AddWithValue("@stockId", stockId);
+
+            using var reader = await checkCmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+            {
+                return NotFound(new { message = "Movimiento no encontrado" });
+            }
+
+            var flowTypeName = reader.GetString("FlowTypeName")?.ToLower() ?? "";
+            var productName = reader.GetString("ProductName");
+            var isActive = reader.IsDBNull(reader.GetOrdinal("active")) 
+                ? true 
+                : reader.GetBoolean("active");
+            var isChild = !reader.IsDBNull(reader.GetOrdinal("stock_id"));
+
+            await reader.CloseAsync();
+
+            // Verificar que NO sea un movimiento hijo de VENTA/SALIDA
+            var isChildSale = isChild && (flowTypeName.Contains("venta") || flowTypeName.Contains("salida"));
+            if (isChildSale)
+            {
+                return BadRequest(new { message = "No se puede anular un movimiento asociado a una venta/salida" });
+            }
+
+            // Verificar que es una merma
+            if (!flowTypeName.Contains("merma"))
+            {
+                return BadRequest(new { message = "Solo se pueden anular movimientos de tipo MERMA" });
+            }
+
+            // Verificar que está activo
+            if (!isActive)
+            {
+                return BadRequest(new { message = "El movimiento ya está inactivo" });
+            }
+
+            // Verificar que no tiene movimientos hijos
+            var childCheckQuery = "SELECT COUNT(*) FROM stock WHERE stock_id = @stockId";
+            using var childCmd = new MySqlCommand(childCheckQuery, connection);
+            childCmd.Parameters.AddWithValue("@stockId", stockId);
+            
+            var childCount = Convert.ToInt32(await childCmd.ExecuteScalarAsync());
+            if (childCount > 0)
+            {
+                return BadRequest(new { message = "No se puede anular un movimiento que tiene movimientos relacionados" });
+            }
+
+            // Eliminar el movimiento físicamente
+            var deleteQuery = "DELETE FROM stock WHERE id = @stockId";
+            using var deleteCmd = new MySqlCommand(deleteQuery, connection);
+            deleteCmd.Parameters.AddWithValue("@stockId", stockId);
+            
+            var rowsAffected = await deleteCmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected == 0)
+            {
+                return StatusCode(500, new { message = "No se pudo eliminar el movimiento" });
+            }
+
+            var timestamp = DateTime.UtcNow;
+
+            _logger.LogInformation("Movimiento de stock {stockId} eliminado exitosamente. Razón: {reason}", stockId, request.Reason);
+
+            return Ok(new
+            {
+                success = true,
+                message = "Movimiento eliminado exitosamente",
+                stockId = stockId,
+                productName = productName,
+                reason = request.Reason,
+                deletedAt = timestamp
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al anular movimiento de stock {stockId}", stockId);
+            return StatusCode(500, new { message = "Error al anular el movimiento", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Corrige un movimiento de stock (solo sin movimientos hijos)
+    /// Crea un movimiento de corrección inverso y uno nuevo con los valores correctos
+    /// </summary>
+    /// <param name="stockId">ID del movimiento de stock a corregir</param>
+    /// <param name="request">Datos de la corrección</param>
+    /// <returns>Resultado de la operación</returns>
+    [HttpPost("{stockId}/corregir")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> CorregirMovimiento(int stockId, [FromBody] CorregirStockRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("Intentando corregir movimiento de stock {stockId}", stockId);
+
+            // Validar request
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return BadRequest(new { message = "Debe especificar la razón de la corrección" });
+            }
+
+            if (request.NewAmount == 0)
+            {
+                return BadRequest(new { message = "La nueva cantidad no puede ser cero" });
+            }
+
+            using var connection = new MySqlConnection(_context.Database.GetConnectionString());
+            await connection.OpenAsync();
+
+            // Verificar que el movimiento existe y obtener sus datos
+            var checkQuery = @"
+                SELECT s.id, s.product, s.flow, s.id_store, s.provider, s.stock_id,
+                       s.date, s.amount, s.cost, s.expiration_date, s.notes, s.active,
+                       p.name as ProductName, ft.type as FlowTypeName
+                FROM stock s
+                INNER JOIN product p ON s.product = p.id
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                WHERE s.id = @stockId";
+
+            using var checkCmd = new MySqlCommand(checkQuery, connection);
+            checkCmd.Parameters.AddWithValue("@stockId", stockId);
+
+            int productId, flowId, storeId;
+            int? providerId, originalCost, parentStockId;
+            int originalAmount;
+            DateTime originalDate, expirationDate;
+            string? notes, productName, flowTypeName;
+            bool isActive, isChild;
+
+            using var reader = await checkCmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+            {
+                return NotFound(new { message = "Movimiento no encontrado" });
+            }
+
+            productId = reader.GetInt32("product");
+            flowId = reader.GetInt32("flow");
+            storeId = reader.GetInt32("id_store");
+            providerId = reader.IsDBNull(reader.GetOrdinal("provider")) 
+                ? (int?)null 
+                : reader.GetInt32("provider");
+            parentStockId = reader.IsDBNull(reader.GetOrdinal("stock_id"))
+                ? (int?)null
+                : reader.GetInt32("stock_id");
+            originalAmount = reader.GetInt32("amount");
+            originalCost = reader.IsDBNull(reader.GetOrdinal("cost"))
+                ? (int?)null
+                : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("cost")));
+            originalDate = reader.GetDateTime("date");
+            expirationDate = reader.IsDBNull(reader.GetOrdinal("expiration_date"))
+                ? DateTime.MinValue
+                : reader.GetDateTime("expiration_date");
+            notes = reader.IsDBNull(reader.GetOrdinal("notes"))
+                ? null
+                : reader.GetString("notes");
+            isActive = reader.IsDBNull(reader.GetOrdinal("active"))
+                ? true
+                : reader.GetBoolean("active");
+            productName = reader.GetString("ProductName");
+            flowTypeName = reader.GetString("FlowTypeName")?.ToLower() ?? "";
+            isChild = parentStockId.HasValue;
+
+            await reader.CloseAsync();
+
+            // Verificar que NO sea un movimiento hijo de VENTA/SALIDA
+            var isChildSale = isChild && (flowTypeName.Contains("venta") || flowTypeName.Contains("salida"));
+            if (isChildSale)
+            {
+                return BadRequest(new { message = "No se puede corregir un movimiento asociado a una venta/salida" });
+            }
+
+            // Verificar que está activo
+            if (!isActive)
+            {
+                return BadRequest(new { message = "No se puede corregir un movimiento inactivo" });
+            }
+
+            // Verificar que no tiene movimientos hijos
+            var childCheckQuery = "SELECT COUNT(*) FROM stock WHERE stock_id = @stockId";
+            using var childCmd = new MySqlCommand(childCheckQuery, connection);
+            childCmd.Parameters.AddWithValue("@stockId", stockId);
+            
+            var childCount = Convert.ToInt32(await childCmd.ExecuteScalarAsync());
+            if (childCount > 0)
+            {
+                return BadRequest(new { message = "No se puede corregir un movimiento que tiene movimientos relacionados" });
+            }
+
+            // Verificar que los valores son diferentes
+            var newCost = request.NewCost.HasValue ? (int?)Convert.ToInt32(request.NewCost.Value) : originalCost;
+            if (originalAmount == request.NewAmount && originalCost == newCost)
+            {
+                return BadRequest(new { message = "Los nuevos valores deben ser diferentes a los actuales" });
+            }
+
+            // Si es una merma con padre, validar que no exceda el stock disponible
+            if (parentStockId.HasValue && request.NewAmount < 0)
+            {
+                // Calcular stock disponible del padre
+                var stockAvailableQuery = @"
+                    SELECT 
+                        parent.amount as parentAmount,
+                        COALESCE(SUM(CASE WHEN child.id != @stockId AND child.active = 1 THEN child.amount ELSE 0 END), 0) as otherChildrenAmount
+                    FROM stock parent
+                    LEFT JOIN stock child ON child.stock_id = parent.id
+                    WHERE parent.id = @parentStockId
+                    GROUP BY parent.id, parent.amount";
+
+                using var availableCmd = new MySqlCommand(stockAvailableQuery, connection);
+                availableCmd.Parameters.AddWithValue("@parentStockId", parentStockId.Value);
+                availableCmd.Parameters.AddWithValue("@stockId", stockId);
+
+                using var availableReader = await availableCmd.ExecuteReaderAsync();
+                if (await availableReader.ReadAsync())
+                {
+                    var parentAmount = availableReader.GetInt32("parentAmount");
+                    var otherChildrenAmount = availableReader.GetInt32("otherChildrenAmount");
+                    var availableStock = parentAmount + otherChildrenAmount; // otherChildrenAmount son negativos
+
+                    await availableReader.CloseAsync();
+
+                    // La nueva cantidad de la merma (negativa)
+                    var requestedAmount = Math.Abs(request.NewAmount);
+                    
+                    if (requestedAmount > availableStock)
+                    {
+                        return BadRequest(new { 
+                            message = $"No hay suficiente stock disponible. Stock del lote: {parentAmount}, Usado por otras mermas/ventas: {Math.Abs(otherChildrenAmount)}, Disponible: {availableStock}" 
+                        });
+                    }
+                }
+                else
+                {
+                    await availableReader.CloseAsync();
+                }
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+                // 1. Marcar el movimiento original como inactivo
+                var updateOriginalQuery = @"
+                    UPDATE stock 
+                    SET active = 0, 
+                        notes = CONCAT(COALESCE(notes, ''), @note),
+                        updated_at = @timestamp
+                    WHERE id = @stockId";
+
+                using var updateCmd = new MySqlCommand(updateOriginalQuery, connection);
+                updateCmd.Parameters.AddWithValue("@stockId", stockId);
+                updateCmd.Parameters.AddWithValue("@note", $"\n[CORREGIDO] {timestamp} - Razón: {request.Reason}");
+                updateCmd.Parameters.AddWithValue("@timestamp", timestamp);
+                await updateCmd.ExecuteNonQueryAsync();
+
+                // 2. Crear SOLO UN nuevo movimiento con valores correctos
+                var newNote = $"Corrección de movimiento #{stockId} - {request.Reason}\\nValor original: {originalAmount} → Nuevo valor: {request.NewAmount} unidades";
+                if (originalCost.HasValue || newCost.HasValue)
+                {
+                    newNote += $"\\nCosto original: ${originalCost?.ToString() ?? "N/A"} → Nuevo: ${newCost?.ToString() ?? "N/A"}";
+                }
+
+                var insertNewQuery = @"
+                    INSERT INTO stock (product, date, flow, amount, cost, provider, expiration_date, notes, id_store, stock_id, active, created_at, updated_at)
+                    VALUES (@product, @date, @flow, @amount, @cost, @provider, @expirationDate, @notes, @storeId, @stockId, 1, @timestamp, @timestamp)";
+
+                using var newCmd = new MySqlCommand(insertNewQuery, connection);
+                newCmd.Parameters.AddWithValue("@product", productId);
+                newCmd.Parameters.AddWithValue("@date", timestamp);
+                newCmd.Parameters.AddWithValue("@flow", flowId);
+                newCmd.Parameters.AddWithValue("@amount", request.NewAmount);
+                newCmd.Parameters.AddWithValue("@cost", newCost.HasValue ? (object)newCost.Value : DBNull.Value);
+                newCmd.Parameters.AddWithValue("@provider", providerId.HasValue ? (object)providerId.Value : DBNull.Value);
+                newCmd.Parameters.AddWithValue("@expirationDate", expirationDate != DateTime.MinValue ? (object)expirationDate : DBNull.Value);
+                newCmd.Parameters.AddWithValue("@notes", newNote);
+                newCmd.Parameters.AddWithValue("@storeId", storeId);
+                newCmd.Parameters.AddWithValue("@stockId", parentStockId.HasValue ? (object)parentStockId.Value : DBNull.Value);
+                newCmd.Parameters.AddWithValue("@timestamp", timestamp);
+                await newCmd.ExecuteNonQueryAsync();
+
+                // Obtener ID del nuevo movimiento
+                using var newIdCmd = new MySqlCommand("SELECT @@IDENTITY", connection);
+                var newId = Convert.ToInt32(await newIdCmd.ExecuteScalarAsync());
+
+                // 3. Si es una merma con padre, verificar si el lote padre debe marcarse como inactivo
+                if (parentStockId.HasValue && request.NewAmount < 0)
+                {
+                    var checkParentStockQuery = @"
+                        SELECT 
+                            parent.amount as parentAmount,
+                            COALESCE(SUM(CASE WHEN child.active = 1 THEN child.amount ELSE 0 END), 0) as totalChildrenAmount
+                        FROM stock parent
+                        LEFT JOIN stock child ON child.stock_id = parent.id
+                        WHERE parent.id = @parentStockId
+                        GROUP BY parent.id, parent.amount";
+
+                    using var checkParentCmd = new MySqlCommand(checkParentStockQuery, connection);
+                    checkParentCmd.Parameters.AddWithValue("@parentStockId", parentStockId.Value);
+
+                    using var checkParentReader = await checkParentCmd.ExecuteReaderAsync();
+                    if (await checkParentReader.ReadAsync())
+                    {
+                        var parentAmount = checkParentReader.GetInt32("parentAmount");
+                        var totalChildrenAmount = checkParentReader.GetInt32("totalChildrenAmount");
+                        var remainingStock = parentAmount + totalChildrenAmount; // totalChildrenAmount es negativo
+
+                        await checkParentReader.CloseAsync();
+
+                        // Si el stock remanente es 0 o negativo, marcar el lote padre como inactivo
+                        if (remainingStock <= 0)
+                        {
+                            var deactivateParentQuery = @"
+                                UPDATE stock 
+                                SET active = 0, 
+                                    notes = CONCAT(COALESCE(notes, ''), @note),
+                                    updated_at = @timestamp
+                                WHERE id = @parentStockId";
+
+                            using var deactivateCmd = new MySqlCommand(deactivateParentQuery, connection);
+                            deactivateCmd.Parameters.AddWithValue("@parentStockId", parentStockId.Value);
+                            deactivateCmd.Parameters.AddWithValue("@note", $"\n[AUTO-DESACTIVADO] {timestamp} - Stock agotado por mermas/ventas");
+                            deactivateCmd.Parameters.AddWithValue("@timestamp", timestamp);
+                            await deactivateCmd.ExecuteNonQueryAsync();
+
+                            _logger.LogInformation("Lote padre {parentStockId} marcado como inactivo - stock agotado", parentStockId.Value);
+                        }
+                    }
+                    else
+                    {
+                        await checkParentReader.CloseAsync();
+                    }
+                }
+
+                await transaction.CommitAsync();
+
+                _logger.LogInformation("Movimiento de stock {stockId} corregido exitosamente. Original: {originalAmount}, Nuevo: {newAmount}", 
+                    stockId, originalAmount, request.NewAmount);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Movimiento corregido correctamente",
+                    originalStockId = stockId,
+                    newMovementId = newId,
+                    productName = productName,
+                    originalAmount = originalAmount,
+                    newAmount = request.NewAmount,
+                    correctedAt = DateTime.UtcNow
+                });
+            }
+            catch (Exception transactionEx)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(transactionEx, "Error en la transacción al corregir movimiento de stock {stockId}", stockId);
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al corregir movimiento de stock {stockId}", stockId);
+            return StatusCode(500, new { message = "Error al corregir el movimiento", error = ex.Message });
+        }
+    }
 }
+
 
 /// <summary>
 /// Modelo para crear un movimiento de stock
@@ -1418,4 +2047,36 @@ public class UpdateStockLotRequest
 public class LastInsertIdResult
 {
     public int Id { get; set; }
+}
+
+/// <summary>
+/// Modelo para anular un movimiento de stock (solo mermas)
+/// </summary>
+public class AnularStockRequest
+{
+    /// <summary>
+    /// Razón de la anulación
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Modelo para corregir un movimiento de stock
+/// </summary>
+public class CorregirStockRequest
+{
+    /// <summary>
+    /// Nueva cantidad (debe ser diferente a la actual)
+    /// </summary>
+    public int NewAmount { get; set; }
+    
+    /// <summary>
+    /// Nuevo costo unitario (opcional)
+    /// </summary>
+    public decimal? NewCost { get; set; }
+    
+    /// <summary>
+    /// Razón de la corrección
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
 }
