@@ -69,6 +69,12 @@ public class Sale : BaseEntity
     [Column("notes")]
     public string? Notes { get; set; }
 
+    /// <summary>
+    /// ID del usuario vendedor que realizó la venta
+    /// </summary>
+    [Column("seller_user_id")]
+    public int? SellerUserId { get; set; }
+
     // Propiedades de navegación
     /// <summary>
     /// Tienda donde se realizó la venta
@@ -87,6 +93,12 @@ public class Sale : BaseEntity
     /// </summary>
     [ForeignKey("PaymentMethodId")]
     public virtual PaymentMethod? PaymentMethod { get; set; }
+
+    /// <summary>
+    /// Usuario vendedor que realizó la venta
+    /// </summary>
+    [ForeignKey("SellerUserId")]
+    public virtual User? SellerUser { get; set; }
 
     /// <summary>
     /// Detalles de la venta

@@ -638,6 +638,7 @@ public class SalesController : ControllerBase
                 CustomerRut = request.CustomerRut?.Trim(),
                 PaymentMethodId = request.PaymentMethodId,
                 Notes = request.Notes?.Trim(),
+                SellerUserId = request.SellerUserId,
                 Total = 0 // Se calculará después
             };
 
@@ -858,6 +859,7 @@ public class SalesController : ControllerBase
                 .Include(s => s.Store)
                     .ThenInclude(st => st.Business)
                 .Include(s => s.PaymentMethod)
+                .Include(s => s.SellerUser)
                 .Include(s => s.SaleDetails)
                     .ThenInclude(sd => sd.Product)
                 .Include(s => s.SaleDetails)
@@ -906,6 +908,12 @@ public class SalesController : ControllerBase
                 total = sale.Total,
                 paymentMethod = sale.PaymentMethod != null ? new { id = sale.PaymentMethod.Id, name = sale.PaymentMethod.Name } : null,
                 notes = sale.Notes,
+                sellerUser = sale.SellerUser != null ? new 
+                { 
+                    id = sale.SellerUser.Id, 
+                    name = $"{sale.SellerUser.Name} {sale.SellerUser.LastName}".Trim(),
+                    email = sale.SellerUser.Mail 
+                } : null,
                 items = sale.SaleDetails.Select(sd => new
                 {
                     productId = sd.ProductId,
@@ -1548,6 +1556,7 @@ public class SalesController : ControllerBase
                 CustomerRut = request.CustomerRut?.Trim(),
                 PaymentMethodId = request.PaymentMethodId,
                 Notes = request.Notes?.Trim(),
+                SellerUserId = request.SellerUserId,
                 Total = 0 // Se calculará después
             };
 
@@ -1841,6 +1850,11 @@ public class QuickSaleRequest
     public string? Notes { get; set; }
 
     /// <summary>
+    /// ID del usuario vendedor (opcional)
+    /// </summary>
+    public int? SellerUserId { get; set; }
+
+    /// <summary>
     /// Productos vendidos
     /// </summary>
     public List<QuickSaleItem> Items { get; set; } = new List<QuickSaleItem>();
@@ -1911,6 +1925,11 @@ public class FifoSaleRequest
     /// Notas adicionales de la venta (opcional)
     /// </summary>
     public string? Notes { get; set; }
+
+    /// <summary>
+    /// ID del usuario vendedor (opcional)
+    /// </summary>
+    public int? SellerUserId { get; set; }
 }
 
 /// <summary>
