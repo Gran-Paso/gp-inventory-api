@@ -1056,13 +1056,13 @@ public class CreateProductRequest
     /// Precio de venta
     /// </summary>
     /// <example>999.99</example>
-    public int Price { get; set; }
+    public decimal Price { get; set; }
 
     /// <summary>
     /// Costo del producto
     /// </summary>
     /// <example>750.00</example>
-    public int Cost { get; set; }
+    public decimal Cost { get; set; }
 
     /// <summary>
     /// URL de la imagen del producto (opcional)
@@ -1110,13 +1110,13 @@ public class UpdateProductRequest
     /// Precio de venta
     /// </summary>
     /// <example>1199.99</example>
-    public int Price { get; set; }
+    public decimal Price { get; set; }
 
     /// <summary>
     /// Costo del producto
     /// </summary>
     /// <example>850.00</example>
-    public int Cost { get; set; }
+    public decimal Cost { get; set; }
 
     /// <summary>
     /// URL de la imagen del producto (opcional)

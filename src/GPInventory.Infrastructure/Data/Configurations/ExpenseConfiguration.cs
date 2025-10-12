@@ -39,6 +39,9 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
             
         builder.Property(e => e.FixedExpenseId)
             .HasColumnName("fixed_expense_id");
+        
+        builder.Property(e => e.ExpenseTypeId)
+            .HasColumnName("expense_type_id");
             
         builder.Property(e => e.IsFixed)
             .HasColumnName("is_fixed")
@@ -58,6 +61,7 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
         builder.Ignore(e => e.Business);
         builder.Ignore(e => e.Store);
         builder.Ignore(e => e.FixedExpense);
+        builder.Ignore(e => e.ExpenseType);
         
         // Relations - only the one that works properly
         builder.HasOne(e => e.ExpenseSubcategory)

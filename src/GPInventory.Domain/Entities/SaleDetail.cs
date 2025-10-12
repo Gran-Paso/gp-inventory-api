@@ -29,13 +29,13 @@ public class SaleDetail : BaseEntity
     /// </summary>
     [Column("price")]
     [Required]
-    public int Price { get; set; }
+    public decimal Price { get; set; }
 
     /// <summary>
     /// Descuento aplicado
     /// </summary>
     [Column("discount")]
-    public int? Discount { get; set; }
+    public decimal? Discount { get; set; }
 
     /// <summary>
     /// ID de la venta
@@ -84,13 +84,13 @@ public class SaleDetail : BaseEntity
     /// Subtotal (precio * cantidad - descuento)
     /// </summary>
     [NotMapped]
-    public int Subtotal => (Price * AmountAsInt) - (Discount ?? 0);
+    public decimal Subtotal => (Price * AmountAsInt) - (Discount ?? 0);
 
     public SaleDetail()
     {
     }
 
-    public SaleDetail(int productId, int amount, int price, int saleId, int? discount = null, int? stockId = null)
+    public SaleDetail(int productId, int amount, decimal price, int saleId, decimal? discount = null, int? stockId = null)
     {
         ProductId = productId;
         Amount = amount.ToString();

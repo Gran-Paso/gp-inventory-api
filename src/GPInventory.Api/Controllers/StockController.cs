@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
 using GPInventory.Infrastructure.Services;
 using MySqlConnector;
+using GPInventory.Application.Common;
 
 namespace GPInventory.Api.Controllers;
 
@@ -156,7 +157,7 @@ public class StockController : ControllerBase
                 productId = productId,
                 productName = product.Name,
                 currentStock = currentStock,
-                calculatedAt = DateTime.UtcNow
+                calculatedAt = DateTimeHelper.GetChileNow()
             };
 
             return Ok(result);
@@ -240,7 +241,7 @@ public class StockController : ControllerBase
             }
 
             // Usar SQL directo para evitar problemas con Entity Framework y valores NULL
-            var date = request.Date ?? DateTime.UtcNow;
+            var date = request.Date ?? DateTimeHelper.GetChileNow();
             var notes = request.Notes?.Trim();
             var cost = request.Cost;
             

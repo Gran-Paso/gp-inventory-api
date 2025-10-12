@@ -33,11 +33,15 @@ public class Expense
     [ForeignKey(nameof(FixedExpense))]
     public int? FixedExpenseId { get; set; } // Reference to the fixed expense that generated this expense
 
+    [ForeignKey(nameof(ExpenseType))]
+    public int? ExpenseTypeId { get; set; } // Tipo de egreso: Gasto, Costo o Inversión
+
     // Navigation properties
     public ExpenseSubcategory ExpenseSubcategory { get; set; } = null!;
     public Business Business { get; set; } = null!;
     public Store? Store { get; set; }
     public FixedExpense? FixedExpense { get; set; } // Navigation to the fixed expense that generated this
+    public ExpenseType? ExpenseType { get; set; } // Tipo de egreso
     public string Notes { get; set; } = string.Empty;
     public string CreatedAt { get; set; } = DateTime.UtcNow.ToString("o"); // ISO 8601 format for consistency
 
@@ -45,7 +49,7 @@ public class Expense
     {
     }
 
-    public Expense(DateTime date, int subcategoryId, int amount, string description, int businessId, int? storeId = null, string? notes = "")
+    public Expense(DateTime date, int subcategoryId, int amount, string description, int businessId, int? storeId = null, string? notes = "", int? expenseTypeId = null)
     {
         Date = date;
         SubcategoryId = subcategoryId;
@@ -54,5 +58,6 @@ public class Expense
         BusinessId = businessId;
         StoreId = storeId;
         Notes = notes ?? string.Empty;
+        ExpenseTypeId = expenseTypeId;
     }
 }

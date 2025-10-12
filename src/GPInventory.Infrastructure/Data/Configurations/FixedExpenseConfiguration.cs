@@ -35,6 +35,9 @@ public class FixedExpenseConfiguration : IEntityTypeConfiguration<FixedExpense>
         builder.Property(e => e.RecurrenceTypeId)
             .HasColumnName("recurrence_id")
             .IsRequired();
+        
+        builder.Property(e => e.ExpenseTypeId)
+            .HasColumnName("expense_type_id");
             
         builder.Property(e => e.EndDate)
             .HasColumnName("end_date");
@@ -75,6 +78,11 @@ public class FixedExpenseConfiguration : IEntityTypeConfiguration<FixedExpense>
             .WithMany(rt => rt.FixedExpenses)
             .HasForeignKey(e => e.RecurrenceTypeId)
             .OnDelete(DeleteBehavior.Restrict);
+        
+        builder.HasOne(e => e.ExpenseType)
+            .WithMany(et => et.FixedExpenses)
+            .HasForeignKey(e => e.ExpenseTypeId)
+            .OnDelete(DeleteBehavior.SetNull);
             
         builder.HasMany(e => e.GeneratedExpenses)
             .WithOne(exp => exp.FixedExpense)
@@ -86,6 +94,7 @@ public class FixedExpenseConfiguration : IEntityTypeConfiguration<FixedExpense>
         builder.HasIndex(e => e.StoreId);
         builder.HasIndex(e => e.SubcategoryId);
         builder.HasIndex(e => e.RecurrenceTypeId);
+        builder.HasIndex(e => e.ExpenseTypeId);
         builder.HasIndex(e => e.PaymentDate);
     }
 }

@@ -34,6 +34,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<RecurrenceType> RecurrenceTypes { get; set; }
     public DbSet<Expense> Expenses { get; set; }
     public DbSet<FixedExpense> FixedExpenses { get; set; }
+    public DbSet<ExpenseType> ExpenseTypes { get; set; }
     
     // Production entities
     public DbSet<Supply> Supplies { get; set; }
@@ -135,6 +136,7 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ExpenseCategoryConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseSubcategoryConfiguration());
         modelBuilder.ApplyConfiguration(new RecurrenceTypeConfiguration());
+        modelBuilder.ApplyConfiguration(new ExpenseTypeConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseConfiguration());
         modelBuilder.ApplyConfiguration(new FixedExpenseConfiguration());
 

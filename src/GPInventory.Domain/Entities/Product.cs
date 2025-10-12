@@ -8,8 +8,8 @@ public class Product : BaseEntity
     public string Name { get; set; } = string.Empty;
     public string? Image { get; set; }
     public int ProductTypeId { get; set; }
-    public int Price { get; set; }
-    public int Cost { get; set; }
+    public decimal Price { get; set; }
+    public decimal Cost { get; set; }
     
     public string? Sku { get; set; }
     public DateTime Date { get; set; }
@@ -26,7 +26,7 @@ public class Product : BaseEntity
         Date = DateTime.UtcNow;
     }
 
-    public Product(string name, int productTypeId, int price, int cost, int businessId)
+    public Product(string name, int productTypeId, decimal price, decimal cost, int businessId)
     {
         Name = name;
         ProductTypeId = productTypeId;

@@ -55,7 +55,7 @@ public class Sale : BaseEntity
     /// Total de la venta
     /// </summary>
     [Column("total")]
-    public int Total { get; set; }
+    public decimal Total { get; set; }
 
     /// <summary>
     /// ID del método de pago

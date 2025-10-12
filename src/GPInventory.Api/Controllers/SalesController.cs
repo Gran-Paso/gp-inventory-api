@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Cors;
 using GPInventory.Application.Interfaces;
 using GPInventory.Api.Extensions;
 using System.Security.Claims;
+using GPInventory.Application.Common;
 
 namespace GPInventory.Api.Controllers;
 
@@ -633,7 +634,7 @@ public class SalesController : ControllerBase
             var sale = new GPInventory.Domain.Entities.Sale
             {
                 StoreId = request.StoreId,
-                Date = DateTime.UtcNow,
+                Date = DateTimeHelper.GetChileNow(),
                 CustomerName = request.CustomerName?.Trim(),
                 CustomerRut = request.CustomerRut?.Trim(),
                 PaymentMethodId = request.PaymentMethodId,
@@ -646,7 +647,7 @@ public class SalesController : ControllerBase
             await _context.SaveChangesAsync(); // Para obtener el ID de la venta
 
             // Crear detalles de venta y calcular total
-            int totalAmount = 0;
+            decimal totalAmount = 0;
             var saleDetails = new List<object>();
 
             foreach (var item in request.Items)
@@ -681,7 +682,7 @@ public class SalesController : ControllerBase
                     var saleStockMovement = new GPInventory.Domain.Entities.Stock
                     {
                         ProductId = item.ProductId,
-                        Date = DateTime.UtcNow,
+                        Date = DateTimeHelper.GetChileNow(),
                         FlowTypeId = 11, // FlowType "Venta"
                         Amount = -item.Quantity, // Cantidad negativa para salida
                         Cost = specificStock.Cost, // Usar el costo del stock específico
@@ -702,7 +703,7 @@ public class SalesController : ControllerBase
                     var stockMovement = new GPInventory.Domain.Entities.Stock
                     {
                         ProductId = item.ProductId,
-                        Date = DateTime.UtcNow,
+                        Date = DateTimeHelper.GetChileNow(),
                         FlowTypeId = 11, // FlowType "Venta"
                         Amount = -item.Quantity, // Cantidad negativa para salida
                         Cost = null, // No se especifica costo en las ventas
@@ -752,8 +753,8 @@ public class SalesController : ControllerBase
                 });
             }
 
-            // Actualizar total de la venta
-            sale.Total = totalAmount;
+            // Actualizar total de la venta (redondeado)
+            sale.Total = Math.Round(totalAmount, 0);
             await _context.SaveChangesAsync();
 
             await transaction.CommitAsync();
@@ -1128,12 +1129,14 @@ public class SalesController : ControllerBase
 
             if (dateFrom.HasValue)
             {
-                query = query.Where(s => s.Date >= dateFrom.Value);
+                query = query.Where(s => s.Date >= dateFrom.Value.Date);
             }
 
             if (dateTo.HasValue)
             {
-                query = query.Where(s => s.Date <= dateTo.Value);
+                // Incluir todo el día hasta las 23:59:59
+                var dateToEndOfDay = dateTo.Value.Date.AddDays(1).AddTicks(-1);
+                query = query.Where(s => s.Date <= dateToEndOfDay);
             }
 
             // Contar total de registros para paginación
@@ -1264,7 +1267,7 @@ public class SalesController : ControllerBase
     {
         try
         {
-            var today = DateTime.UtcNow.Date;
+            var today = DateTimeHelper.GetChileNow().Date;
             var tomorrow = today.AddDays(1);
 
             // Calcular ingresos del día (sum de todas las ventas del día)
@@ -1452,7 +1455,7 @@ public class SalesController : ControllerBase
                 {
                     Id = sr.Id,
                     ProductId = sr.ProductId ?? 0, // Usar 0 como fallback si es NULL
-                    Date = sr.Date ?? DateTime.UtcNow, // Usar fecha actual como fallback
+                    Date = sr.Date ?? DateTimeHelper.GetChileNow(), // Usar fecha actual como fallback
                     FlowTypeId = sr.FlowTypeId ?? 1, // Usar FlowType por defecto
                     Amount = sr.Amount,
                     Cost = sr.Cost.HasValue && sr.Cost.Value > 0 ? sr.Cost.Value : null,
@@ -1462,8 +1465,8 @@ public class SalesController : ControllerBase
                     SaleId = sr.SaleId.HasValue && sr.SaleId.Value > 0 ? sr.SaleId.Value : null,
                     StockId = sr.StockId,
                     IsActive = sr.IsActive.HasValue ? sr.IsActive.Value == 1 : true,
-                    CreatedAt = sr.CreatedAt ?? DateTime.UtcNow,
-                    UpdatedAt = sr.UpdatedAt ?? DateTime.UtcNow
+                    CreatedAt = sr.CreatedAt ?? DateTimeHelper.GetChileNow(),
+                    UpdatedAt = sr.UpdatedAt ?? DateTimeHelper.GetChileNow()
                 }).ToList();
 
                 _logger.LogInformation("✅ Encontrados {stockCount} lotes disponibles para producto {productId}", availableStocks.Count, item.ProductId);
@@ -1551,7 +1554,7 @@ public class SalesController : ControllerBase
             var sale = new GPInventory.Domain.Entities.Sale
             {
                 StoreId = request.StoreId,
-                Date = DateTime.UtcNow,
+                Date = DateTimeHelper.GetChileNow(),
                 CustomerName = request.CustomerName?.Trim(),
                 CustomerRut = request.CustomerRut?.Trim(),
                 PaymentMethodId = request.PaymentMethodId,
@@ -1564,7 +1567,7 @@ public class SalesController : ControllerBase
             await _context.SaveChangesAsync(); // Para obtener el ID de la venta
 
             // Crear detalles de venta basados en las asignaciones FIFO
-            int totalAmount = 0;
+            decimal totalAmount = 0;
             var saleDetails = new List<object>();
 
             // Filtrar items válidos antes del loop para evitar problemas
@@ -1691,7 +1694,7 @@ public class SalesController : ControllerBase
                         @"INSERT INTO stock (product, `date`, `flow`, amount, cost, id_store, sale_id, stock_id, notes, active, created_at, updated_at) 
                           VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, {11})",
                         currentItemProductId,
-                        DateTime.UtcNow,
+                        DateTimeHelper.GetChileNow(),
                         11, // FlowType "Venta"
                         -allocatedQty, // Cantidad negativa para salida
                         costValue.HasValue ? (object)costValue.Value : DBNull.Value,
@@ -1700,8 +1703,8 @@ public class SalesController : ControllerBase
                         stockId, // ✅ stock_id apunta al lote padre del cual se saca el inventario
                         stockNotes,
                         1, // active = 1 (activo)
-                        DateTime.UtcNow,
-                        DateTime.UtcNow);
+                        DateTimeHelper.GetChileNow(),
+                        DateTimeHelper.GetChileNow());
                     
                     _logger.LogInformation("✅ Movimiento de stock negativo creado exitosamente para lote #{stockId}", stockId);
 
@@ -1777,12 +1780,13 @@ public class SalesController : ControllerBase
                 });
             }
 
-            // Actualizar total de la venta usando SQL directo con parámetros seguros
+            // Actualizar total de la venta usando SQL directo con parámetros seguros (redondeado)
+            var roundedTotal = Math.Round(totalAmount, 0);
             await _context.Database.ExecuteSqlRawAsync(
-                "UPDATE sales SET total = {0} WHERE id = {1}", totalAmount, sale.Id);
+                "UPDATE sales SET total = {0} WHERE id = {1}", roundedTotal, sale.Id);
 
             // Actualizar el objeto sale en memoria para que refleje el total correcto
-            sale.Total = totalAmount;
+            sale.Total = roundedTotal;
 
             await transaction.CommitAsync();
 
@@ -1878,12 +1882,12 @@ public class QuickSaleItem
     /// <summary>
     /// Precio unitario (opcional, usa el del producto si no se especifica)
     /// </summary>
-    public int? UnitPrice { get; set; }
+    public decimal? UnitPrice { get; set; }
 
     /// <summary>
     /// Descuento aplicado (opcional)
     /// </summary>
-    public int? Discount { get; set; }
+    public decimal? Discount { get; set; }
 
     /// <summary>
     /// ID del stock específico del cual se está vendiendo el producto (opcional)
@@ -1950,12 +1954,12 @@ public class FifoSaleItem
     /// <summary>
     /// Precio unitario (opcional, se usará el precio del producto si no se especifica)
     /// </summary>
-    public int? UnitPrice { get; set; }
+    public decimal? UnitPrice { get; set; }
 
     /// <summary>
     /// Descuento aplicado (opcional)
     /// </summary>
-    public int? Discount { get; set; }
+    public decimal? Discount { get; set; }
 }
 
 /// <summary>
@@ -1995,8 +1999,8 @@ public class ProductWithStockResult
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Sku { get; set; }
-    public int Price { get; set; }
-    public int Cost { get; set; }
+    public decimal Price { get; set; }
+    public decimal Cost { get; set; }
     public string? Image { get; set; }
     public int? ProductTypeId { get; set; }
     public string? ProductTypeName { get; set; }
@@ -2032,8 +2036,8 @@ Quantity[int] =
 UnitPrice[int ?] =
 3000 */
 
-    public int? Discount { get; set; }
+    public decimal? Discount { get; set; }
     public int ProductId { get; set; }
     public int Quantity { get; set; }
-    public int? UnitPrice { get; set; }
+    public decimal? UnitPrice { get; set; }
 }

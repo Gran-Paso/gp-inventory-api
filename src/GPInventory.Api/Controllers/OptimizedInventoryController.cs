@@ -502,7 +502,7 @@ public class ProductStockResult
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Sku { get; set; }
-    public int Price { get; set; }
+    public decimal Price { get; set; }
     public decimal? Cost { get; set; }
     public string? Image { get; set; }
     public int StockMin { get; set; }

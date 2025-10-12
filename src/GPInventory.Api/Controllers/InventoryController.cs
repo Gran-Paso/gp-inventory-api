@@ -316,7 +316,7 @@ public class InventoryController : ControllerBase
             }
 
             int inStock = 0, lowStock = 0, outOfStock = 0;
-            long totalValue = 0;
+            decimal totalValue = 0m;
 
             foreach (var product in products)
             {
@@ -362,7 +362,7 @@ public class InventoryController : ControllerBase
                         break;
                 }
 
-                // Calcular valor total
+                // Calcular valor total del inventario
                 totalValue += product.Price * currentStock;
             }
 
@@ -372,7 +372,7 @@ public class InventoryController : ControllerBase
                 inStock = inStock,
                 lowStock = lowStock,
                 outOfStock = outOfStock,
-                totalValue = totalValue
+                totalValue = (decimal)totalValue
             };
 
             return Ok(result);
