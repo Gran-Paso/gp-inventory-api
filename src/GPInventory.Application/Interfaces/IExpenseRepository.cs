@@ -20,6 +20,7 @@ public interface IExpenseRepository
         int? minAmount = null,
         int? maxAmount = null,
         bool? isFixed = null,
+        int? expenseTypeId = null,
         int page = 1,
         int pageSize = 10,
         string orderBy = "Date",

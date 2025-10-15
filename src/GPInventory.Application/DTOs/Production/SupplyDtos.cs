@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using GPInventory.Application.DTOs.Expenses;
 
 namespace GPInventory.Application.DTOs.Production;
 
@@ -38,6 +39,7 @@ public class SupplyDto
     public string? Description { get; set; }
     public int UnitMeasureId { get; set; }
     public int? FixedExpenseId { get; set; }
+    public int? ExpenseTypeId { get; set; }
     public bool Active { get; set; }
     public int BusinessId { get; set; }
     public int StoreId { get; set; }
@@ -50,6 +52,7 @@ public class SupplyDto
     // Navigation properties
     public UnitMeasureDto? UnitMeasure { get; set; }
     public FixedExpenseDto? FixedExpense { get; set; }
+    public ExpenseTypeDto? ExpenseType { get; set; }
     public BusinessDto? Business { get; set; }
     public StoreDto? Store { get; set; }
     
@@ -76,6 +79,8 @@ public class UpdateSupplyDto
     public int? SubcategoryId { get; set; }
     
     public DateTime? PaymentDate { get; set; }
+    
+    public int? ExpenseTypeId { get; set; }
     
     public bool Active { get; set; } = true;
     

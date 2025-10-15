@@ -152,6 +152,7 @@ builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 
 // Expense repositories
 builder.Services.AddScoped<IExpenseRepository, ExpenseRepository>();
+builder.Services.AddScoped<IExpenseSqlRepository, ExpenseSqlRepository>();
 builder.Services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
 builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository>();
 builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepository>();

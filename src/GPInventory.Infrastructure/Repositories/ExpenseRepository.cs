@@ -60,6 +60,7 @@ public class ExpenseRepository : IExpenseRepository
         int? minAmount = null,
         int? maxAmount = null,
         bool? isFixed = null,
+        int? expenseTypeId = null,
         int page = 1,
         int pageSize = 10,
         string orderBy = "Date",
@@ -115,6 +116,10 @@ public class ExpenseRepository : IExpenseRepository
         // Filtro por is_fixed
         if (isFixed.HasValue)
             query = query.Where(e => (e.IsFixed ?? false) == isFixed.Value);
+
+        // Filtro por expense_type_id
+        if (expenseTypeId.HasValue)
+            query = query.Where(e => e.ExpenseTypeId == expenseTypeId.Value);
 
         // Ordenamiento
         query = orderBy.ToLower() switch

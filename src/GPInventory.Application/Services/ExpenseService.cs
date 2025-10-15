@@ -10,6 +10,7 @@ namespace GPInventory.Application.Services;
 public class ExpenseService : IExpenseService
 {
     private readonly IExpenseRepository _expenseRepository;
+    private readonly IExpenseSqlRepository _expenseSqlRepository;
     private readonly IFixedExpenseRepository _fixedExpenseRepository;
     private readonly IExpenseCategoryRepository _categoryRepository;
     private readonly IExpenseSubcategoryRepository _subcategoryRepository;
@@ -18,6 +19,7 @@ public class ExpenseService : IExpenseService
 
     public ExpenseService(
         IExpenseRepository expenseRepository,
+        IExpenseSqlRepository expenseSqlRepository,
         IFixedExpenseRepository fixedExpenseRepository,
         IExpenseCategoryRepository categoryRepository,
         IExpenseSubcategoryRepository subcategoryRepository,
@@ -25,6 +27,7 @@ public class ExpenseService : IExpenseService
         IMapper mapper)
     {
         _expenseRepository = expenseRepository;
+        _expenseSqlRepository = expenseSqlRepository;
         _fixedExpenseRepository = fixedExpenseRepository;
         _categoryRepository = categoryRepository;
         _subcategoryRepository = subcategoryRepository;
@@ -108,6 +111,29 @@ public class ExpenseService : IExpenseService
                 throw new ArgumentException("Se debe proporcionar al menos un ID de negocio");
             }
 
+            // Si se especifica un expense_type_id, usar consulta SQL directa
+            if (filters.ExpenseTypeId.HasValue)
+            {
+                var businessId = filters.BusinessId ?? filters.BusinessIds?.FirstOrDefault() ?? 0;
+                if (businessId == 0)
+                {
+                    throw new ArgumentException("Se debe proporcionar un ID de negocio válido");
+                }
+
+                var expensesWithDetails = await _expenseSqlRepository.GetExpensesByTypeAsync(
+                    businessId: businessId,
+                    expenseTypeId: filters.ExpenseTypeId,
+                    categoryId: filters.CategoryId,
+                    subcategoryId: filters.SubcategoryId,
+                    startDate: filters.StartDate,
+                    endDate: filters.EndDate,
+                    page: filters.Page,
+                    pageSize: filters.PageSize);
+
+                return expensesWithDetails;
+            }
+
+            // Fallback a EF Core para compatibilidad
             var expenses = await _expenseRepository.GetExpensesWithDetailsAsync(
                 businessId: filters.BusinessId,
                 businessIds: filters.BusinessIds,
@@ -119,6 +145,7 @@ public class ExpenseService : IExpenseService
                 minAmount: filters.MinAmount,
                 maxAmount: filters.MaxAmount,
                 isFixed: filters.IsFixed,
+                expenseTypeId: filters.ExpenseTypeId,
                 page: filters.Page,
                 pageSize: filters.PageSize,
                 orderBy: filters.OrderBy ?? "Date",
@@ -215,6 +242,7 @@ public class ExpenseService : IExpenseService
             // Recargar la entidad con las relaciones
             var expenseWithDetails = await _expenseRepository.GetExpensesWithDetailsAsync(
                 businessId: expense.BusinessId,
+                expenseTypeId: null,
                 page: 1,
                 pageSize: 1);
 
@@ -266,11 +294,11 @@ public class ExpenseService : IExpenseService
     }
 
     // Gastos fijos
-    public async Task<IEnumerable<FixedExpenseWithDetailsDto>> GetFixedExpensesAsync(int[]? businessIds = null)
+    public async Task<IEnumerable<FixedExpenseWithDetailsDto>> GetFixedExpensesAsync(int[]? businessIds = null, int? expenseTypeId = null)
     {
         try
         {
-            Console.WriteLine($"ExpenseService.GetFixedExpensesAsync called with businessIds: {(businessIds != null ? string.Join(",", businessIds) : "null")}");
+            Console.WriteLine($"ExpenseService.GetFixedExpensesAsync called with businessIds: {(businessIds != null ? string.Join(",", businessIds) : "null")}, expenseTypeId: {expenseTypeId}");
             
             // Validar que al menos se proporcione un businessId
             if (businessIds == null || businessIds.Length == 0)
@@ -279,7 +307,7 @@ public class ExpenseService : IExpenseService
             }
             
             var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(
-                businessIds: businessIds);
+                businessIds: businessIds, expenseTypeId: expenseTypeId);
                 
             var dtos = _mapper.Map<IEnumerable<FixedExpenseWithDetailsDto>>(fixedExpenses);
             
@@ -559,6 +587,7 @@ public class ExpenseService : IExpenseService
                 minAmount: filters.MinAmount,
                 maxAmount: filters.MaxAmount,
                 isFixed: filters.IsFixed,
+                expenseTypeId: filters.ExpenseTypeId,
                 page: 1,
                 pageSize: int.MaxValue,
                 orderBy: filters.OrderBy ?? "Date",

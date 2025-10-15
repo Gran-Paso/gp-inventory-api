@@ -9,7 +9,7 @@ public interface IFixedExpenseRepository
     Task<FixedExpense> AddAsync(FixedExpense entity);
     Task UpdateAsync(FixedExpense entity);
     Task DeleteAsync(int id);
-    Task<IEnumerable<FixedExpense>> GetFixedExpensesWithDetailsAsync(int[]? businessIds = null);
+    Task<IEnumerable<FixedExpense>> GetFixedExpensesWithDetailsAsync(int[]? businessIds = null, int? expenseTypeId = null);
 
     Task<decimal> GetTotalFixedExpensesAmountAsync(int businessId);
     Task<IEnumerable<(int CategoryId, string CategoryName, decimal TotalAmount, int Count)>> GetFixedExpensesByCategoryAsync(int businessId);

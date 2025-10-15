@@ -1,4 +1,5 @@
 using GPInventory.Application.DTOs.Production;
+using GPInventory.Application.DTOs.Expenses;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
 
@@ -169,7 +170,7 @@ public class SupplyService : ISupplyService
                 Name = supply.UnitMeasure.Name,
                 Symbol = supply.UnitMeasure.Symbol
             } : null,
-            FixedExpense = supply.FixedExpense != null ? new FixedExpenseDto
+            FixedExpense = supply.FixedExpense != null ? new DTOs.Production.FixedExpenseDto
             {
                 Id = supply.FixedExpense.Id,
                 AdditionalNote = supply.FixedExpense.AdditionalNote,

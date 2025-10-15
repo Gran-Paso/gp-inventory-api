@@ -1,3 +1,5 @@
+using GPInventory.Application.DTOs.Expenses;
+
 namespace GPInventory.Application.DTOs.Production;
 
 public class SupplyEntryDto

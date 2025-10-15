@@ -32,6 +32,9 @@ public class CreateExpenseDto
 
     [JsonPropertyName("fixed_expense_id")]
     public int? FixedExpenseId { get; set; }
+
+    [JsonPropertyName("expense_type_id")]
+    public int? ExpenseTypeId { get; set; }
 }
 
 public class UpdateExpenseDto

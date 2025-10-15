@@ -17,7 +17,7 @@ public interface IExpenseService
     Task DeleteExpenseAsync(int id);
 
     // Gastos fijos
-    Task<IEnumerable<FixedExpenseWithDetailsDto>> GetFixedExpensesAsync(int[]? businessIds = null);
+    Task<IEnumerable<FixedExpenseWithDetailsDto>> GetFixedExpensesAsync(int[]? businessIds = null, int? expenseTypeId = null);
     Task<FixedExpenseDto> GetFixedExpenseByIdAsync(int id);
     Task<FixedExpenseDto> CreateFixedExpenseAsync(CreateFixedExpenseDto createFixedExpenseDto);
     Task<FixedExpenseDto> UpdateFixedExpenseAsync(int id, UpdateFixedExpenseDto updateFixedExpenseDto);

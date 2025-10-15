@@ -132,11 +132,11 @@ public class FixedExpenseRepository : IFixedExpenseRepository
         }
     }
 
-    public async Task<IEnumerable<FixedExpense>> GetFixedExpensesWithDetailsAsync(int[]? businessIds = null)
+    public async Task<IEnumerable<FixedExpense>> GetFixedExpensesWithDetailsAsync(int[]? businessIds = null, int? expenseTypeId = null)
     {
         try
         {
-            Console.WriteLine($"GetFixedExpensesWithDetailsAsync called with businessIds: {(businessIds != null ? string.Join(",", businessIds) : "null")}");
+            Console.WriteLine($"GetFixedExpensesWithDetailsAsync called with businessIds: {(businessIds != null ? string.Join(",", businessIds) : "null")}, expenseTypeId: {expenseTypeId}");
             
             var query = _context.Set<FixedExpense>()
                 .Include(fe => fe.Subcategory)
@@ -158,6 +158,17 @@ public class FixedExpenseRepository : IFixedExpenseRepository
             else
             {
                 Console.WriteLine("No businessIds filter applied - will return all businesses");
+            }
+
+            // Aplicar filtro de expenseTypeId
+            if (expenseTypeId.HasValue)
+            {
+                Console.WriteLine($"Applying expenseTypeId filter with {expenseTypeId.Value}");
+                query = query.Where(fe => fe.ExpenseTypeId == expenseTypeId.Value);
+            }
+            else
+            {
+                Console.WriteLine("No expenseTypeId filter applied - will return all expense types");
             }
 
             // Ordenar por fecha de creación descendente

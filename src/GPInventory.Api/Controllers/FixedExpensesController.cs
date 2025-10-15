@@ -21,12 +21,12 @@ public class FixedExpensesController : ControllerBase
 
     // GET: api/fixed-expenses
     [HttpGet]
-    public async Task<IActionResult> GetFixedExpenses([FromQuery] int? businessId, [FromQuery] int[]? businessIds)
+    public async Task<IActionResult> GetFixedExpenses([FromQuery] int? businessId, [FromQuery] int[]? businessIds, [FromQuery] int? expenseTypeId)
     {
         try
         {
-            _logger.LogInformation("GetFixedExpenses called with businessId: {BusinessId}, businessIds: {BusinessIds}", 
-                businessId, businessIds != null ? string.Join(",", businessIds) : "null");
+            _logger.LogInformation("GetFixedExpenses called with businessId: {BusinessId}, businessIds: {BusinessIds}, expenseTypeId: {ExpenseTypeId}", 
+                businessId, businessIds != null ? string.Join(",", businessIds) : "null", expenseTypeId);
             
             // Si se proporcionan múltiples businessIds, usar esos; si no, usar el businessId único
             var targetBusinessIds = businessIds?.Length > 0 ? businessIds : (businessId.HasValue ? new[] { businessId.Value } : null);
@@ -40,7 +40,7 @@ public class FixedExpensesController : ControllerBase
             _logger.LogInformation("Using targetBusinessIds: {TargetBusinessIds}", 
                 targetBusinessIds != null ? string.Join(",", targetBusinessIds) : "null");
             
-            var fixedExpenses = await _expenseService.GetFixedExpensesAsync(targetBusinessIds);
+            var fixedExpenses = await _expenseService.GetFixedExpensesAsync(targetBusinessIds, expenseTypeId);
             
             _logger.LogInformation("Retrieved {Count} fixed expenses", fixedExpenses.Count());
             
