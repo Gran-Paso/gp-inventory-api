@@ -11,7 +11,8 @@ public class ExpenseMappingProfile : Profile
         // Expense mappings
         CreateMap<Expense, ExpenseDto>();
         CreateMap<CreateExpenseDto, Expense>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore());
+            .ForMember(dest => dest.Id, opt => opt.Ignore())
+            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId));
         
         CreateMap<UpdateExpenseDto, Expense>()
             .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
@@ -19,7 +20,8 @@ public class ExpenseMappingProfile : Profile
         CreateMap<Expense, ExpenseWithDetailsDto>()
             .ForMember(dest => dest.Subcategory, opt => opt.MapFrom(src => src.ExpenseSubcategory))
             .ForMember(dest => dest.Category, opt => opt.MapFrom(src => src.ExpenseSubcategory.ExpenseCategory))
-            .ForMember(dest => dest.StoreName, opt => opt.MapFrom(src => src.Store != null ? src.Store.Name : null));
+            .ForMember(dest => dest.StoreName, opt => opt.MapFrom(src => src.Store != null ? src.Store.Name : null))
+            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId));
 
         // FixedExpense mappings
         CreateMap<FixedExpense, FixedExpenseDto>()
@@ -46,7 +48,8 @@ public class ExpenseMappingProfile : Profile
             .ForMember(dest => dest.Category, opt => opt.MapFrom(src => src.Subcategory!.ExpenseCategory))
             .ForMember(dest => dest.RecurrenceType, opt => opt.MapFrom(src => src.RecurrenceType))
             .ForMember(dest => dest.StoreName, opt => opt.MapFrom(src => src.Store != null ? src.Store.Name : null))
-            .ForMember(dest => dest.AssociatedExpenses, opt => opt.MapFrom(src => src.GeneratedExpenses));
+            .ForMember(dest => dest.AssociatedExpenses, opt => opt.MapFrom(src => src.GeneratedExpenses))
+            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId));
 
         // Category and subcategory mappings
         CreateMap<ExpenseCategory, ExpenseCategoryDto>();

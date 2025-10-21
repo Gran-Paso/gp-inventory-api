@@ -199,12 +199,14 @@ public class ExpenseService : IExpenseService
         {
             Console.WriteLine($"CreateExpenseAsync - createExpenseDto.IsFixed: {createExpenseDto.IsFixed}");
             Console.WriteLine($"CreateExpenseAsync - createExpenseDto.FixedExpenseId: {createExpenseDto.FixedExpenseId}");
+            Console.WriteLine($"CreateExpenseAsync - createExpenseDto.ExpenseTypeId: {createExpenseDto.ExpenseTypeId}");
             Console.WriteLine($"CreateExpenseAsync - createExpenseDto JSON: {System.Text.Json.JsonSerializer.Serialize(createExpenseDto)}");
             
             var expense = _mapper.Map<Expense>(createExpenseDto);
             
             Console.WriteLine($"CreateExpenseAsync - After mapping, expense.IsFixed: {expense.IsFixed}");
             Console.WriteLine($"CreateExpenseAsync - After mapping, expense.FixedExpenseId: {expense.FixedExpenseId}");
+            Console.WriteLine($"CreateExpenseAsync - After mapping, expense.ExpenseTypeId: {expense.ExpenseTypeId}");
             
             // Asegurar que IsFixed tenga un valor válido, convirtiendo NULL a false
             expense.IsFixed = createExpenseDto.IsFixed ?? false;

@@ -90,6 +90,8 @@ public class ExpenseWithDetailsDto
     public int? StoreId { get; set; }
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; }
+    [JsonPropertyName("expense_type_id")]
+    public int? ExpenseTypeId { get; set; }
     
     // Detalles relacionados
     public ExpenseSubcategoryDto Subcategory { get; set; } = null!;

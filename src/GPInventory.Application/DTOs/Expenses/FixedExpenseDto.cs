@@ -98,6 +98,8 @@ public class FixedExpenseWithDetailsDto
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    [JsonPropertyName("expense_type_id")]
+    public int? ExpenseTypeId { get; set; }
     
     // Estado de pago
     public bool IsUpToDate { get; set; }
