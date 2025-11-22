@@ -438,8 +438,8 @@ public class ProductsController : ControllerBase
             {
                 Name = request.Name.Trim(),
                 Sku = request.Sku?.Trim(),
-                Price = request.Price,
-                Cost = request.Cost,
+                Price = Math.Round(request.Price, 0),
+                Cost = Math.Round(request.Cost, 0),
                 Image = request.Image?.Trim(),
                 ProductTypeId = request.ProductTypeId,
                 BusinessId = request.BusinessId,
@@ -603,8 +603,8 @@ public class ProductsController : ControllerBase
             // Actualizar campos
             existingProduct.Name = request.Name.Trim();
             existingProduct.Sku = request.Sku?.Trim();
-            existingProduct.Price = request.Price;
-            existingProduct.Cost = request.Cost;
+            existingProduct.Price = Math.Round(request.Price, 0);
+            existingProduct.Cost = Math.Round(request.Cost, 0);
             existingProduct.Image = request.Image?.Trim();
             existingProduct.ProductTypeId = request.ProductTypeId;
             existingProduct.BusinessId = request.BusinessId;
