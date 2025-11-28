@@ -109,11 +109,23 @@ public class DashboardController : ControllerBase
             }
 
             // Query para calcular el capital en stock (al costo)
-            // Suma TODOS los stocks: entradas (amount > 0) + salidas (amount < 0)
-            // El resultado es el stock disponible actual
+            // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
             var stockCapitalQuery = @"
                 SELECT 
-                    COALESCE(SUM(s.amount * s.cost), 0) as TodayStockCapital
+                    COALESCE(SUM(
+                        CASE 
+                            WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
+                                GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0),
+                                    0
+                                ) * s.cost
+                            ELSE 0
+                        END
+                    ), 0) as TodayStockCapital
                 FROM stock s
                 INNER JOIN product p ON s.product = p.id
                 WHERE p.business = {0}
@@ -132,10 +144,23 @@ public class DashboardController : ControllerBase
             var yesterdayStockCapital = todayStockCapital; // Por ahora usamos el mismo valor
 
             // Query para obtener valor potencial de ventas (precio de venta * cantidad en stock)
-            // Suma TODOS los stocks: entradas (amount > 0) + salidas (amount < 0)
+            // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
             var stockRevenueQuery = @"
                 SELECT 
-                    COALESCE(SUM(s.amount * p.price), 0) as StockRevenuePotential
+                    COALESCE(SUM(
+                        CASE 
+                            WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
+                                GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0),
+                                    0
+                                ) * p.price
+                            ELSE 0
+                        END
+                    ), 0) as StockRevenuePotential
                 FROM stock s
                 INNER JOIN product p ON s.product = p.id
                 WHERE p.business = {0}
@@ -441,24 +466,66 @@ public class DashboardController : ControllerBase
             var stockQuery = @"
                 SELECT 
                     st.id as StoreId,
-                    -- Capital en stock (costo)
-                    COALESCE(SUM(s.amount * s.cost), 0) as StockCapital,
-                    -- Valor potencial (precio)
-                    COALESCE(SUM(s.amount * p.price), 0) as StockValue,
-                    -- Productos con stock bajo (menos de minimumStock)
+                    -- Capital en stock (costo) - considerando stock disponible real
+                    COALESCE(SUM(
+                        CASE 
+                            WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
+                                GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0),
+                                    0
+                                ) * s.cost
+                            ELSE 0
+                        END
+                    ), 0) as StockCapital,
+                    -- Valor potencial (precio) - considerando stock disponible real
+                    COALESCE(SUM(
+                        CASE 
+                            WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
+                                GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0),
+                                    0
+                                ) * p.price
+                            ELSE 0
+                        END
+                    ), 0) as StockValue,
+                    -- Productos con stock bajo (menos de minimumStock) - considerando stock disponible real
                     COUNT(DISTINCT CASE 
                         WHEN (
-                            SELECT COALESCE(SUM(stock.amount), 0)
+                            SELECT COALESCE(SUM(
+                                CASE 
+                                    WHEN stock.amount > 0 AND stock.active = 1 AND stock.stock_id IS NULL THEN
+                                        GREATEST(
+                                            stock.amount - COALESCE((
+                                                SELECT SUM(CAST(sd.amount AS SIGNED))
+                                                FROM sales_detail sd
+                                                WHERE sd.stock_id = stock.id
+                                            ), 0),
+                                            0
+                                        )
+                                    ELSE 0
+                                END
+                            ), 0)
                             FROM stock
                             WHERE stock.product = p.id 
                             AND stock.id_store = st.id
+                            AND stock.amount > 0
+                            AND stock.active = 1
+                            AND stock.stock_id IS NULL
                         ) < COALESCE(p.minimumStock, 0)
                         AND COALESCE(p.minimumStock, 0) > 0
                         THEN p.id
                     END) as LowStockProducts
                 FROM store st
                 CROSS JOIN product p
-                LEFT JOIN stock s ON s.product = p.id AND s.id_store = st.id
+                LEFT JOIN stock s ON s.product = p.id AND s.id_store = st.id AND s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL
                 WHERE st.id_business = {0}
                     AND st.active = 1
                     AND p.business = {0}
