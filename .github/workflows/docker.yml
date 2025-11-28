@@ -32,9 +32,9 @@ jobs:
           images: ${{ secrets.DOCKER_USERNAME }}/gp-inventory-api
           tags: |
             type=ref,event=branch
-            type=ref,event=pr
+            type=ref,event=pr,prefix=pr-
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix={{branch}}-
+            type=sha,format=short
       
       - name: Build and push API Docker image
         uses: docker/build-push-action@v5
