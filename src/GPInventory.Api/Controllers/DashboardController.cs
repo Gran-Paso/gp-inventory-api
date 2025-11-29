@@ -64,37 +64,38 @@ public class DashboardController : ControllerBase
             }
 
             // Query para obtener todos los KPIs en una sola consulta
+            // Usamos DATE_ADD para ajustar UTC-3 (zona horaria de Chile)
             var kpisQuery = @"
                 SELECT 
                     -- Ingresos del día actual
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.total 
                         ELSE 0 
                     END), 0) as TodayRevenue,
                     
                     -- Ingresos del día anterior
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.total 
                         ELSE 0 
                     END), 0) as YesterdayRevenue,
                     
                     -- Número de ventas del día actual
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as TodaySalesCount,
                     
                     -- Número de ventas del día anterior
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as YesterdaySalesCount
                 FROM sales s
                 INNER JOIN store st ON s.id_store = st.id
                 WHERE st.id_business = {0}
-                    AND DATE(s.date) >= DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+                    AND DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) >= DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                     " + (storeId.HasValue ? "AND s.id_store = {1}" : "");
 
             var kpisResult = storeId.HasValue
@@ -107,6 +108,10 @@ public class DashboardController : ControllerBase
             {
                 kpisResult = new KPIsRawData();
             }
+
+            // Log para debugging
+            _logger.LogInformation("📊 KPIs Query Result - Today: {today}, Yesterday: {yesterday}, TodayCount: {todayCount}, YesterdayCount: {yesterdayCount}",
+                kpisResult.TodayRevenue, kpisResult.YesterdayRevenue, kpisResult.TodaySalesCount, kpisResult.YesterdaySalesCount);
 
             // Query para calcular el capital en stock (al costo)
             // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
@@ -414,47 +419,48 @@ public class DashboardController : ControllerBase
             }
 
             // Query para obtener métricas de todas las tiendas
+            // Usamos DATE_ADD para ajustar UTC-3 (zona horaria de Chile)
             var storesQuery = @"
                 SELECT 
                     st.id as StoreId,
                     st.name as StoreName,
                     -- Ventas del día
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as TodayRevenue,
                     -- Ventas de ayer
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as YesterdayRevenue,
                     -- Número de ventas del día
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as TodaySalesCount,
                     -- Número de ventas de ayer
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as YesterdaySalesCount,
                     -- Ventas del mes actual
                     COALESCE(SUM(CASE 
-                        WHEN MONTH(s.date) = MONTH(CURDATE()) 
-                        AND YEAR(s.date) = YEAR(CURDATE())
+                        WHEN MONTH(DATE_ADD(s.date, INTERVAL -3 HOUR)) = MONTH(DATE_ADD(NOW(), INTERVAL -3 HOUR))
+                        AND YEAR(DATE_ADD(s.date, INTERVAL -3 HOUR)) = YEAR(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as MonthRevenue,
                     -- Ventas del mes anterior
                     COALESCE(SUM(CASE 
-                        WHEN MONTH(s.date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
-                        AND YEAR(s.date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                        WHEN MONTH(DATE_ADD(s.date, INTERVAL -3 HOUR)) = MONTH(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 MONTH), INTERVAL -3 HOUR))
+                        AND YEAR(DATE_ADD(s.date, INTERVAL -3 HOUR)) = YEAR(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 MONTH), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as LastMonthRevenue
                 FROM store st
                 LEFT JOIN sales s ON st.id = s.id_store
                 WHERE st.id_business = {0}
                     AND st.active = 1
-                    AND (s.date IS NULL OR s.date >= DATE_SUB(CURDATE(), INTERVAL 2 MONTH))
+                    AND (s.date IS NULL OR DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) >= DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 60 DAY), INTERVAL -3 HOUR)))
                 GROUP BY st.id, st.name
                 ORDER BY TodayRevenue DESC";
 
