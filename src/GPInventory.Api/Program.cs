@@ -157,6 +157,7 @@ builder.Services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
 builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository>();
 builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepository>();
 builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
+builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();
 
 // Production repositories
 builder.Services.AddScoped<ISupplyRepository, SupplyRepository>();
@@ -175,6 +176,7 @@ builder.Services.AddScoped<IProductAuditService, ProductAuditService>();
 // Expense services
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
+builder.Services.AddScoped<IBudgetService, BudgetService>();
 
 // Production services
 builder.Services.AddScoped<ISupplyService, SupplyService>();
