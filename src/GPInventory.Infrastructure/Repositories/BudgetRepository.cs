@@ -274,10 +274,10 @@ public class BudgetRepository : IBudgetRepository
             }
 
             // Update monthly distributions if provided
-            if (updateDto.MonthlyDistribution != null)
+            if (updateDto.MonthlyDistributions != null)
             {
                 await DeleteMonthlyDistributionsInternalAsync(connection, transaction, id);
-                foreach (var distribution in updateDto.MonthlyDistribution)
+                foreach (var distribution in updateDto.MonthlyDistributions)
                 {
                     await CreateMonthlyDistributionInternalAsync(connection, transaction, id, distribution);
                 }

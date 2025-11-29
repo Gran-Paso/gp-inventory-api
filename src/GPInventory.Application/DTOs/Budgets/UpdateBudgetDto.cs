@@ -10,5 +10,5 @@ public class UpdateBudgetDto
     public string? Status { get; set; }
     
     public List<CreateBudgetAllocationDto>? Allocations { get; set; }
-    public List<CreateMonthlyDistributionDto>? MonthlyDistribution { get; set; }
+    public List<CreateMonthlyDistributionDto>? MonthlyDistributions { get; set; }
 }
