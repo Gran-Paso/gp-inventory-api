@@ -575,6 +575,88 @@ public class ExpenseService : IExpenseService
         }
     }
 
+    public async Task<object> GetMonthlyKPIsAsync(int businessId)
+    {
+        try
+        {
+            var now = DateTime.Now;
+            var firstDayThisMonth = new DateTime(now.Year, now.Month, 1);
+            var lastDayThisMonth = firstDayThisMonth.AddMonths(1).AddDays(-1);
+            var firstDayLastMonth = firstDayThisMonth.AddMonths(-1);
+            var lastDayLastMonth = firstDayThisMonth.AddDays(-1);
+
+            // Get expenses for this month
+            var thisMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: businessId,
+                startDate: firstDayThisMonth,
+                endDate: lastDayThisMonth,
+                page: 1,
+                pageSize: int.MaxValue);
+
+            // Get expenses for last month
+            var lastMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: businessId,
+                startDate: firstDayLastMonth,
+                endDate: lastDayLastMonth,
+                page: 1,
+                pageSize: int.MaxValue);
+
+            // Calculate totals by type
+            var totalThisMonth = thisMonthExpenses.Sum(e => e.Amount);
+            var totalLastMonth = lastMonthExpenses.Sum(e => e.Amount);
+
+            var expensesList = thisMonthExpenses.ToList();
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month expenses count: {expensesList.Count}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month total: {totalThisMonth}");
+            
+            var gastos = expensesList.Where(e => e.ExpenseTypeId == 1).Sum(e => e.Amount);
+            var costos = expensesList.Where(e => e.ExpenseTypeId == 2).Sum(e => e.Amount);
+            var inversiones = expensesList.Where(e => e.ExpenseTypeId == 3).Sum(e => e.Amount);
+
+            Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Expenses by type:");
+            foreach (var exp in expensesList)
+            {
+                Console.WriteLine($"  - ID: {exp.Id}, Amount: {exp.Amount}, ExpenseTypeId: {exp.ExpenseTypeId}, Date: {exp.Date}");
+            }
+
+            var totalDistribution = gastos + costos + inversiones;
+
+            // Calculate budget percentage (TODO: integrate with budget system)
+            var budgetExecutedPercentage = 0m; // Placeholder
+
+            // Calculate variation
+            var variationVsPreviousMonth = totalThisMonth - totalLastMonth;
+            var variationPercentage = totalLastMonth > 0 
+                ? ((totalThisMonth - totalLastMonth) / totalLastMonth) * 100 
+                : 0;
+
+            return new
+            {
+                totalThisMonth,
+                budgetExecutedPercentage,
+                variationVsPreviousMonth,
+                variationPercentage,
+                distribution = new
+                {
+                    gastos,
+                    costos,
+                    inversiones,
+                    gastosPercentage = totalDistribution > 0 ? ((decimal)gastos / (decimal)totalDistribution) * 100 : 0,
+                    costosPercentage = totalDistribution > 0 ? ((decimal)costos / (decimal)totalDistribution) * 100 : 0,
+                    inversionesPercentage = totalDistribution > 0 ? ((decimal)inversiones / (decimal)totalDistribution) * 100 : 0
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetMonthlyKPIsAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener KPIs mensuales: {ex.Message}", ex);
+        }
+    }
+
     public async Task<byte[]> ExportExpensesAsync(ExpenseFiltersDto filters)
     {
         try

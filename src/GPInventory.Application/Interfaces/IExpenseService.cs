@@ -25,5 +25,6 @@ public interface IExpenseService
 
     // Resumen y reportes
     Task<ExpenseSummaryDto> GetExpenseSummaryAsync(int[] businessIds, ExpenseFiltersDto filters);
+    Task<object> GetMonthlyKPIsAsync(int businessId);
     Task<byte[]> ExportExpensesAsync(ExpenseFiltersDto filters);
 }
