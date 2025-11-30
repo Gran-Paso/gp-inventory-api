@@ -624,6 +624,69 @@ public class ExpenseService : IExpenseService
 
             var totalDistribution = gastos + costos + inversiones;
 
+            // Get fixed expenses for pending/overdue calculations
+            var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(new[] { businessId });
+            
+            decimal pendingAmount = 0;
+            int overdueCount = 0;
+            int upcomingCount = 0;
+            
+            foreach (var fixedExpense in fixedExpenses)
+            {
+                // Get associated expenses (payments) for this fixed expense
+                var payments = expensesList.Where(e => e.FixedExpenseId == fixedExpense.Id).ToList();
+                
+                if (payments.Any())
+                {
+                    var lastPayment = payments.OrderByDescending(p => p.Date).First();
+                    var daysSinceLastPayment = (now - lastPayment.Date).Days;
+                    
+                    // Determine if payment is due based on recurrence
+                    bool isOverdue = false;
+                    bool isUpcoming = false;
+                    
+                    switch (fixedExpense.RecurrenceTypeId)
+                    {
+                        case 1: // mensual
+                            isOverdue = daysSinceLastPayment > 30;
+                            isUpcoming = daysSinceLastPayment >= 25 && daysSinceLastPayment <= 30;
+                            break;
+                        case 2: // bimestral
+                            isOverdue = daysSinceLastPayment > 60;
+                            isUpcoming = daysSinceLastPayment >= 55 && daysSinceLastPayment <= 60;
+                            break;
+                        case 3: // trimestral
+                            isOverdue = daysSinceLastPayment > 90;
+                            isUpcoming = daysSinceLastPayment >= 85 && daysSinceLastPayment <= 90;
+                            break;
+                        case 4: // semestral
+                            isOverdue = daysSinceLastPayment > 180;
+                            isUpcoming = daysSinceLastPayment >= 175 && daysSinceLastPayment <= 180;
+                            break;
+                        case 5: // anual
+                            isOverdue = daysSinceLastPayment > 365;
+                            isUpcoming = daysSinceLastPayment >= 360 && daysSinceLastPayment <= 365;
+                            break;
+                    }
+                    
+                    if (isOverdue)
+                    {
+                        overdueCount++;
+                        pendingAmount += fixedExpense.Amount;
+                    }
+                    else if (isUpcoming)
+                    {
+                        upcomingCount++;
+                    }
+                }
+                else
+                {
+                    // No payments yet - this is pending
+                    overdueCount++;
+                    pendingAmount += fixedExpense.Amount;
+                }
+            }
+
             // Calculate budget percentage (TODO: integrate with budget system)
             var budgetExecutedPercentage = 0m; // Placeholder
 
@@ -639,6 +702,9 @@ public class ExpenseService : IExpenseService
                 budgetExecutedPercentage,
                 variationVsPreviousMonth,
                 variationPercentage,
+                pendingAmount,
+                overdueCount,
+                upcomingCount,
                 distribution = new
                 {
                     gastos,
@@ -654,6 +720,103 @@ public class ExpenseService : IExpenseService
         {
             Console.WriteLine($"GetMonthlyKPIsAsync Error: {ex.Message}");
             throw new ApplicationException($"Error al obtener KPIs mensuales: {ex.Message}", ex);
+        }
+    }
+
+    public async Task<object> GetExpenseTypeKPIsAsync(int businessId, int expenseTypeId)
+    {
+        try
+        {
+            var now = DateTime.Now;
+            var firstDayThisMonth = new DateTime(now.Year, now.Month, 1);
+            var lastDayThisMonth = firstDayThisMonth.AddMonths(1).AddDays(-1);
+
+            // Get expenses for this month filtered by type
+            var thisMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: businessId,
+                startDate: firstDayThisMonth,
+                endDate: lastDayThisMonth,
+                page: 1,
+                pageSize: int.MaxValue);
+
+            var expensesList = thisMonthExpenses.Where(e => e.ExpenseTypeId == expenseTypeId).ToList();
+            var totalPaid = expensesList.Sum(e => e.Amount);
+
+            // Get fixed expenses for this type
+            var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(new[] { businessId }, expenseTypeId);
+            
+            decimal pendingAmount = 0;
+            int overdueCount = 0;
+            int upcomingCount = 0;
+            
+            foreach (var fixedExpense in fixedExpenses)
+            {
+                // Get associated expenses (payments) for this fixed expense
+                var payments = expensesList.Where(e => e.FixedExpenseId == fixedExpense.Id).ToList();
+                
+                if (payments.Any())
+                {
+                    var lastPayment = payments.OrderByDescending(p => p.Date).First();
+                    var daysSinceLastPayment = (now - lastPayment.Date).Days;
+                    
+                    // Determine if payment is due based on recurrence
+                    bool isOverdue = false;
+                    bool isUpcoming = false;
+                    
+                    switch (fixedExpense.RecurrenceTypeId)
+                    {
+                        case 1: // mensual
+                            isOverdue = daysSinceLastPayment > 30;
+                            isUpcoming = daysSinceLastPayment >= 25 && daysSinceLastPayment <= 30;
+                            break;
+                        case 2: // bimestral
+                            isOverdue = daysSinceLastPayment > 60;
+                            isUpcoming = daysSinceLastPayment >= 55 && daysSinceLastPayment <= 60;
+                            break;
+                        case 3: // trimestral
+                            isOverdue = daysSinceLastPayment > 90;
+                            isUpcoming = daysSinceLastPayment >= 85 && daysSinceLastPayment <= 90;
+                            break;
+                        case 4: // semestral
+                            isOverdue = daysSinceLastPayment > 180;
+                            isUpcoming = daysSinceLastPayment >= 175 && daysSinceLastPayment <= 180;
+                            break;
+                        case 5: // anual
+                            isOverdue = daysSinceLastPayment > 365;
+                            isUpcoming = daysSinceLastPayment >= 360 && daysSinceLastPayment <= 365;
+                            break;
+                    }
+                    
+                    if (isOverdue)
+                    {
+                        overdueCount++;
+                        pendingAmount += fixedExpense.Amount;
+                    }
+                    else if (isUpcoming)
+                    {
+                        upcomingCount++;
+                    }
+                }
+                else
+                {
+                    // No payments yet - this is pending
+                    overdueCount++;
+                    pendingAmount += fixedExpense.Amount;
+                }
+            }
+
+            return new
+            {
+                totalPaid,
+                pendingAmount,
+                overdueCount,
+                upcomingCount
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetExpenseTypeKPIsAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener KPIs por tipo: {ex.Message}", ex);
         }
     }
 
