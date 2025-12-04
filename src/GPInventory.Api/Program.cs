@@ -119,7 +119,7 @@ else
 }
 
 // AutoMapper
-builder.Services.AddAutoMapper(typeof(AuthMappingProfile), typeof(NotificationMappingProfile), typeof(ExpenseMappingProfile));
+builder.Services.AddAutoMapper(typeof(AuthMappingProfile), typeof(NotificationMappingProfile), typeof(ExpenseMappingProfile), typeof(PaymentMappingProfile));
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -159,6 +159,12 @@ builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepo
 builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
 builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();
 
+// Payment repositories
+builder.Services.AddScoped<IPaymentCatalogRepository, PaymentCatalogRepository>();
+builder.Services.AddScoped<IPaymentPlanRepository, PaymentPlanRepository>();
+builder.Services.AddScoped<IPaymentInstallmentRepository, PaymentInstallmentRepository>();
+builder.Services.AddScoped<IInstallmentDocumentRepository, InstallmentDocumentRepository>();
+
 // Production repositories
 builder.Services.AddScoped<ISupplyRepository, SupplyRepository>();
 builder.Services.AddScoped<IProcessRepository, ProcessRepository>();
@@ -177,6 +183,12 @@ builder.Services.AddScoped<IProductAuditService, ProductAuditService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
 builder.Services.AddScoped<IBudgetService, BudgetService>();
+
+// Payment services
+builder.Services.AddScoped<IPaymentCatalogService, PaymentCatalogService>();
+builder.Services.AddScoped<IPaymentPlanService, PaymentPlanService>();
+builder.Services.AddScoped<IPaymentInstallmentService, PaymentInstallmentService>();
+builder.Services.AddScoped<IInstallmentDocumentService, InstallmentDocumentService>();
 
 // Production services
 builder.Services.AddScoped<ISupplyService, SupplyService>();

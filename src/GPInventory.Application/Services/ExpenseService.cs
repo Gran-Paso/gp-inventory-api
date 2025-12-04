@@ -4,6 +4,7 @@ using GPInventory.Application.Helpers;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
 using System.Globalization;
+using GPInventory.Application.DTOs.Payments;
 
 namespace GPInventory.Application.Services;
 
@@ -15,6 +16,8 @@ public class ExpenseService : IExpenseService
     private readonly IExpenseCategoryRepository _categoryRepository;
     private readonly IExpenseSubcategoryRepository _subcategoryRepository;
     private readonly IRecurrenceTypeRepository _recurrenceTypeRepository;
+    private readonly IPaymentPlanRepository _paymentPlanRepository;
+    private readonly IPaymentInstallmentRepository _paymentInstallmentRepository;
     private readonly IMapper _mapper;
 
     public ExpenseService(
@@ -24,6 +27,8 @@ public class ExpenseService : IExpenseService
         IExpenseCategoryRepository categoryRepository,
         IExpenseSubcategoryRepository subcategoryRepository,
         IRecurrenceTypeRepository recurrenceTypeRepository,
+        IPaymentPlanRepository paymentPlanRepository,
+        IPaymentInstallmentRepository paymentInstallmentRepository,
         IMapper mapper)
     {
         _expenseRepository = expenseRepository;
@@ -32,6 +37,8 @@ public class ExpenseService : IExpenseService
         _categoryRepository = categoryRepository;
         _subcategoryRepository = subcategoryRepository;
         _recurrenceTypeRepository = recurrenceTypeRepository;
+        _paymentPlanRepository = paymentPlanRepository;
+        _paymentInstallmentRepository = paymentInstallmentRepository;
         _mapper = mapper;
     }
 
@@ -151,7 +158,15 @@ public class ExpenseService : IExpenseService
                 orderBy: filters.OrderBy ?? "Date",
                 orderDescending: filters.OrderDescending);
 
-            return _mapper.Map<IEnumerable<ExpenseWithDetailsDto>>(expenses);
+            var expenseDtos = _mapper.Map<List<ExpenseWithDetailsDto>>(expenses);
+
+            // NUEVO: Cargar payment_plan e installments para cada expense
+            foreach (var expenseDto in expenseDtos)
+            {
+                await LoadPaymentPlanAsync(expenseDto);
+            }
+
+            return expenseDtos;
         }
         catch (Exception ex)
         {
@@ -1025,6 +1040,54 @@ public class ExpenseService : IExpenseService
             dto.NextDueDate = DateTime.Now.AddDays(30); // Default to 30 days
             dto.LastPaymentDate = null;
             dto.AssociatedExpenses = new List<ExpenseDto>();
+        }
+    }
+
+    // NUEVO: Método helper para cargar payment_plan con installments
+    private async Task LoadPaymentPlanAsync(ExpenseWithDetailsDto expenseDto)
+    {
+        try
+        {
+            Console.WriteLine($"[LoadPaymentPlan] Buscando payment_plan para expense ID: {expenseDto.Id}");
+            
+            // Buscar si este expense tiene un payment_plan
+            var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expenseDto.Id);
+            var paymentPlan = paymentPlans.FirstOrDefault();
+            
+            Console.WriteLine($"[LoadPaymentPlan] Payment plans encontrados: {paymentPlans.Count()}");
+            
+            if (paymentPlan != null)
+            {
+                Console.WriteLine($"[LoadPaymentPlan] Payment plan ID: {paymentPlan.Id}, Type: {paymentPlan.PaymentTypeId}");
+                
+                // Mapear el payment_plan
+                var planDto = _mapper.Map<PaymentPlanWithInstallmentsDto>(paymentPlan);
+                
+                Console.WriteLine($"[LoadPaymentPlan] Plan mapeado, ID: {planDto.Id}");
+                
+                // Cargar las installments
+                var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                
+                Console.WriteLine($"[LoadPaymentPlan] Installments encontradas: {installments.Count()}");
+                
+                planDto.Installments = _mapper.Map<List<PaymentInstallmentDto>>(installments);
+                
+                Console.WriteLine($"[LoadPaymentPlan] Installments mapeadas: {planDto.Installments.Count}");
+                
+                expenseDto.PaymentPlan = planDto;
+                
+                Console.WriteLine($"[LoadPaymentPlan] PaymentPlan asignado al expense");
+            }
+            else
+            {
+                Console.WriteLine($"[LoadPaymentPlan] No se encontró payment_plan para expense {expenseDto.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadPaymentPlan] ERROR para expense {expenseDto.Id}: {ex.Message}");
+            Console.WriteLine($"[LoadPaymentPlan] Stack trace: {ex.StackTrace}");
+            // No lanzar excepción, solo log - el expense se devuelve sin payment_plan
         }
     }
 }

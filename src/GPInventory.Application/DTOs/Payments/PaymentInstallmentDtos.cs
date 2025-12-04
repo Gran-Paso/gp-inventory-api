@@ -1,0 +1,46 @@
+namespace GPInventory.Application.DTOs.Payments;
+
+public class PaymentInstallmentDto
+{
+    public int Id { get; set; }
+    public int PaymentPlanId { get; set; }
+    public int InstallmentNumber { get; set; }
+    public DateTime DueDate { get; set; }
+    public decimal AmountClp { get; set; }
+    public decimal? AmountUf { get; set; }
+    public string Status { get; set; } = "pendiente";
+    public DateTime? PaidDate { get; set; }
+    public int? PaymentMethodId { get; set; }
+    public int? ExpenseId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+
+    // Navigation properties
+    public string? PaymentMethodName { get; set; }
+}
+
+public class CreateInstallmentDto
+{
+    public int PaymentPlanId { get; set; }
+    public int InstallmentNumber { get; set; }
+    public DateTime DueDate { get; set; }
+    public decimal AmountClp { get; set; }
+    public decimal? AmountUf { get; set; }
+    public string Status { get; set; } = "pendiente";
+    public DateTime? PaidDate { get; set; }
+    public int? PaymentMethodId { get; set; }
+    public int? ExpenseId { get; set; }
+}
+
+public class CreateInstallmentsBulkDto
+{
+    public List<CreateInstallmentDto> Installments { get; set; } = new();
+}
+
+public class UpdateInstallmentStatusDto
+{
+    public string Status { get; set; } = string.Empty;
+    public DateTime? PaidDate { get; set; }
+    public int? PaymentMethodId { get; set; }
+    public int? ExpenseId { get; set; }
+}

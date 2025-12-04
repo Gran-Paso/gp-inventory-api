@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using GPInventory.Application.DTOs.Payments;
 
 namespace GPInventory.Application.DTOs.Expenses;
 
@@ -98,4 +99,8 @@ public class ExpenseWithDetailsDto
     public ExpenseCategoryDto Category { get; set; } = null!;
     [JsonPropertyName("store_name")]
     public string? StoreName { get; set; }
+    
+    // NUEVO: Payment Plan con cuotas
+    [JsonPropertyName("payment_plan")]
+    public PaymentPlanWithInstallmentsDto? PaymentPlan { get; set; }
 }
