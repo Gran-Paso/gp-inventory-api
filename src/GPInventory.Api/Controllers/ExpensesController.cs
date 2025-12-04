@@ -179,6 +179,38 @@ public class ExpensesController : ControllerBase
         }
     }
 
+    // GET: api/expenses/monthly-kpis
+    [HttpGet("monthly-kpis")]
+    public async Task<IActionResult> GetMonthlyKPIs([FromQuery] int businessId)
+    {
+        try
+        {
+            var kpis = await _expenseService.GetMonthlyKPIsAsync(businessId);
+            return Ok(kpis);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving monthly KPIs for business: {BusinessId}", businessId);
+            return StatusCode(500, new { message = "Error al obtener los KPIs mensuales" });
+        }
+    }
+
+    // GET: api/expenses/type-kpis
+    [HttpGet("type-kpis")]
+    public async Task<IActionResult> GetExpenseTypeKPIs([FromQuery] int businessId, [FromQuery] int expenseTypeId)
+    {
+        try
+        {
+            var kpis = await _expenseService.GetExpenseTypeKPIsAsync(businessId, expenseTypeId);
+            return Ok(kpis);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving expense type KPIs for business: {BusinessId}, type: {ExpenseTypeId}", businessId, expenseTypeId);
+            return StatusCode(500, new { message = "Error al obtener los KPIs por tipo" });
+        }
+    }
+
     // GET: api/expenses/export
     [HttpGet("export")]
     public async Task<IActionResult> ExportExpenses([FromQuery] ExpenseFiltersDto filters)

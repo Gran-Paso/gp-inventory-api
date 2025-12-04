@@ -4,6 +4,7 @@ using GPInventory.Application.Helpers;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
 using System.Globalization;
+using GPInventory.Application.DTOs.Payments;
 
 namespace GPInventory.Application.Services;
 
@@ -15,6 +16,8 @@ public class ExpenseService : IExpenseService
     private readonly IExpenseCategoryRepository _categoryRepository;
     private readonly IExpenseSubcategoryRepository _subcategoryRepository;
     private readonly IRecurrenceTypeRepository _recurrenceTypeRepository;
+    private readonly IPaymentPlanRepository _paymentPlanRepository;
+    private readonly IPaymentInstallmentRepository _paymentInstallmentRepository;
     private readonly IMapper _mapper;
 
     public ExpenseService(
@@ -24,6 +27,8 @@ public class ExpenseService : IExpenseService
         IExpenseCategoryRepository categoryRepository,
         IExpenseSubcategoryRepository subcategoryRepository,
         IRecurrenceTypeRepository recurrenceTypeRepository,
+        IPaymentPlanRepository paymentPlanRepository,
+        IPaymentInstallmentRepository paymentInstallmentRepository,
         IMapper mapper)
     {
         _expenseRepository = expenseRepository;
@@ -32,6 +37,8 @@ public class ExpenseService : IExpenseService
         _categoryRepository = categoryRepository;
         _subcategoryRepository = subcategoryRepository;
         _recurrenceTypeRepository = recurrenceTypeRepository;
+        _paymentPlanRepository = paymentPlanRepository;
+        _paymentInstallmentRepository = paymentInstallmentRepository;
         _mapper = mapper;
     }
 
@@ -151,7 +158,15 @@ public class ExpenseService : IExpenseService
                 orderBy: filters.OrderBy ?? "Date",
                 orderDescending: filters.OrderDescending);
 
-            return _mapper.Map<IEnumerable<ExpenseWithDetailsDto>>(expenses);
+            var expenseDtos = _mapper.Map<List<ExpenseWithDetailsDto>>(expenses);
+
+            // NUEVO: Cargar payment_plan e installments para cada expense
+            foreach (var expenseDto in expenseDtos)
+            {
+                await LoadPaymentPlanAsync(expenseDto);
+            }
+
+            return expenseDtos;
         }
         catch (Exception ex)
         {
@@ -575,6 +590,251 @@ public class ExpenseService : IExpenseService
         }
     }
 
+    public async Task<object> GetMonthlyKPIsAsync(int businessId)
+    {
+        try
+        {
+            var now = DateTime.Now;
+            var firstDayThisMonth = new DateTime(now.Year, now.Month, 1);
+            var lastDayThisMonth = firstDayThisMonth.AddMonths(1).AddDays(-1);
+            var firstDayLastMonth = firstDayThisMonth.AddMonths(-1);
+            var lastDayLastMonth = firstDayThisMonth.AddDays(-1);
+
+            // Get expenses for this month
+            var thisMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: businessId,
+                startDate: firstDayThisMonth,
+                endDate: lastDayThisMonth,
+                page: 1,
+                pageSize: int.MaxValue);
+
+            // Get expenses for last month
+            var lastMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: businessId,
+                startDate: firstDayLastMonth,
+                endDate: lastDayLastMonth,
+                page: 1,
+                pageSize: int.MaxValue);
+
+            // Calculate totals by type
+            var totalThisMonth = thisMonthExpenses.Sum(e => e.Amount);
+            var totalLastMonth = lastMonthExpenses.Sum(e => e.Amount);
+
+            var expensesList = thisMonthExpenses.ToList();
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month expenses count: {expensesList.Count}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month total: {totalThisMonth}");
+            
+            var gastos = expensesList.Where(e => e.ExpenseTypeId == 1).Sum(e => e.Amount);
+            var costos = expensesList.Where(e => e.ExpenseTypeId == 2).Sum(e => e.Amount);
+            var inversiones = expensesList.Where(e => e.ExpenseTypeId == 3).Sum(e => e.Amount);
+
+            Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Expenses by type:");
+            foreach (var exp in expensesList)
+            {
+                Console.WriteLine($"  - ID: {exp.Id}, Amount: {exp.Amount}, ExpenseTypeId: {exp.ExpenseTypeId}, Date: {exp.Date}");
+            }
+
+            var totalDistribution = gastos + costos + inversiones;
+
+            // Get fixed expenses for pending/overdue calculations
+            var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(new[] { businessId });
+            
+            decimal pendingAmount = 0;
+            int overdueCount = 0;
+            int upcomingCount = 0;
+            
+            foreach (var fixedExpense in fixedExpenses)
+            {
+                // Get associated expenses (payments) for this fixed expense
+                var payments = expensesList.Where(e => e.FixedExpenseId == fixedExpense.Id).ToList();
+                
+                if (payments.Any())
+                {
+                    var lastPayment = payments.OrderByDescending(p => p.Date).First();
+                    var daysSinceLastPayment = (now - lastPayment.Date).Days;
+                    
+                    // Determine if payment is due based on recurrence
+                    bool isOverdue = false;
+                    bool isUpcoming = false;
+                    
+                    switch (fixedExpense.RecurrenceTypeId)
+                    {
+                        case 1: // mensual
+                            isOverdue = daysSinceLastPayment > 30;
+                            isUpcoming = daysSinceLastPayment >= 25 && daysSinceLastPayment <= 30;
+                            break;
+                        case 2: // bimestral
+                            isOverdue = daysSinceLastPayment > 60;
+                            isUpcoming = daysSinceLastPayment >= 55 && daysSinceLastPayment <= 60;
+                            break;
+                        case 3: // trimestral
+                            isOverdue = daysSinceLastPayment > 90;
+                            isUpcoming = daysSinceLastPayment >= 85 && daysSinceLastPayment <= 90;
+                            break;
+                        case 4: // semestral
+                            isOverdue = daysSinceLastPayment > 180;
+                            isUpcoming = daysSinceLastPayment >= 175 && daysSinceLastPayment <= 180;
+                            break;
+                        case 5: // anual
+                            isOverdue = daysSinceLastPayment > 365;
+                            isUpcoming = daysSinceLastPayment >= 360 && daysSinceLastPayment <= 365;
+                            break;
+                    }
+                    
+                    if (isOverdue)
+                    {
+                        overdueCount++;
+                        pendingAmount += fixedExpense.Amount;
+                    }
+                    else if (isUpcoming)
+                    {
+                        upcomingCount++;
+                    }
+                }
+                else
+                {
+                    // No payments yet - this is pending
+                    overdueCount++;
+                    pendingAmount += fixedExpense.Amount;
+                }
+            }
+
+            // Calculate budget percentage (TODO: integrate with budget system)
+            var budgetExecutedPercentage = 0m; // Placeholder
+
+            // Calculate variation
+            var variationVsPreviousMonth = totalThisMonth - totalLastMonth;
+            var variationPercentage = totalLastMonth > 0 
+                ? ((totalThisMonth - totalLastMonth) / totalLastMonth) * 100 
+                : 0;
+
+            return new
+            {
+                totalThisMonth,
+                budgetExecutedPercentage,
+                variationVsPreviousMonth,
+                variationPercentage,
+                pendingAmount,
+                overdueCount,
+                upcomingCount,
+                distribution = new
+                {
+                    gastos,
+                    costos,
+                    inversiones,
+                    gastosPercentage = totalDistribution > 0 ? ((decimal)gastos / (decimal)totalDistribution) * 100 : 0,
+                    costosPercentage = totalDistribution > 0 ? ((decimal)costos / (decimal)totalDistribution) * 100 : 0,
+                    inversionesPercentage = totalDistribution > 0 ? ((decimal)inversiones / (decimal)totalDistribution) * 100 : 0
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetMonthlyKPIsAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener KPIs mensuales: {ex.Message}", ex);
+        }
+    }
+
+    public async Task<object> GetExpenseTypeKPIsAsync(int businessId, int expenseTypeId)
+    {
+        try
+        {
+            var now = DateTime.Now;
+            var firstDayThisMonth = new DateTime(now.Year, now.Month, 1);
+            var lastDayThisMonth = firstDayThisMonth.AddMonths(1).AddDays(-1);
+
+            // Get expenses for this month filtered by type
+            var thisMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: businessId,
+                startDate: firstDayThisMonth,
+                endDate: lastDayThisMonth,
+                page: 1,
+                pageSize: int.MaxValue);
+
+            var expensesList = thisMonthExpenses.Where(e => e.ExpenseTypeId == expenseTypeId).ToList();
+            var totalPaid = expensesList.Sum(e => e.Amount);
+
+            // Get fixed expenses for this type
+            var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(new[] { businessId }, expenseTypeId);
+            
+            decimal pendingAmount = 0;
+            int overdueCount = 0;
+            int upcomingCount = 0;
+            
+            foreach (var fixedExpense in fixedExpenses)
+            {
+                // Get associated expenses (payments) for this fixed expense
+                var payments = expensesList.Where(e => e.FixedExpenseId == fixedExpense.Id).ToList();
+                
+                if (payments.Any())
+                {
+                    var lastPayment = payments.OrderByDescending(p => p.Date).First();
+                    var daysSinceLastPayment = (now - lastPayment.Date).Days;
+                    
+                    // Determine if payment is due based on recurrence
+                    bool isOverdue = false;
+                    bool isUpcoming = false;
+                    
+                    switch (fixedExpense.RecurrenceTypeId)
+                    {
+                        case 1: // mensual
+                            isOverdue = daysSinceLastPayment > 30;
+                            isUpcoming = daysSinceLastPayment >= 25 && daysSinceLastPayment <= 30;
+                            break;
+                        case 2: // bimestral
+                            isOverdue = daysSinceLastPayment > 60;
+                            isUpcoming = daysSinceLastPayment >= 55 && daysSinceLastPayment <= 60;
+                            break;
+                        case 3: // trimestral
+                            isOverdue = daysSinceLastPayment > 90;
+                            isUpcoming = daysSinceLastPayment >= 85 && daysSinceLastPayment <= 90;
+                            break;
+                        case 4: // semestral
+                            isOverdue = daysSinceLastPayment > 180;
+                            isUpcoming = daysSinceLastPayment >= 175 && daysSinceLastPayment <= 180;
+                            break;
+                        case 5: // anual
+                            isOverdue = daysSinceLastPayment > 365;
+                            isUpcoming = daysSinceLastPayment >= 360 && daysSinceLastPayment <= 365;
+                            break;
+                    }
+                    
+                    if (isOverdue)
+                    {
+                        overdueCount++;
+                        pendingAmount += fixedExpense.Amount;
+                    }
+                    else if (isUpcoming)
+                    {
+                        upcomingCount++;
+                    }
+                }
+                else
+                {
+                    // No payments yet - this is pending
+                    overdueCount++;
+                    pendingAmount += fixedExpense.Amount;
+                }
+            }
+
+            return new
+            {
+                totalPaid,
+                pendingAmount,
+                overdueCount,
+                upcomingCount
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetExpenseTypeKPIsAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener KPIs por tipo: {ex.Message}", ex);
+        }
+    }
+
     public async Task<byte[]> ExportExpensesAsync(ExpenseFiltersDto filters)
     {
         try
@@ -780,6 +1040,54 @@ public class ExpenseService : IExpenseService
             dto.NextDueDate = DateTime.Now.AddDays(30); // Default to 30 days
             dto.LastPaymentDate = null;
             dto.AssociatedExpenses = new List<ExpenseDto>();
+        }
+    }
+
+    // NUEVO: Método helper para cargar payment_plan con installments
+    private async Task LoadPaymentPlanAsync(ExpenseWithDetailsDto expenseDto)
+    {
+        try
+        {
+            Console.WriteLine($"[LoadPaymentPlan] Buscando payment_plan para expense ID: {expenseDto.Id}");
+            
+            // Buscar si este expense tiene un payment_plan
+            var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expenseDto.Id);
+            var paymentPlan = paymentPlans.FirstOrDefault();
+            
+            Console.WriteLine($"[LoadPaymentPlan] Payment plans encontrados: {paymentPlans.Count()}");
+            
+            if (paymentPlan != null)
+            {
+                Console.WriteLine($"[LoadPaymentPlan] Payment plan ID: {paymentPlan.Id}, Type: {paymentPlan.PaymentTypeId}");
+                
+                // Mapear el payment_plan
+                var planDto = _mapper.Map<PaymentPlanWithInstallmentsDto>(paymentPlan);
+                
+                Console.WriteLine($"[LoadPaymentPlan] Plan mapeado, ID: {planDto.Id}");
+                
+                // Cargar las installments
+                var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                
+                Console.WriteLine($"[LoadPaymentPlan] Installments encontradas: {installments.Count()}");
+                
+                planDto.Installments = _mapper.Map<List<PaymentInstallmentDto>>(installments);
+                
+                Console.WriteLine($"[LoadPaymentPlan] Installments mapeadas: {planDto.Installments.Count}");
+                
+                expenseDto.PaymentPlan = planDto;
+                
+                Console.WriteLine($"[LoadPaymentPlan] PaymentPlan asignado al expense");
+            }
+            else
+            {
+                Console.WriteLine($"[LoadPaymentPlan] No se encontró payment_plan para expense {expenseDto.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadPaymentPlan] ERROR para expense {expenseDto.Id}: {ex.Message}");
+            Console.WriteLine($"[LoadPaymentPlan] Stack trace: {ex.StackTrace}");
+            // No lanzar excepción, solo log - el expense se devuelve sin payment_plan
         }
     }
 }

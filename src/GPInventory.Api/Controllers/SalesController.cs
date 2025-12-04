@@ -662,8 +662,8 @@ public class SalesController : ControllerBase
                 {
                     ProductId = item.ProductId,
                     Amount = item.Quantity.ToString(),
-                    Price = unitPrice,
-                    Discount = item.Discount,
+                    Price = (int)Math.Round(unitPrice, 0),
+                    Discount = item.Discount.HasValue ? (int)Math.Round(item.Discount.Value, 0) : null,
                     SaleId = sale.Id,
                     StockId = item.StockId
                 };
@@ -753,8 +753,8 @@ public class SalesController : ControllerBase
                 });
             }
 
-            // Actualizar total de la venta (redondeado)
-            sale.Total = Math.Round(totalAmount, 0);
+            // Actualizar total de la venta (redondeado a entero)
+            sale.Total = (int)Math.Round(totalAmount, 0);
             await _context.SaveChangesAsync();
 
             await transaction.CommitAsync();
@@ -1786,7 +1786,7 @@ public class SalesController : ControllerBase
                 "UPDATE sales SET total = {0} WHERE id = {1}", roundedTotal, sale.Id);
 
             // Actualizar el objeto sale en memoria para que refleje el total correcto
-            sale.Total = roundedTotal;
+            sale.Total = (int)roundedTotal;
 
             await transaction.CommitAsync();
 

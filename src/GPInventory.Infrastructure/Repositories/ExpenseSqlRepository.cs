@@ -1,5 +1,6 @@
 using System.Data;
 using GPInventory.Application.DTOs.Expenses;
+using GPInventory.Application.DTOs.Payments;
 using GPInventory.Application.Interfaces;
 using MySqlConnector;
 using Microsoft.Extensions.Configuration;
@@ -74,44 +75,170 @@ public class ExpenseSqlRepository : IExpenseSqlRepository
         command.Parameters.AddWithValue("@PageSize", pageSize);
 
         await connection.OpenAsync();
-        using var reader = await command.ExecuteReaderAsync();
         
-        while (await reader.ReadAsync())
+        // Primero leer todos los expenses y cerrar el reader
+        using (var reader = await command.ExecuteReaderAsync())
         {
-            var expense = new ExpenseWithDetailsDto
+            while (await reader.ReadAsync())
             {
-                Id = reader.GetInt32("id"),
-                Date = reader.GetDateTime("date"),
-                Amount = reader.GetDecimal("amount"),
-                Description = reader.GetString("description"),
-                IsFixed = reader.IsDBNull("is_fixed") ? null : reader.GetBoolean("is_fixed"),
-                FixedExpenseId = reader.IsDBNull("fixed_expense_id") ? null : reader.GetInt32("fixed_expense_id"),
-                BusinessId = reader.GetInt32("business_id"),
-                StoreId = reader.IsDBNull("store_id") ? null : reader.GetInt32("store_id"),
-                StoreName = reader.IsDBNull("store_name") ? null : reader.GetString("store_name"),
-                CreatedAt = reader.GetDateTime("date"), // Using date as created_at fallback
-                ExpenseTypeId = reader.IsDBNull("expense_type_id") ? null : reader.GetInt32("expense_type_id"),
+                var expenseId = reader.GetInt32("id");
                 
-                // Subcategory details
-                Subcategory = new ExpenseSubcategoryDto
+                var expense = new ExpenseWithDetailsDto
                 {
-                    Id = reader.GetInt32("subcategory_id"),
-                    Name = reader.GetString("subcategory_name"),
-                    ExpenseCategoryId = reader.GetInt32("category_id")
-                },
+                    Id = expenseId,
+                    Date = reader.GetDateTime("date"),
+                    Amount = reader.GetDecimal("amount"),
+                    Description = reader.GetString("description"),
+                    IsFixed = reader.IsDBNull("is_fixed") ? null : reader.GetBoolean("is_fixed"),
+                    FixedExpenseId = reader.IsDBNull("fixed_expense_id") ? null : reader.GetInt32("fixed_expense_id"),
+                    BusinessId = reader.GetInt32("business_id"),
+                    StoreId = reader.IsDBNull("store_id") ? null : reader.GetInt32("store_id"),
+                    StoreName = reader.IsDBNull("store_name") ? null : reader.GetString("store_name"),
+                    CreatedAt = reader.GetDateTime("date"), // Using date as created_at fallback
+                    ExpenseTypeId = reader.IsDBNull("expense_type_id") ? null : reader.GetInt32("expense_type_id"),
+                    
+                    // Subcategory details
+                    Subcategory = new ExpenseSubcategoryDto
+                    {
+                        Id = reader.GetInt32("subcategory_id"),
+                        Name = reader.GetString("subcategory_name"),
+                        ExpenseCategoryId = reader.GetInt32("category_id")
+                    },
+                    
+                    // Category details
+                    Category = new ExpenseCategoryDto
+                    {
+                        Id = reader.GetInt32("category_id"),
+                        Name = reader.GetString("category_name")
+                    }
+                };
                 
-                // Category details
-                Category = new ExpenseCategoryDto
-                {
-                    Id = reader.GetInt32("category_id"),
-                    Name = reader.GetString("category_name")
-                }
-            };
-            
-            expenses.Add(expense);
+                expenses.Add(expense);
+            }
+        } // Reader se cierra aquí automáticamente
+
+        // NUEVO: Cargar payment_plan e installments para cada expense
+        // Ahora la conexión está libre para nuevas queries
+        foreach (var expense in expenses)
+        {
+            await LoadPaymentPlanForExpenseAsync(connection, expense);
         }
 
         return expenses;
+    }
+
+    // NUEVO: Método helper para cargar payment_plan con installments usando SQL raw
+    private async Task LoadPaymentPlanForExpenseAsync(MySqlConnection connection, ExpenseWithDetailsDto expenseDto)
+    {
+        try
+        {
+            Console.WriteLine($"[SQL LoadPaymentPlan] Buscando payment_plan para expense ID: {expenseDto.Id}");
+            
+            // Query para obtener payment_plan
+            var planSql = @"
+                SELECT 
+                    id,
+                    expense_id,
+                    fixed_expense_id,
+                    type,
+                    expressed_in_uf,
+                    bank_entity_id,
+                    installments_count,
+                    start_date,
+                    created_at
+                FROM payment_plan
+                WHERE expense_id = @ExpenseId
+                LIMIT 1";
+            
+            using var planCommand = new MySqlCommand(planSql, connection);
+            planCommand.Parameters.AddWithValue("@ExpenseId", expenseDto.Id);
+            
+            using var planReader = await planCommand.ExecuteReaderAsync();
+            
+            if (await planReader.ReadAsync())
+            {
+                var paymentPlanId = planReader.GetInt32("id");
+                
+                Console.WriteLine($"[SQL LoadPaymentPlan] Payment plan encontrado ID: {paymentPlanId}");
+                
+                var paymentPlanDto = new PaymentPlanWithInstallmentsDto
+                {
+                    Id = paymentPlanId,
+                    ExpenseId = planReader.IsDBNull(1) ? null : planReader.GetInt32(1),
+                    FixedExpenseId = planReader.IsDBNull(2) ? null : planReader.GetInt32(2),
+                    PaymentTypeId = planReader.IsDBNull(3) ? 0 : planReader.GetInt32(3),
+                    ExpressedInUf = planReader.IsDBNull(4) ? false : planReader.GetBoolean(4),
+                    BankEntityId = planReader.IsDBNull(5) ? null : planReader.GetInt32(5),
+                    InstallmentsCount = planReader.IsDBNull(6) ? 0 : planReader.GetInt32(6),
+                    StartDate = planReader.IsDBNull(7) ? DateTime.UtcNow : planReader.GetDateTime(7),
+                    CreatedAt = DateTime.TryParse(planReader.GetString(8), out var createdAt) ? createdAt : DateTime.UtcNow
+                };
+                
+                await planReader.CloseAsync();
+                
+                // Query para obtener installments
+                var installmentsSql = @"
+                    SELECT 
+                        id,
+                        payment_plan_id,
+                        installment_number,
+                        due_date,
+                        amount_clp,
+                        amount_uf,
+                        status,
+                        paid_date,
+                        payment_method_id,
+                        expense_id,
+                        created_at
+                    FROM payment_installment
+                    WHERE payment_plan_id = @PaymentPlanId
+                    ORDER BY installment_number";
+                
+                using var installmentsCommand = new MySqlCommand(installmentsSql, connection);
+                installmentsCommand.Parameters.AddWithValue("@PaymentPlanId", paymentPlanId);
+                
+                using var installmentsReader = await installmentsCommand.ExecuteReaderAsync();
+                
+                var installments = new List<PaymentInstallmentDto>();
+                
+                while (await installmentsReader.ReadAsync())
+                {
+                    var installment = new PaymentInstallmentDto
+                    {
+                        Id = installmentsReader.GetInt32("id"),
+                        PaymentPlanId = installmentsReader.GetInt32("payment_plan_id"),
+                        InstallmentNumber = installmentsReader.GetInt32("installment_number"),
+                        DueDate = installmentsReader.GetDateTime("due_date"),
+                        AmountClp = installmentsReader.IsDBNull("amount_clp") ? 0 : installmentsReader.GetInt32("amount_clp"),
+                        AmountUf = installmentsReader.IsDBNull("amount_uf") ? (decimal?)null : (decimal)installmentsReader.GetFloat("amount_uf"),
+                        Status = installmentsReader.GetString("status"), // VARCHAR - será normalizado por AutoMapper
+                        PaidDate = installmentsReader.IsDBNull("paid_date") ? null : installmentsReader.GetDateTime("paid_date"),
+                        PaymentMethodId = installmentsReader.IsDBNull("payment_method_id") ? null : installmentsReader.GetInt32("payment_method_id"),
+                        ExpenseId = installmentsReader.IsDBNull("expense_id") ? null : installmentsReader.GetInt32("expense_id"),
+                        CreatedAt = installmentsReader.GetDateTime("created_at")
+                    };
+                    
+                    installments.Add(installment);
+                }
+                
+                Console.WriteLine($"[SQL LoadPaymentPlan] Installments encontradas: {installments.Count}");
+                
+                paymentPlanDto.Installments = installments;
+                expenseDto.PaymentPlan = paymentPlanDto;
+                
+                Console.WriteLine($"[SQL LoadPaymentPlan] PaymentPlan asignado al expense");
+            }
+            else
+            {
+                Console.WriteLine($"[SQL LoadPaymentPlan] No se encontró payment_plan para expense {expenseDto.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SQL LoadPaymentPlan] ERROR para expense {expenseDto.Id}: {ex.Message}");
+            Console.WriteLine($"[SQL LoadPaymentPlan] Stack trace: {ex.StackTrace}");
+            // No lanzar excepción, solo log - el expense se devuelve sin payment_plan
+        }
     }
 
     public async Task<ExpenseSummaryDto> GetExpenseSummaryByTypeAsync(
