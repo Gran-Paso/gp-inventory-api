@@ -58,4 +58,22 @@ public class PaymentInstallmentService : IPaymentInstallmentService
     {
         await _repository.DeleteAsync(id);
     }
+
+    public async Task<InstallmentsSummaryDto> GetInstallmentsSummaryAsync(List<int>? businessIds = null)
+    {
+        var installments = await _repository.GetAllInstallmentsAsync(businessIds);
+        
+        var summary = new InstallmentsSummaryDto
+        {
+            TotalInstallments = installments.Count(),
+            PendingInstallments = installments.Count(i => i.Status == "pending"),
+            PaidInstallments = installments.Count(i => i.Status == "paid"),
+            OverdueInstallments = installments.Count(i => i.Status == "overdue" || (i.Status == "pending" && i.DueDate < DateTime.Now)),
+            TotalPending = installments.Where(i => i.Status == "pending").Sum(i => i.AmountClp),
+            TotalPaid = installments.Where(i => i.Status == "paid").Sum(i => i.AmountClp),
+            TotalOverdue = installments.Where(i => i.Status == "overdue" || (i.Status == "pending" && i.DueDate < DateTime.Now)).Sum(i => i.AmountClp)
+        };
+
+        return summary;
+    }
 }

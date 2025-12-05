@@ -122,4 +122,19 @@ public class PaymentInstallmentsController : ControllerBase
             return StatusCode(500, new { message = "Error al eliminar la cuota" });
         }
     }
+
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary([FromQuery] List<int>? businessIds = null)
+    {
+        try
+        {
+            var summary = await _installmentService.GetInstallmentsSummaryAsync(businessIds);
+            return Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting installments summary");
+            return StatusCode(500, new { message = "Error al obtener el resumen de cuotas" });
+        }
+    }
 }

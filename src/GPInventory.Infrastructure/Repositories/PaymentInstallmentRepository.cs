@@ -204,4 +204,46 @@ public class PaymentInstallmentRepository : IPaymentInstallmentRepository
         command.Parameters.AddWithValue("@expenseId", (object?)entity.ExpenseId ?? DBNull.Value);
         command.Parameters.AddWithValue("@createdAt", createdAt);
     }
+
+    public async Task<IEnumerable<PaymentInstallment>> GetAllInstallmentsAsync(List<int>? businessIds = null)
+    {
+        var installments = new List<PaymentInstallment>();
+        
+        try
+        {
+            var sql = @"
+                SELECT DISTINCT i.id, i.payment_plan_id, i.installment_number, i.due_date, 
+                       i.amount_clp, i.amount_uf, i.status, i.paid_date, i.payment_method_id, 
+                       i.expense_id, i.created_at
+                FROM payment_installment i
+                INNER JOIN payment_plan pp ON i.payment_plan_id = pp.id
+                INNER JOIN expenses e ON pp.expense_id = e.id";
+
+            if (businessIds != null && businessIds.Any())
+            {
+                sql += " WHERE e.business_id IN (" + string.Join(",", businessIds) + ")";
+            }
+
+            sql += " ORDER BY i.due_date, i.installment_number";
+
+            using var connection = new MySqlConnection(_connectionString);
+            using var command = new MySqlCommand(sql, connection);
+
+            await connection.OpenAsync();
+            using var reader = await command.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
+            {
+                installments.Add(MapInstallment(reader));
+            }
+
+            return installments;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error in GetAllInstallmentsAsync: {ex.Message}");
+            Console.Error.WriteLine($"Stack Trace: {ex.StackTrace}");
+            throw;
+        }
+    }
 }

@@ -9,4 +9,5 @@ public interface IPaymentInstallmentService
     Task<IEnumerable<PaymentInstallmentDto>> GetInstallmentsByPaymentPlanAsync(int paymentPlanId);
     Task<PaymentInstallmentDto> UpdateInstallmentStatusAsync(int id, UpdateInstallmentStatusDto updateDto);
     Task DeleteInstallmentAsync(int id);
+    Task<InstallmentsSummaryDto> GetInstallmentsSummaryAsync(List<int>? businessIds = null);
 }
