@@ -64,37 +64,38 @@ public class DashboardController : ControllerBase
             }
 
             // Query para obtener todos los KPIs en una sola consulta
+            // Usamos DATE_ADD para ajustar UTC-3 (zona horaria de Chile)
             var kpisQuery = @"
                 SELECT 
                     -- Ingresos del día actual
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.total 
                         ELSE 0 
                     END), 0) as TodayRevenue,
                     
                     -- Ingresos del día anterior
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.total 
                         ELSE 0 
                     END), 0) as YesterdayRevenue,
                     
                     -- Número de ventas del día actual
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as TodaySalesCount,
                     
                     -- Número de ventas del día anterior
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as YesterdaySalesCount
                 FROM sales s
                 INNER JOIN store st ON s.id_store = st.id
                 WHERE st.id_business = {0}
-                    AND DATE(s.date) >= DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+                    AND DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) >= DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                     " + (storeId.HasValue ? "AND s.id_store = {1}" : "");
 
             var kpisResult = storeId.HasValue
@@ -107,6 +108,10 @@ public class DashboardController : ControllerBase
             {
                 kpisResult = new KPIsRawData();
             }
+
+            // Log para debugging
+            _logger.LogInformation("📊 KPIs Query Result - Today: {today}, Yesterday: {yesterday}, TodayCount: {todayCount}, YesterdayCount: {yesterdayCount}",
+                kpisResult.TodayRevenue, kpisResult.YesterdayRevenue, kpisResult.TodaySalesCount, kpisResult.YesterdaySalesCount);
 
             // Query para calcular el capital en stock (al costo)
             // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
@@ -414,47 +419,48 @@ public class DashboardController : ControllerBase
             }
 
             // Query para obtener métricas de todas las tiendas
+            // Usamos DATE_ADD para ajustar UTC-3 (zona horaria de Chile)
             var storesQuery = @"
                 SELECT 
                     st.id as StoreId,
                     st.name as StoreName,
                     -- Ventas del día
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as TodayRevenue,
                     -- Ventas de ayer
                     COALESCE(SUM(CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as YesterdayRevenue,
                     -- Número de ventas del día
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = CURDATE() 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as TodaySalesCount,
                     -- Número de ventas de ayer
                     COUNT(DISTINCT CASE 
-                        WHEN DATE(s.date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) 
+                        WHEN DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) = DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 DAY), INTERVAL -3 HOUR))
                         THEN s.id 
                     END) as YesterdaySalesCount,
                     -- Ventas del mes actual
                     COALESCE(SUM(CASE 
-                        WHEN MONTH(s.date) = MONTH(CURDATE()) 
-                        AND YEAR(s.date) = YEAR(CURDATE())
+                        WHEN MONTH(DATE_ADD(s.date, INTERVAL -3 HOUR)) = MONTH(DATE_ADD(NOW(), INTERVAL -3 HOUR))
+                        AND YEAR(DATE_ADD(s.date, INTERVAL -3 HOUR)) = YEAR(DATE_ADD(NOW(), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as MonthRevenue,
                     -- Ventas del mes anterior
                     COALESCE(SUM(CASE 
-                        WHEN MONTH(s.date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
-                        AND YEAR(s.date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                        WHEN MONTH(DATE_ADD(s.date, INTERVAL -3 HOUR)) = MONTH(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 MONTH), INTERVAL -3 HOUR))
+                        AND YEAR(DATE_ADD(s.date, INTERVAL -3 HOUR)) = YEAR(DATE_ADD(DATE_SUB(NOW(), INTERVAL 1 MONTH), INTERVAL -3 HOUR))
                         THEN s.total 
                     END), 0) as LastMonthRevenue
                 FROM store st
                 LEFT JOIN sales s ON st.id = s.id_store
                 WHERE st.id_business = {0}
                     AND st.active = 1
-                    AND (s.date IS NULL OR s.date >= DATE_SUB(CURDATE(), INTERVAL 2 MONTH))
+                    AND (s.date IS NULL OR DATE(DATE_ADD(s.date, INTERVAL -3 HOUR)) >= DATE(DATE_ADD(DATE_SUB(NOW(), INTERVAL 60 DAY), INTERVAL -3 HOUR)))
                 GROUP BY st.id, st.name
                 ORDER BY TodayRevenue DESC";
 
@@ -496,7 +502,7 @@ public class DashboardController : ControllerBase
                             ELSE 0
                         END
                     ), 0) as StockValue,
-                    -- Productos con stock bajo (menos de minimumStock) - considerando stock disponible real
+                    -- Productos con stock bajo (mayor a 0 pero menor que minimumStock) - considerando stock disponible real
                     COUNT(DISTINCT CASE 
                         WHEN (
                             SELECT COALESCE(SUM(
@@ -519,10 +525,52 @@ public class DashboardController : ControllerBase
                             AND stock.amount > 0
                             AND stock.active = 1
                             AND stock.stock_id IS NULL
-                        ) < COALESCE(p.minimumStock, 0)
+                        ) BETWEEN 1 AND (COALESCE(p.minimumStock, 0) - 1)
                         AND COALESCE(p.minimumStock, 0) > 0
                         THEN p.id
-                    END) as LowStockProducts
+                    END) as LowStockProducts,
+                    -- Productos sin stock (stock = 0) - considerando stock disponible real
+                    COUNT(DISTINCT CASE 
+                        WHEN (
+                            SELECT COALESCE(SUM(
+                                CASE 
+                                    WHEN stock.amount > 0 AND stock.active = 1 AND stock.stock_id IS NULL THEN
+                                        GREATEST(
+                                            stock.amount - COALESCE((
+                                                SELECT SUM(CAST(sd.amount AS SIGNED))
+                                                FROM sales_detail sd
+                                                WHERE sd.stock_id = stock.id
+                                            ), 0),
+                                            0
+                                        )
+                                    ELSE 0
+                                END
+                            ), 0)
+                            FROM stock
+                            WHERE stock.product = p.id 
+                            AND stock.id_store = st.id
+                            AND stock.amount > 0
+                            AND stock.active = 1
+                            AND stock.stock_id IS NULL
+                        ) = 0
+                        AND COALESCE(p.minimumStock, 0) > 0
+                        THEN p.id
+                    END) as OutOfStockProducts,
+                    -- Total de unidades en stock disponible
+                    CAST(COALESCE(SUM(
+                        CASE 
+                            WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
+                                GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0),
+                                    0
+                                )
+                            ELSE 0
+                        END
+                    ), 0) AS SIGNED) as TotalUnits
                 FROM store st
                 CROSS JOIN product p
                 LEFT JOIN stock s ON s.product = p.id AND s.id_store = st.id AND s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL
@@ -572,6 +620,7 @@ public class DashboardController : ControllerBase
                     revenueChange,
                     store.TodaySalesCount,
                     stock?.LowStockProducts ?? 0,
+                    stock?.OutOfStockProducts ?? 0,
                     storeConfig
                 );
 
@@ -593,6 +642,8 @@ public class DashboardController : ControllerBase
                     StockCapital = stock?.StockCapital ?? 0,
                     StockValue = stock?.StockValue ?? 0,
                     LowStockProducts = stock?.LowStockProducts ?? 0,
+                    OutOfStockProducts = stock?.OutOfStockProducts ?? 0,
+                    TotalUnits = stock?.TotalUnits ?? 0,
                     HealthStatus = healthStatus.Status,
                     HealthScore = healthStatus.Score,
                     HealthIndicators = healthStatus.Indicators
@@ -643,6 +694,7 @@ public class DashboardController : ControllerBase
         decimal? revenueChange, 
         int todaySalesCount, 
         int lowStockProducts,
+        int outOfStockProducts,
         Store store)
     {
         var indicators = new List<string>();
@@ -672,13 +724,20 @@ public class DashboardController : ControllerBase
             indicators.Add("Sin ventas hoy");
         }
 
-        // Evaluar productos con stock bajo usando umbrales configurables
-        if (lowStockProducts > store.ScoreCriticalStockThreshold)
+        // Evaluar productos sin stock (prioridad máxima)
+        if (outOfStockProducts > store.ScoreCriticalStockThreshold)
         {
             score -= store.ScoreCriticalStockPenalty;
-            indicators.Add($"{lowStockProducts} productos con stock crítico");
+            indicators.Add($"{outOfStockProducts} productos sin stock");
         }
-        else if (lowStockProducts > store.ScoreLowStockThreshold)
+        else if (outOfStockProducts > 0)
+        {
+            score -= (store.ScoreCriticalStockPenalty / 2); // Penalización moderada por productos sin stock
+            indicators.Add($"{outOfStockProducts} productos sin stock");
+        }
+
+        // Evaluar productos con stock bajo usando umbrales configurables
+        if (lowStockProducts > store.ScoreLowStockThreshold)
         {
             score -= store.ScoreLowStockPenalty;
             indicators.Add($"{lowStockProducts} productos con stock bajo");
@@ -1008,6 +1067,8 @@ public class StoreComparison
     public decimal StockCapital { get; set; }
     public decimal StockValue { get; set; }
     public int LowStockProducts { get; set; }
+    public int OutOfStockProducts { get; set; }
+    public int TotalUnits { get; set; }
     public string HealthStatus { get; set; } = "healthy"; // healthy, warning, critical
     public int HealthScore { get; set; }
     public List<string> HealthIndicators { get; set; } = new();
@@ -1044,6 +1105,8 @@ public class StoreStockData
     public decimal StockCapital { get; set; }
     public decimal StockValue { get; set; }
     public int LowStockProducts { get; set; }
+    public int OutOfStockProducts { get; set; }
+    public int TotalUnits { get; set; }
 }
 
 // DTOs para gráfico de movimientos de stock mensuales

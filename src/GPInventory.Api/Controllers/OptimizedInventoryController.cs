@@ -385,7 +385,7 @@ public class OptimizedInventoryController : ControllerBase
 
             // Verificar que el lote existe y tiene stock suficiente
             var lotQuery = @"
-                SELECT s.id, s.amount, s.cost as UnitCost, s.product as ProductId, s.id_store as StoreId
+                SELECT s.id, s.amount, COALESCE(s.cost, 0) as UnitCost, s.product as ProductId, s.id_store as StoreId
                 FROM stock s
                 WHERE s.id = {0} AND s.amount > 0 AND COALESCE(s.active, 0) = 1";
 
@@ -403,19 +403,34 @@ public class OptimizedInventoryController : ControllerBase
                 return BadRequest(new { message = $"Stock insuficiente. Disponible: {lot.Amount}, Solicitado: {request.Amount}" });
             }
 
-            // Crear registro negativo vinculado al lote original
-            var removeStockQuery = @"
-                INSERT INTO stock (amount, cost, product, id_store, stock_id, active, date, created_at, updated_at, flow)
-                VALUES ({0}, {1}, {2}, {3}, {4}, 1, NOW(), NOW(), NOW(), 12)";
+            // Si la cantidad a eliminar es igual a la cantidad disponible, desactivar el lote
+            if (lot.Amount == request.Amount)
+            {
+                var deactivateLotQuery = @"
+                    UPDATE stock 
+                    SET active = 0, updated_at = NOW()
+                    WHERE id = {0}";
 
-            await _context.Database.ExecuteSqlRawAsync(
-                removeStockQuery,
-                -request.Amount, // Cantidad negativa
-                lot.UnitCost,    // Mismo costo del lote original
-                lot.ProductId,
-                lot.StoreId,
-                request.LotId    // Referencia al lote padre
-            );
+                await _context.Database.ExecuteSqlRawAsync(deactivateLotQuery, request.LotId);
+                
+                _logger.LogInformation("🔄 Lote {lotId} desactivado completamente (stock agotado)", request.LotId);
+            }
+            else
+            {
+                // Crear registro negativo vinculado al lote original
+                var removeStockQuery = @"
+                    INSERT INTO stock (amount, cost, product, id_store, stock_id, active, date, created_at, updated_at, flow)
+                    VALUES ({0}, {1}, {2}, {3}, {4}, 1, NOW(), NOW(), NOW(), 12)";
+
+                await _context.Database.ExecuteSqlRawAsync(
+                    removeStockQuery,
+                    -request.Amount,        // Cantidad negativa
+                    lot.UnitCost ?? 0,      // Mismo costo del lote original (0 si es NULL)
+                    lot.ProductId,
+                    lot.StoreId,
+                    request.LotId           // Referencia al lote padre
+                );
+            }
 
             await _context.SaveChangesAsync();
 
@@ -539,7 +554,7 @@ public class StockLotInfo
 {
     public int Id { get; set; }
     public int Amount { get; set; }
-    public decimal UnitCost { get; set; }
+    public decimal? UnitCost { get; set; }
     public int ProductId { get; set; }
     public int StoreId { get; set; }
 }
