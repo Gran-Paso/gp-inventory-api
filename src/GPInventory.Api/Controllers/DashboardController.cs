@@ -502,7 +502,7 @@ public class DashboardController : ControllerBase
                             ELSE 0
                         END
                     ), 0) as StockValue,
-                    -- Productos con stock bajo (menos de minimumStock) - considerando stock disponible real
+                    -- Productos con stock bajo (mayor a 0 pero menor que minimumStock) - considerando stock disponible real
                     COUNT(DISTINCT CASE 
                         WHEN (
                             SELECT COALESCE(SUM(
@@ -525,10 +525,52 @@ public class DashboardController : ControllerBase
                             AND stock.amount > 0
                             AND stock.active = 1
                             AND stock.stock_id IS NULL
-                        ) < COALESCE(p.minimumStock, 0)
+                        ) BETWEEN 1 AND (COALESCE(p.minimumStock, 0) - 1)
                         AND COALESCE(p.minimumStock, 0) > 0
                         THEN p.id
-                    END) as LowStockProducts
+                    END) as LowStockProducts,
+                    -- Productos sin stock (stock = 0) - considerando stock disponible real
+                    COUNT(DISTINCT CASE 
+                        WHEN (
+                            SELECT COALESCE(SUM(
+                                CASE 
+                                    WHEN stock.amount > 0 AND stock.active = 1 AND stock.stock_id IS NULL THEN
+                                        GREATEST(
+                                            stock.amount - COALESCE((
+                                                SELECT SUM(CAST(sd.amount AS SIGNED))
+                                                FROM sales_detail sd
+                                                WHERE sd.stock_id = stock.id
+                                            ), 0),
+                                            0
+                                        )
+                                    ELSE 0
+                                END
+                            ), 0)
+                            FROM stock
+                            WHERE stock.product = p.id 
+                            AND stock.id_store = st.id
+                            AND stock.amount > 0
+                            AND stock.active = 1
+                            AND stock.stock_id IS NULL
+                        ) = 0
+                        AND COALESCE(p.minimumStock, 0) > 0
+                        THEN p.id
+                    END) as OutOfStockProducts,
+                    -- Total de unidades en stock disponible
+                    CAST(COALESCE(SUM(
+                        CASE 
+                            WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
+                                GREATEST(
+                                    s.amount - COALESCE((
+                                        SELECT SUM(CAST(sd.amount AS SIGNED))
+                                        FROM sales_detail sd
+                                        WHERE sd.stock_id = s.id
+                                    ), 0),
+                                    0
+                                )
+                            ELSE 0
+                        END
+                    ), 0) AS SIGNED) as TotalUnits
                 FROM store st
                 CROSS JOIN product p
                 LEFT JOIN stock s ON s.product = p.id AND s.id_store = st.id AND s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL
@@ -578,6 +620,7 @@ public class DashboardController : ControllerBase
                     revenueChange,
                     store.TodaySalesCount,
                     stock?.LowStockProducts ?? 0,
+                    stock?.OutOfStockProducts ?? 0,
                     storeConfig
                 );
 
@@ -599,6 +642,8 @@ public class DashboardController : ControllerBase
                     StockCapital = stock?.StockCapital ?? 0,
                     StockValue = stock?.StockValue ?? 0,
                     LowStockProducts = stock?.LowStockProducts ?? 0,
+                    OutOfStockProducts = stock?.OutOfStockProducts ?? 0,
+                    TotalUnits = stock?.TotalUnits ?? 0,
                     HealthStatus = healthStatus.Status,
                     HealthScore = healthStatus.Score,
                     HealthIndicators = healthStatus.Indicators
@@ -649,6 +694,7 @@ public class DashboardController : ControllerBase
         decimal? revenueChange, 
         int todaySalesCount, 
         int lowStockProducts,
+        int outOfStockProducts,
         Store store)
     {
         var indicators = new List<string>();
@@ -678,13 +724,20 @@ public class DashboardController : ControllerBase
             indicators.Add("Sin ventas hoy");
         }
 
-        // Evaluar productos con stock bajo usando umbrales configurables
-        if (lowStockProducts > store.ScoreCriticalStockThreshold)
+        // Evaluar productos sin stock (prioridad máxima)
+        if (outOfStockProducts > store.ScoreCriticalStockThreshold)
         {
             score -= store.ScoreCriticalStockPenalty;
-            indicators.Add($"{lowStockProducts} productos con stock crítico");
+            indicators.Add($"{outOfStockProducts} productos sin stock");
         }
-        else if (lowStockProducts > store.ScoreLowStockThreshold)
+        else if (outOfStockProducts > 0)
+        {
+            score -= (store.ScoreCriticalStockPenalty / 2); // Penalización moderada por productos sin stock
+            indicators.Add($"{outOfStockProducts} productos sin stock");
+        }
+
+        // Evaluar productos con stock bajo usando umbrales configurables
+        if (lowStockProducts > store.ScoreLowStockThreshold)
         {
             score -= store.ScoreLowStockPenalty;
             indicators.Add($"{lowStockProducts} productos con stock bajo");
@@ -1014,6 +1067,8 @@ public class StoreComparison
     public decimal StockCapital { get; set; }
     public decimal StockValue { get; set; }
     public int LowStockProducts { get; set; }
+    public int OutOfStockProducts { get; set; }
+    public int TotalUnits { get; set; }
     public string HealthStatus { get; set; } = "healthy"; // healthy, warning, critical
     public int HealthScore { get; set; }
     public List<string> HealthIndicators { get; set; } = new();
@@ -1050,6 +1105,8 @@ public class StoreStockData
     public decimal StockCapital { get; set; }
     public decimal StockValue { get; set; }
     public int LowStockProducts { get; set; }
+    public int OutOfStockProducts { get; set; }
+    public int TotalUnits { get; set; }
 }
 
 // DTOs para gráfico de movimientos de stock mensuales
