@@ -1090,4 +1090,94 @@ public class ExpenseService : IExpenseService
             // No lanzar excepción, solo log - el expense se devuelve sin payment_plan
         }
     }
+
+    public async Task<ExpenseTypeChartsDto> GetExpenseTypeChartsAsync(int[] businessIds, int expenseTypeId, ExpenseFiltersDto filters)
+    {
+        try
+        {
+            // Configurar filtros para obtener expenses del tipo específico
+            var expenseFilters = new ExpenseFiltersDto
+            {
+                BusinessIds = businessIds,
+                ExpenseTypeId = expenseTypeId,
+                CategoryId = filters.CategoryId,
+                SubcategoryId = filters.SubcategoryId,
+                StartDate = filters.StartDate,
+                EndDate = filters.EndDate,
+                Page = 1,
+                PageSize = int.MaxValue
+            };
+
+            // Obtener todos los expenses del tipo específico
+            var expenses = await GetExpensesAsync(expenseFilters);
+            var expensesList = expenses.ToList();
+
+            var result = new ExpenseTypeChartsDto();
+
+            // 1. Distribución por categoría para gráfico de torta
+            var totalAmount = expensesList.Sum(e => e.Amount);
+            var categoryGroups = expensesList
+                .GroupBy(e => new { e.Category.Id, e.Category.Name })
+                .Select(g => new CategoryChartDataDto
+                {
+                    CategoryId = g.Key.Id,
+                    CategoryName = g.Key.Name,
+                    TotalAmount = g.Sum(e => e.Amount),
+                    Count = g.Count(),
+                    Percentage = totalAmount > 0 ? (g.Sum(e => e.Amount) / totalAmount * 100) : 0
+                })
+                .OrderByDescending(c => c.TotalAmount)
+                .ToList();
+            
+            result.CategoryDistribution = categoryGroups;
+
+            // 2. Evolución mensual acumulada para gráfico de línea
+            var monthNames = new[] { "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic" };
+            var monthlyGroups = expensesList
+                .GroupBy(e => e.Date.Month)
+                .ToDictionary(g => g.Key, g => g.Sum(e => e.Amount));
+
+            decimal accumulated = 0;
+            var monthlyTrend = new List<MonthlyChartDataDto>();
+            for (int i = 1; i <= 12; i++)
+            {
+                var monthAmount = monthlyGroups.GetValueOrDefault(i, 0);
+                accumulated += monthAmount;
+                monthlyTrend.Add(new MonthlyChartDataDto
+                {
+                    Month = i,
+                    MonthName = monthNames[i - 1],
+                    MonthlyAmount = monthAmount,
+                    AccumulatedAmount = accumulated
+                });
+            }
+            result.MonthlyTrend = monthlyTrend;
+
+            // 3. Indicadores de estado - Activas vs Finalizadas
+            var activeCount = expensesList.Count(e => e.IsFixed == false || e.IsFixed == null);
+            var completedCount = expensesList.Count(e => e.IsFixed == true);
+            var totalCount = expensesList.Count();
+
+            result.StatusIndicator = new StatusIndicatorDto
+            {
+                ActiveCount = activeCount,
+                CompletedCount = completedCount,
+                TotalCount = totalCount,
+                ActivePercentage = totalCount > 0 ? ((decimal)activeCount / totalCount * 100) : 0,
+                CompletedPercentage = totalCount > 0 ? ((decimal)completedCount / totalCount * 100) : 0
+            };
+
+            // 4. Ejecución de presupuesto por categoría (Pro feature)
+            // Por ahora retornar lista vacía - se implementará cuando se integre con budgets
+            result.BudgetExecution = new List<BudgetExecutionDto>();
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error al obtener datos de gráficos para expense type {expenseTypeId}: {ex.Message}");
+            Console.Error.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw new ApplicationException($"Error al obtener datos de visualizaciones: {ex.Message}", ex);
+        }
+    }
 }

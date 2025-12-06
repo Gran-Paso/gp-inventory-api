@@ -211,6 +211,40 @@ public class ExpensesController : ControllerBase
         }
     }
 
+    // GET: api/expenses/charts
+    [HttpGet("charts")]
+    public async Task<IActionResult> GetExpenseTypeCharts(
+        [FromQuery] int expenseTypeId, 
+        [FromQuery] ExpenseFiltersDto filters)
+    {
+        try
+        {
+            // Validar que se proporcionen business IDs
+            int[]? targetBusinessIds = null;
+            
+            if (filters.BusinessIds != null && filters.BusinessIds.Length > 0)
+            {
+                targetBusinessIds = filters.BusinessIds;
+            }
+            else if (filters.BusinessId.HasValue)
+            {
+                targetBusinessIds = new[] { filters.BusinessId.Value };
+            }
+            else
+            {
+                return BadRequest(new { message = "Se debe proporcionar al menos un ID de negocio" });
+            }
+
+            var charts = await _expenseService.GetExpenseTypeChartsAsync(targetBusinessIds, expenseTypeId, filters);
+            return Ok(charts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving expense charts for type: {ExpenseTypeId}", expenseTypeId);
+            return StatusCode(500, new { message = "Error al obtener los datos de visualizaciones" });
+        }
+    }
+
     // GET: api/expenses/export
     [HttpGet("export")]
     public async Task<IActionResult> ExportExpenses([FromQuery] ExpenseFiltersDto filters)

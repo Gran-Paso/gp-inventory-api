@@ -28,4 +28,7 @@ public interface IExpenseService
     Task<object> GetMonthlyKPIsAsync(int businessId);
     Task<object> GetExpenseTypeKPIsAsync(int businessId, int expenseTypeId);
     Task<byte[]> ExportExpensesAsync(ExpenseFiltersDto filters);
+    
+    // Visualizaciones estratégicas
+    Task<ExpenseTypeChartsDto> GetExpenseTypeChartsAsync(int[] businessIds, int expenseTypeId, ExpenseFiltersDto filters);
 }
