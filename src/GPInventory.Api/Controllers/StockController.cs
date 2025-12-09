@@ -110,6 +110,108 @@ public class StockController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene un movimiento de stock específico por su ID
+    /// </summary>
+    /// <param name="id">ID del movimiento de stock</param>
+    /// <returns>Detalles completos del movimiento de stock</returns>
+    [HttpGet("{id}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(404)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<object>> GetStockById(int id)
+    {
+        try
+        {
+            _logger.LogInformation("Obteniendo movimiento de stock con ID: {id}", id);
+
+            var stock = await _context.Stocks
+                .Include(s => s.Product)
+                .Include(s => s.FlowType)
+                .Include(s => s.Provider)
+                .Include(s => s.Store)
+                .Include(s => s.Sale!)
+                    .ThenInclude(sale => sale.PaymentMethod)
+                .FirstOrDefaultAsync(s => s.Id == id);
+
+            if (stock == null)
+            {
+                _logger.LogWarning("Movimiento de stock con ID {id} no encontrado", id);
+                return NotFound(new { message = "Movimiento de stock no encontrado" });
+            }
+
+            // Obtener información del stock padre si existe
+            object? parentInfo = null;
+            if (stock.StockId.HasValue)
+            {
+                var parentStock = await _context.Stocks
+                    .Include(s => s.FlowType)
+                    .Include(s => s.Provider)
+                    .FirstOrDefaultAsync(s => s.Id == stock.StockId.Value);
+
+                if (parentStock != null && parentStock.FlowType != null)
+                {
+                    parentInfo = new
+                    {
+                        id = parentStock.Id,
+                        date = parentStock.Date,
+                        amount = parentStock.Amount,
+                        cost = parentStock.Cost,
+                        flowType = new { id = parentStock.FlowType.Id, name = parentStock.FlowType.Name },
+                        provider = parentStock.Provider != null ? new { id = parentStock.Provider.Id, name = parentStock.Provider.Name } : null,
+                        notes = parentStock.Notes
+                    };
+                }
+            }
+
+            // Verificar si tiene movimientos hijos
+            var hasChildren = await _context.Stocks.AnyAsync(s => s.StockId == id);
+
+            var result = new
+            {
+                id = stock.Id,
+                productId = stock.ProductId,
+                productName = stock.Product?.Name ?? "N/A",
+                productSku = stock.Product?.Sku ?? string.Empty,
+                date = stock.Date,
+                flowType = stock.FlowType != null ? new { id = stock.FlowType.Id, name = stock.FlowType.Name } : new { id = 0, name = "N/A" },
+                amount = stock.Amount,
+                cost = stock.Cost,
+                expirationDate = stock.ExpirationDate,
+                provider = stock.Provider != null ? new { id = stock.Provider.Id, name = stock.Provider.Name } : null,
+                store = stock.Store != null ? new { id = stock.Store.Id, name = (string?)stock.Store.Name, location = stock.Store.Location } : new { id = 0, name = (string?)"N/A", location = (string?)null },
+                notes = stock.Notes,
+                isActive = stock.IsActive,
+                createdAt = stock.CreatedAt,
+                parentStockId = stock.StockId,
+                parentInfo = parentInfo,
+                hasChildren = hasChildren,
+                sale = stock.Sale != null ? new
+                {
+                    id = stock.Sale.Id,
+                    date = stock.Sale.Date,
+                    total = stock.Sale.Total,
+                    customerName = stock.Sale.CustomerName,
+                    paymentMethod = stock.Sale.PaymentMethod != null ? new
+                    {
+                        id = stock.Sale.PaymentMethod.Id,
+                        name = stock.Sale.PaymentMethod.Name
+                    } : null
+                } : null
+            };
+
+            _logger.LogInformation("Movimiento de stock {id} encontrado correctamente", id);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener movimiento de stock con ID {id}", id);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
+    }
+
+    /// <summary>
     /// Obtiene el stock actual de un producto específico
     /// </summary>
     /// <param name="productId">ID del producto</param>
