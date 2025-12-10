@@ -905,6 +905,8 @@ public class StockController : ControllerBase
     /// <param name="storeId">ID del store</param>
     /// <param name="page">Número de página (base 1)</param>
     /// <param name="pageSize">Cantidad de items por página (default: 20, máx: 100)</param>
+    /// <param name="dateFrom">Fecha desde (opcional)</param>
+    /// <param name="dateTo">Fecha hasta (opcional)</param>
     /// <returns>Página de movimientos con metadata de paginación</returns>
     [HttpGet("store/{storeId}/flat-timeline/paginated")]
     [Authorize]
@@ -915,7 +917,9 @@ public class StockController : ControllerBase
     public async Task<ActionResult<object>> GetStoreStockFlatTimelinePaginated(
         int storeId, 
         [FromQuery] int page = 1, 
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] DateTime? dateFrom = null,
+        [FromQuery] DateTime? dateTo = null)
     {
         try
         {
@@ -926,8 +930,8 @@ public class StockController : ControllerBase
 
             var skip = (page - 1) * pageSize;
 
-            _logger.LogInformation("Obteniendo timeline plano paginado para store {storeId} - Página {page}, Tamaño {pageSize}", 
-                storeId, page, pageSize);
+            _logger.LogInformation("Obteniendo timeline plano paginado para store {storeId} - Página {page}, Tamaño {pageSize}, DateFrom: {dateFrom}, DateTo: {dateTo}", 
+                storeId, page, pageSize, dateFrom, dateTo);
 
             // Verificar que el store existe
             var store = await _context.Stores.FindAsync(storeId);
@@ -936,11 +940,22 @@ public class StockController : ControllerBase
                 return NotFound(new { message = "Store no encontrado" });
             }
 
-            // SQL para contar el total de movimientos (sin filtro de activo para mostrar historial completo)
+            // Construir filtro de fecha
+            var dateFilter = "";
+            if (dateFrom.HasValue)
+            {
+                dateFilter += $" AND s.date >= '{dateFrom.Value:yyyy-MM-dd HH:mm:ss}'";
+            }
+            if (dateTo.HasValue)
+            {
+                dateFilter += $" AND s.date <= '{dateTo.Value:yyyy-MM-dd HH:mm:ss}'";
+            }
+
+            // SQL para contar el total de movimientos
             var countSql = $@"
                 SELECT COUNT(*)
                 FROM stock s
-                WHERE s.id_store = {storeId}";
+                WHERE s.id_store = {storeId}{dateFilter}";
 
             // SQL para obtener los movimientos paginados
             var sql = $@"
@@ -979,7 +994,7 @@ public class StockController : ControllerBase
                 LEFT JOIN sales sale ON s.sale_id = sale.id
                 LEFT JOIN payment_methods pm ON sale.payment_method = pm.id
                 LEFT JOIN stock parent ON s.stock_id = parent.id
-                WHERE s.id_store = {storeId}
+                WHERE s.id_store = {storeId}{dateFilter}
                 ORDER BY s.date DESC, s.created_at DESC
                 LIMIT {pageSize} OFFSET {skip}";
 
