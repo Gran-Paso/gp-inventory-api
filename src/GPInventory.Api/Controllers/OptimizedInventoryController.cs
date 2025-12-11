@@ -216,7 +216,7 @@ public class OptimizedInventoryController : ControllerBase
                     name = r.Name,
                     sku = r.Sku,
                     price = r.Price,
-                    cost = r.CurrentStock > 0 ? r.Cost : null, // Solo mostrar costo si hay stock
+                    cost = r.Cost, // Siempre mostrar costo, incluso si no hay stock
                     image = r.Image,
                     stockMin = r.StockMin,
                     currentStock = r.CurrentStock,
