@@ -136,7 +136,8 @@ public class OptimizedInventoryController : ControllerBase
                     pt.name as ProductTypeName,
                     COALESCE(stock_data.current_stock, 0) as CurrentStock,
                     COALESCE(month_sales.total_month_sales, 0) as MonthSales,
-                    COALESCE(today_sales.total_today_sales, 0) as TodaySales
+                    COALESCE(today_sales.total_today_sales, 0) as TodaySales,
+                    expiration_data.expiration_date as ExpirationDate
                 FROM product p
                 LEFT JOIN product_type pt ON p.product_type = pt.id
                 LEFT JOIN (
@@ -201,6 +202,30 @@ public class OptimizedInventoryController : ControllerBase
                     AND DATE(s.date) = CURDATE()
                     GROUP BY sd.product
                 ) today_sales ON p.id = today_sales.product_id
+                LEFT JOIN (
+                    SELECT 
+                        s1.product as product_id,
+                        s1.expiration_date
+                    FROM stock s1
+                    INNER JOIN store st ON s1.id_store = st.id
+                    INNER JOIN (
+                        SELECT 
+                            s2.product,
+                            MAX(s2.date) as max_date
+                        FROM stock s2
+                        INNER JOIN store st2 ON s2.id_store = st2.id
+                        WHERE st2.id_business = {0}
+                        AND COALESCE(s2.active, 0) = 1
+                        AND s2.amount > 0
+                        " + (storeId.HasValue ? "AND s2.id_store = {1}" : "") + @"
+                        AND s2.expiration_date IS NOT NULL
+                        GROUP BY s2.product
+                    ) latest ON s1.product = latest.product AND s1.date = latest.max_date
+                    WHERE st.id_business = {0}
+                    AND COALESCE(s1.active, 0) = 1
+                    " + (storeId.HasValue ? "AND s1.id_store = {1}" : "") + @"
+                    AND s1.expiration_date IS NOT NULL
+                ) expiration_data ON p.id = expiration_data.product_id
                 WHERE p.business = {0}
                 ORDER BY p.name;
             ";
@@ -224,6 +249,7 @@ public class OptimizedInventoryController : ControllerBase
                     stockDifference = r.CurrentStock - r.StockMin,
                 monthSales = r.MonthSales,
                 todaySales = r.TodaySales,
+                expirationDate = r.ExpirationDate?.ToString("yyyy-MM-ddTHH:mm:ss"),
                 productType = r.ProductTypeId != null ? new
                 {
                     id = r.ProductTypeId,
@@ -526,6 +552,7 @@ public class ProductStockResult
     public int CurrentStock { get; set; }
     public int MonthSales { get; set; }
     public int TodaySales { get; set; }
+    public DateTime? ExpirationDate { get; set; }
 
     private static decimal? CalculateChangePercent(decimal current, decimal previous)
     {
