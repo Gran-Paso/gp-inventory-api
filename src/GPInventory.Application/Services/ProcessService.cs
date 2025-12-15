@@ -1,6 +1,7 @@
 using GPInventory.Application.DTOs.Production;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
+using GPInventory.Application.DTOs.Components;
 
 namespace GPInventory.Application.Services;
 
@@ -8,11 +9,13 @@ public class ProcessService : IProcessService
 {
     private readonly IProcessRepository _processRepository;
     private readonly ISupplyRepository _supplyRepository;
+    private readonly IComponentRepository _componentRepository;
 
-    public ProcessService(IProcessRepository processRepository, ISupplyRepository supplyRepository)
+    public ProcessService(IProcessRepository processRepository, ISupplyRepository supplyRepository, IComponentRepository componentRepository)
     {
         _processRepository = processRepository;
         _supplyRepository = supplyRepository;
+        _componentRepository = componentRepository;
     }
 
     public async Task<ProcessDto> GetProcessByIdAsync(int id)
@@ -26,25 +29,25 @@ public class ProcessService : IProcessService
 
     public async Task<IEnumerable<ProcessDto>> GetAllProcessesAsync()
     {
-        var processes = await _processRepository.GetAllAsync();
+        var processes = await _processRepository.GetProcessesWithDetailsAsync();
         return processes.Select(MapToDto);
     }
 
     public async Task<IEnumerable<ProcessDto>> GetProcessesByStoreIdAsync(int storeId)
     {
-        var processes = await _processRepository.GetByStoreIdAsync(storeId);
+        var processes = await _processRepository.GetProcessesWithDetailsAsync(new[] { storeId });
         return processes.Select(MapToDto);
     }
 
     public async Task<IEnumerable<ProcessDto>> GetProcessesByProductIdAsync(int productId)
     {
-        var processes = await _processRepository.GetByProductIdAsync(productId);
-        return processes.Select(MapToDto);
+        var processes = await _processRepository.GetProcessesWithDetailsAsync();
+        return processes.Where(p => p.ProductId == productId).Select(MapToDto);
     }
 
     public async Task<IEnumerable<ProcessDto>> GetActiveProcessesAsync(int storeId)
     {
-        var processes = await _processRepository.GetByStoreIdAsync(storeId);
+        var processes = await _processRepository.GetProcessesWithDetailsAsync(new[] { storeId });
         return processes.Where(p => p.IsActive).Select(MapToDto);
     }
 
@@ -75,6 +78,20 @@ public class ProcessService : IProcessService
                 var processSupply = new ProcessSupply(createdProcess.Id, supplyDto.SupplyId, supplyDto.Order);
                 createdProcess.ProcessSupplies.Add(processSupply);
             }
+        }
+
+        // Crear las relaciones ProcessComponent
+        if (createProcessDto.ProcessComponents.Any())
+        {
+            foreach (var componentDto in createProcessDto.ProcessComponents)
+            {
+                var processComponent = new ProcessComponent(createdProcess.Id, componentDto.ComponentId, componentDto.Order);
+                createdProcess.ProcessComponents.Add(processComponent);
+            }
+        }
+
+        if (createProcessDto.ProcessSupplies.Any() || createProcessDto.ProcessComponents.Any())
+        {
             await _processRepository.UpdateAsync(createdProcess);
         }
 
@@ -108,6 +125,14 @@ public class ProcessService : IProcessService
             process.ProcessSupplies.Add(processSupply);
         }
 
+        // Actualizar ProcessComponents (eliminar existentes y crear nuevos)
+        process.ProcessComponents.Clear();
+        foreach (var componentDto in updateProcessDto.ProcessComponents)
+        {
+            var processComponent = new ProcessComponent(process.Id, componentDto.ComponentId, componentDto.Order);
+            process.ProcessComponents.Add(processComponent);
+        }
+
         var updatedProcess = await _processRepository.UpdateAsync(process);
         return MapToDto(updatedProcess);
     }
@@ -125,11 +150,12 @@ public class ProcessService : IProcessService
             throw new InvalidOperationException("Cannot delete process: Process has completed executions. Consider deactivating it instead.");
         }
 
-        // Si el proceso tiene ProcessSupplies, eliminarlos primero
-        if (process.ProcessSupplies?.Any() == true)
+        // Si el proceso tiene ProcessSupplies o ProcessComponents, eliminarlos primero
+        if (process.ProcessSupplies?.Any() == true || process.ProcessComponents?.Any() == true)
         {
-            // Limpiar las supplies del proceso
+            // Limpiar las supplies y components del proceso
             process.ProcessSupplies.Clear();
+            process.ProcessComponents.Clear();
             await _processRepository.UpdateAsync(process);
         }
 
@@ -214,7 +240,28 @@ public class ProcessService : IProcessService
                     CreatedAt = ps.Supply.CreatedAt,
                     UpdatedAt = ps.Supply.UpdatedAt
                 } : null
-            }).OrderBy(ps => ps.Order).ToList() ?? new List<ProcessSupplyDto>()
+            }).OrderBy(ps => ps.Order).ToList() ?? new List<ProcessSupplyDto>(),
+            ProcessComponents = process.ProcessComponents?.Select(pc => new ProcessComponentDto
+            {
+                Id = pc.Id,
+                ProcessId = pc.ProcessId,
+                ComponentId = pc.ComponentId,
+                Order = pc.Order,
+                CreatedAt = pc.CreatedAt,
+                UpdatedAt = pc.UpdatedAt,
+                IsActive = pc.IsActive,
+                Component = pc.Component != null ? new ComponentDto
+                {
+                    Id = pc.Component.Id,
+                    Name = pc.Component.Name,
+                    Description = pc.Component.Description,
+                    BusinessId = pc.Component.BusinessId,
+                    UnitMeasureId = pc.Component.UnitMeasureId,
+                    Active = pc.Component.Active,
+                    CreatedAt = pc.Component.CreatedAt,
+                    UpdatedAt = pc.Component.UpdatedAt
+                } : null
+            }).OrderBy(pc => pc.Order).ToList() ?? new List<ProcessComponentDto>()
         };
     }
 }

@@ -10,13 +10,15 @@ public class ProcessDoneService : IProcessDoneService
     private readonly IProcessRepository _processRepository;
     private readonly ISupplyEntryRepository _supplyEntryRepository;
     private readonly IStockRepository _stockRepository;
+    private readonly IComponentProductionRepository _componentProductionRepository;
 
-    public ProcessDoneService(IProcessDoneRepository processDoneRepository, IProcessRepository processRepository, ISupplyEntryRepository supplyEntryRepository, IStockRepository stockRepository)
+    public ProcessDoneService(IProcessDoneRepository processDoneRepository, IProcessRepository processRepository, ISupplyEntryRepository supplyEntryRepository, IStockRepository stockRepository, IComponentProductionRepository componentProductionRepository)
     {
         _processDoneRepository = processDoneRepository;
         _processRepository = processRepository;
         _supplyEntryRepository = supplyEntryRepository;
         _stockRepository = stockRepository;
+        _componentProductionRepository = componentProductionRepository;
     }
 
     public async Task<ProcessDoneDto> GetProcessDoneByIdAsync(int id)
@@ -62,6 +64,9 @@ public class ProcessDoneService : IProcessDoneService
 
         // Procesar todos los insumos en una sola operación para evitar problemas de concurrencia
         await ProcessAllSupplyConsumptionAsync(createProcessDoneDto.SupplyUsages, createdProcessDone.Id);
+
+        // Procesar todos los componentes usados
+        await ProcessAllComponentConsumptionAsync(createProcessDoneDto.ComponentUsages, createdProcessDone.Id, process);
 
         // Recargar con detalles
         var processWithDetails = await _processDoneRepository.GetByIdWithDetailsAsync(createdProcessDone.Id);
@@ -402,5 +407,34 @@ public class ProcessDoneService : IProcessDoneService
                 SupplyName = $"Insumo {se.SupplyId}" // Temporal, podríamos hacer una consulta separada si necesitamos el nombre
             }).ToList() ?? new List<SupplyUsageDto>()
         };
+    }
+
+    /// <summary>
+    /// Procesa el consumo de todos los componentes (registra entradas negativas de producción)
+    /// </summary>
+    private async Task ProcessAllComponentConsumptionAsync(List<CreateComponentUsageDto> componentUsages, int processDoneId, Process process)
+    {
+        if (componentUsages == null || !componentUsages.Any())
+            return;
+
+        foreach (var componentUsage in componentUsages)
+        {
+            // Crear entrada negativa de component_production para representar el consumo
+            var componentProduction = new ComponentProduction
+            {
+                ComponentId = componentUsage.ComponentId,
+                ProcessDoneId = processDoneId,
+                BusinessId = process.Product?.BusinessId ?? 1, // Obtener del proceso o usar default
+                StoreId = process.StoreId,
+                ProducedAmount = -componentUsage.QuantityUsed, // Negativo para representar consumo
+                ProductionDate = DateTime.Now,
+                Cost = componentUsage.UnitCost * componentUsage.QuantityUsed,
+                Notes = $"Consumido en proceso {process.Name}",
+                IsActive = true,
+                CreatedAt = DateTime.Now
+            };
+
+            await _componentProductionRepository.CreateAsync(componentProduction);
+        }
     }
 }
