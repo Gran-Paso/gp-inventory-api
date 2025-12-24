@@ -26,6 +26,7 @@ public class Process : BaseEntity
     
     // Collection navigation properties
     public ICollection<ProcessSupply> ProcessSupplies { get; set; } = new List<ProcessSupply>();
+    public ICollection<ProcessComponent> ProcessComponents { get; set; } = new List<ProcessComponent>();
     public ICollection<ProcessDone> ProcessDones { get; set; } = new List<ProcessDone>();
 
     public Process()

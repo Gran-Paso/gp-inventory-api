@@ -43,7 +43,11 @@ public class ApplicationDbContext : DbContext
     public DbSet<TimeUnit> TimeUnits { get; set; }
     public DbSet<Process> Processes { get; set; }
     public DbSet<ProcessSupply> ProcessSupplies { get; set; }
+    public DbSet<ProcessComponent> ProcessComponents { get; set; }
     public DbSet<ProcessDone> ProcessDones { get; set; }
+    public DbSet<Component> Components { get; set; }
+    public DbSet<ComponentSupply> ComponentSupplies { get; set; }
+    public DbSet<ComponentProduction> ComponentProductions { get; set; }
     
     // Gran Paso entities
     public DbSet<Prospect> Prospects { get; set; }
@@ -381,6 +385,162 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.Supply)
                 .WithMany(s => s.ProcessSupplies)
                 .HasForeignKey(e => e.SupplyId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ProcessComponent configuration
+        modelBuilder.Entity<ProcessComponent>(entity =>
+        {
+            entity.ToTable("process_components");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ProcessId).HasColumnName("process_id");
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.Order).HasColumnName("order");
+            
+            // BaseEntity properties - ignore since they don't exist in the database
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(e => e.Process)
+                .WithMany(p => p.ProcessComponents)
+                .HasForeignKey(e => e.ProcessId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Component)
+                .WithMany()
+                .HasForeignKey(e => e.ComponentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Component configuration
+        modelBuilder.Entity<Component>(entity =>
+        {
+            entity.ToTable("components");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.BusinessId).HasColumnName("business_id");
+            entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.Property(e => e.UnitMeasureId).HasColumnName("unit_measure_id");
+            entity.Property(e => e.PreparationTime).HasColumnName("preparation_time");
+            entity.Property(e => e.TimeUnitId).HasColumnName("time_unit_id");
+            entity.Property(e => e.YieldAmount).HasColumnName("yield_amount");
+            entity.Property(e => e.Active).HasColumnName("active");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            
+            // Ignore non-persisted display properties
+            entity.Ignore(e => e.UnitMeasureName);
+            entity.Ignore(e => e.UnitMeasureSymbol);
+
+            entity.HasOne<Business>()
+                .WithMany()
+                .HasForeignKey(e => e.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<Store>()
+                .WithMany()
+                .HasForeignKey(e => e.StoreId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<UnitMeasure>()
+                .WithMany()
+                .HasForeignKey(e => e.UnitMeasureId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<TimeUnit>()
+                .WithMany()
+                .HasForeignKey(e => e.TimeUnitId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Configure the ComponentSupply relationships explicitly
+            entity.HasMany(c => c.Supplies)
+                .WithOne(cs => cs.Component)
+                .HasForeignKey(cs => cs.ComponentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(c => c.UsedInComponents)
+                .WithOne(cs => cs.SubComponent)
+                .HasForeignKey(cs => cs.SubComponentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ComponentSupply configuration
+        modelBuilder.Entity<ComponentSupply>(entity =>
+        {
+            entity.ToTable("component_supplies");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.SupplyId).HasColumnName("supply_id");
+            entity.Property(e => e.SubComponentId).HasColumnName("sub_component_id");
+            entity.Property(e => e.Quantity).HasColumnName("quantity");
+            entity.Property(e => e.Order).HasColumnName("order");
+            entity.Property(e => e.ItemType).HasColumnName("item_type").HasMaxLength(50);
+            entity.Property(e => e.IsOptional).HasColumnName("is_optional");
+
+            // Configure the Component relationship (parent component)
+            entity.HasOne(cs => cs.Component)
+                .WithMany(c => c.Supplies)
+                .HasForeignKey(cs => cs.ComponentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Configure the Supply relationship (optional)
+            entity.HasOne(cs => cs.Supply)
+                .WithMany()
+                .HasForeignKey(cs => cs.SupplyId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
+
+            // Configure the SubComponent relationship (optional)
+            entity.HasOne(cs => cs.SubComponent)
+                .WithMany(c => c.UsedInComponents)
+                .HasForeignKey(cs => cs.SubComponentId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
+        });
+
+        // ComponentProduction configuration
+        modelBuilder.Entity<ComponentProduction>(entity =>
+        {
+            entity.ToTable("component_production");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.ComponentId).HasColumnName("component_id");
+            entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");
+            entity.Property(e => e.BusinessId).HasColumnName("business_id");
+            entity.Property(e => e.StoreId).HasColumnName("store_id");
+            entity.Property(e => e.ProducedAmount).HasColumnName("produced_amount");
+            entity.Property(e => e.ProductionDate).HasColumnName("production_date");
+            entity.Property(e => e.ExpirationDate).HasColumnName("expiration_date");
+            entity.Property(e => e.BatchNumber).HasColumnName("batch_number");
+            entity.Property(e => e.Cost).HasColumnName("cost");
+            entity.Property(e => e.Notes).HasColumnName("notes");
+            entity.Property(e => e.IsActive).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+
+            entity.HasOne(cp => cp.Component)
+                .WithMany(c => c.Productions)
+                .HasForeignKey(cp => cp.ComponentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(cp => cp.ProcessDone)
+                .WithMany(pd => pd.ComponentProductions)
+                .HasForeignKey(cp => cp.ProcessDoneId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
+
+            entity.HasOne(cp => cp.Business)
+                .WithMany()
+                .HasForeignKey(cp => cp.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(cp => cp.Store)
+                .WithMany()
+                .HasForeignKey(cp => cp.StoreId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

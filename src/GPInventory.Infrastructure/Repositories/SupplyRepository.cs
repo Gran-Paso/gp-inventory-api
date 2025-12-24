@@ -125,17 +125,62 @@ public class SupplyRepository : ISupplyRepository
 
     public async Task<IEnumerable<Supply>> GetByBusinessIdAsync(int businessId)
     {
-        var supplies = await _context.Supplies
-            .Where(s => s.BusinessId == businessId)
-            .ToListAsync();
+        var supplies = new List<Supply>();
 
-        // Manually populate the UnitMeasure navigation property
-        foreach (var supply in supplies)
+        await _context.Database.OpenConnectionAsync();
+        using var command = _context.Database.GetDbConnection().CreateCommand();
+        
+        command.CommandText = @"
+            SELECT 
+                s.id,
+                s.name,
+                s.business_id,
+                s.store_id,
+                s.unit_measure_id,
+                s.fixed_expense_id,
+                s.active,
+                um.id as unit_measure_id_val,
+                um.name as unit_measure_name,
+                um.symbol as unit_measure_symbol
+            FROM supplies s
+            LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+            WHERE s.business_id = @BusinessId
+            ORDER BY s.name";
+        
+        var businessIdParam = command.CreateParameter();
+        businessIdParam.ParameterName = "@BusinessId";
+        businessIdParam.Value = businessId;
+        command.Parameters.Add(businessIdParam);
+
+        using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
         {
-            supply.UnitMeasure = await _context.UnitMeasures
-                .FirstOrDefaultAsync(um => um.Id == supply.UnitMeasureId) ?? new UnitMeasure();
+            var supply = new Supply
+            {
+                Id = Convert.ToInt32(reader["id"]),
+                Name = Convert.ToString(reader["name"]) ?? string.Empty,
+                BusinessId = Convert.ToInt32(reader["business_id"]),
+                StoreId = Convert.ToInt32(reader["store_id"]),
+                UnitMeasureId = Convert.ToInt32(reader["unit_measure_id"]),
+                FixedExpenseId = reader.IsDBNull(reader.GetOrdinal("fixed_expense_id")) ? null : Convert.ToInt32(reader["fixed_expense_id"]),
+                Active = Convert.ToBoolean(reader["active"])
+            };
+
+            // Populate UnitMeasure navigation property
+            if (!reader.IsDBNull(reader.GetOrdinal("unit_measure_id_val")))
+            {
+                supply.UnitMeasure = new UnitMeasure
+                {
+                    Id = reader.GetInt32(reader.GetOrdinal("unit_measure_id_val")),
+                    Name = reader.GetString(reader.GetOrdinal("unit_measure_name")),
+                    Symbol = reader.GetString(reader.GetOrdinal("unit_measure_symbol"))
+                };
+            }
+
+            supplies.Add(supply);
         }
 
+        await _context.Database.CloseConnectionAsync();
         return supplies;
     }
 

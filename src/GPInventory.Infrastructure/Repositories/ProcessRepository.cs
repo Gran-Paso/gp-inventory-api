@@ -27,6 +27,7 @@ public class ProcessRepository : IProcessRepository
             .Include(p => p.TimeUnit)
             .Include(p => p.Store)
             .Include(p => p.ProcessSupplies)
+            .Include(p => p.ProcessComponents)
             .FirstOrDefaultAsync(p => p.Id == id);
     }
 
@@ -102,6 +103,8 @@ public class ProcessRepository : IProcessRepository
             .Include(p => p.Store)
             .Include(p => p.ProcessSupplies)
                 .ThenInclude(ps => ps.Supply)
+            .Include(p => p.ProcessComponents)
+                .ThenInclude(pc => pc.Component)
             .AsQueryable();
 
         if (storeIds != null && storeIds.Length > 0)

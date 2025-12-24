@@ -1,3 +1,5 @@
+using GPInventory.Application.DTOs.Components;
+
 namespace GPInventory.Application.DTOs.Production;
 
 public class ProcessDto
@@ -20,6 +22,7 @@ public class ProcessDto
     
     // Collection properties
     public List<ProcessSupplyDto> ProcessSupplies { get; set; } = new();
+    public List<ProcessComponentDto> ProcessComponents { get; set; } = new();
 }
 
 public class CreateProcessDto
@@ -31,6 +34,7 @@ public class CreateProcessDto
     public int TimeUnitId { get; set; }
     public int StoreId { get; set; }
     public List<CreateProcessSupplyDto> ProcessSupplies { get; set; } = new();
+    public List<CreateProcessComponentDto> ProcessComponents { get; set; } = new();
 }
 
 public class UpdateProcessDto
@@ -40,6 +44,7 @@ public class UpdateProcessDto
     public int ProductionTime { get; set; }
     public int TimeUnitId { get; set; }
     public List<CreateProcessSupplyDto> ProcessSupplies { get; set; } = new();
+    public List<CreateProcessComponentDto> ProcessComponents { get; set; } = new();
 }
 
 public class ProcessSupplyDto
@@ -59,6 +64,26 @@ public class ProcessSupplyDto
 public class CreateProcessSupplyDto
 {
     public int SupplyId { get; set; }
+    public int Order { get; set; }
+}
+
+public class ProcessComponentDto
+{
+    public int Id { get; set; }
+    public int ProcessId { get; set; }
+    public int ComponentId { get; set; }
+    public int Order { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public bool IsActive { get; set; }
+    
+    // Navigation properties
+    public ComponentDto? Component { get; set; }
+}
+
+public class CreateProcessComponentDto
+{
+    public int ComponentId { get; set; }
     public int Order { get; set; }
 }
 
@@ -112,6 +137,7 @@ public class CreateProcessDoneDto
     public DateTime? EndDate { get; set; }
     public string? Notes { get; set; }
     public List<CreateSupplyUsageDto> SupplyUsages { get; set; } = new();
+    public List<CreateComponentUsageDto> ComponentUsages { get; set; } = new();
 }
 
 public class SupplyUsageDto
@@ -127,6 +153,13 @@ public class SupplyUsageDto
 public class CreateSupplyUsageDto
 {
     public int SupplyId { get; set; }
+    public decimal QuantityUsed { get; set; }
+    public decimal UnitCost { get; set; } = 0;
+}
+
+public class CreateComponentUsageDto
+{
+    public int ComponentId { get; set; }
     public decimal QuantityUsed { get; set; }
     public decimal UnitCost { get; set; } = 0;
 }

@@ -34,6 +34,7 @@ public class ProcessDone : BaseEntity
     
     // Collection navigation properties
     public ICollection<SupplyEntry> SupplyEntries { get; set; } = new List<SupplyEntry>();
+    public ICollection<ComponentProduction> ComponentProductions { get; set; } = new List<ComponentProduction>();
 
     public ProcessDone()
     {
