@@ -129,7 +129,8 @@ public class OptimizedInventoryController : ControllerBase
                     p.name,
                     p.sku,
                     p.price,
-                    COALESCE(fifo_cost_data.fifo_cost, p.cost, 0) as Cost,
+                    COALESCE(p.cost, 0) as Cost,
+                    COALESCE(fifo_cost_data.fifo_cost, p.cost, 0) as AverageCost,
                     p.image,
                     COALESCE(p.minimumStock, 0) as StockMin,
                     pt.id as ProductTypeId,
@@ -241,7 +242,8 @@ public class OptimizedInventoryController : ControllerBase
                     name = r.Name,
                     sku = r.Sku,
                     price = r.Price,
-                    cost = r.Cost, // Siempre mostrar costo, incluso si no hay stock
+                    cost = r.Cost, // Costo original del producto de la tabla Product
+                    averageCost = r.AverageCost, // Costo promedio calculado con FIFO
                     image = r.Image,
                     stockMin = r.StockMin,
                     currentStock = r.CurrentStock,
@@ -545,6 +547,7 @@ public class ProductStockResult
     public string? Sku { get; set; }
     public decimal Price { get; set; }
     public decimal? Cost { get; set; }
+    public decimal? AverageCost { get; set; }
     public string? Image { get; set; }
     public int StockMin { get; set; }
     public int? ProductTypeId { get; set; }
