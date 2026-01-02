@@ -212,18 +212,20 @@ public class OptimizedInventoryController : ControllerBase
                     INNER JOIN (
                         SELECT 
                             s2.product,
-                            MAX(s2.date) as max_date
+                            MAX(s2.created_at) as max_created_at
                         FROM stock s2
                         INNER JOIN store st2 ON s2.id_store = st2.id
                         WHERE st2.id_business = {0}
                         AND COALESCE(s2.active, 0) = 1
                         AND s2.amount > 0
+                        AND s2.stock_id IS NULL
                         " + (storeId.HasValue ? "AND s2.id_store = {1}" : "") + @"
                         AND s2.expiration_date IS NOT NULL
                         GROUP BY s2.product
-                    ) latest ON s1.product = latest.product AND s1.date = latest.max_date
+                    ) latest ON s1.product = latest.product AND s1.created_at = latest.max_created_at
                     WHERE st.id_business = {0}
                     AND COALESCE(s1.active, 0) = 1
+                    AND s1.stock_id IS NULL
                     " + (storeId.HasValue ? "AND s1.id_store = {1}" : "") + @"
                     AND s1.expiration_date IS NOT NULL
                 ) expiration_data ON p.id = expiration_data.product_id
@@ -347,7 +349,8 @@ public class OptimizedInventoryController : ControllerBase
                     COALESCE(s.cost, 0) as UnitCost,
                     s.product as ProductId,
                     s.id_store as StoreId,
-                    COALESCE(s.created_at, NOW()) as CreatedAt
+                    COALESCE(s.created_at, NOW()) as CreatedAt,
+                    s.expiration_date as ExpirationDate
                 FROM stock s
                 WHERE s.product = {0} 
                     AND s.id_store = {1}
@@ -362,16 +365,41 @@ public class OptimizedInventoryController : ControllerBase
                 .SqlQueryRaw<StockLotResult>(query, productId, storeId)
                 .ToListAsync();
 
-            _logger.LogInformation("✅ Encontrados {count} lotes activos para producto {productId}", lots.Count, productId);
+            _logger.LogInformation("✅ Encontrados {count} lotes base para producto {productId}", lots.Count, productId);
             
-            // Log detallado de cada lote
+            // Calcular el stock real disponible para cada lote
+            var lotsWithRealStock = new List<StockLotResult>();
+            
             foreach (var lot in lots)
             {
-                _logger.LogInformation("📦 Lote ID: {lotId}, Cantidad: {amount}, Costo: {cost}, Fecha: {date}", 
-                    lot.Id, lot.Amount, lot.UnitCost, lot.CreatedAt);
+                // Calcular cuánto se ha vendido de este lote
+                var salesFromLot = await _context.SaleDetails
+                    .Where(sd => sd.StockId == lot.Id)
+                    .ToListAsync();
+                var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
+
+                // Calcular cuánto se ha removido de este lote (registros negativos)
+                var removalsFromLot = await _context.Stocks
+                    .Where(s => s.StockId == lot.Id && s.Amount < 0)
+                    .SumAsync(s => Math.Abs(s.Amount));
+
+                // Calcular el stock disponible real
+                var availableInLot = lot.Amount - soldFromLot - removalsFromLot;
+
+                _logger.LogInformation("📦 Lote ID: {lotId}, Original: {original}, Vendido: {sold}, Removido: {removed}, Disponible: {available}", 
+                    lot.Id, lot.Amount, soldFromLot, removalsFromLot, availableInLot);
+
+                // Solo incluir lotes con stock disponible
+                if (availableInLot > 0)
+                {
+                    lot.Amount = availableInLot;
+                    lotsWithRealStock.Add(lot);
+                }
             }
 
-            return Ok(lots);
+            _logger.LogInformation("✅ Devolviendo {count} lotes con stock disponible real", lotsWithRealStock.Count);
+
+            return Ok(lotsWithRealStock);
         }
         catch (Exception ex)
         {
@@ -411,11 +439,19 @@ public class OptimizedInventoryController : ControllerBase
         {
             _logger.LogInformation("🔄 Removiendo {amount} unidades del lote {lotId}", request.Amount, request.LotId);
 
-            // Verificar que el lote existe y tiene stock suficiente
+            // Verificar que el lote existe y calcular el stock disponible real
             var lotQuery = @"
-                SELECT s.id, s.amount, COALESCE(s.cost, 0) as UnitCost, s.product as ProductId, s.id_store as StoreId
+                SELECT 
+                    s.id as Id, 
+                    s.amount as Amount, 
+                    COALESCE(s.cost, 0) as UnitCost, 
+                    s.product as ProductId, 
+                    s.id_store as StoreId
                 FROM stock s
-                WHERE s.id = {0} AND s.amount > 0 AND COALESCE(s.active, 0) = 1";
+                WHERE s.id = {0} 
+                AND s.amount > 0 
+                AND COALESCE(s.active, 0) = 1
+                AND s.stock_id IS NULL";
 
             var lot = await _context.Database
                 .SqlQueryRaw<StockLotInfo>(lotQuery, request.LotId)
@@ -426,13 +462,44 @@ public class OptimizedInventoryController : ControllerBase
                 return BadRequest(new { message = "Lote no encontrado o sin stock disponible" });
             }
 
-            if (lot.Amount < request.Amount)
+            // Calcular cuánto se ha vendido de este lote
+            var salesFromLot = await _context.SaleDetails
+                .Where(sd => sd.StockId == request.LotId)
+                .ToListAsync();
+            var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
+
+            // Calcular cuánto se ha removido de este lote (registros negativos)
+            var removalsFromLot = await _context.Stocks
+                .Where(s => s.StockId == request.LotId && s.Amount < 0)
+                .SumAsync(s => Math.Abs(s.Amount));
+
+            // Calcular el stock disponible real
+            var availableInLot = lot.Amount - soldFromLot - removalsFromLot;
+
+            _logger.LogInformation("📦 Lote {lotId} - Original: {original}, Vendido: {sold}, Removido: {removed}, Disponible: {available}", 
+                request.LotId, lot.Amount, soldFromLot, removalsFromLot, availableInLot);
+
+            if (availableInLot < request.Amount)
             {
-                return BadRequest(new { message = $"Stock insuficiente. Disponible: {lot.Amount}, Solicitado: {request.Amount}" });
+                return BadRequest(new { message = $"Stock insuficiente. Disponible: {availableInLot}, Solicitado: {request.Amount}" });
             }
 
+            // Siempre crear registro negativo vinculado al lote original
+            var removeStockQuery = @"
+                INSERT INTO stock (amount, cost, product, id_store, stock_id, active, date, created_at, updated_at, flow)
+                VALUES ({0}, {1}, {2}, {3}, {4}, 1, NOW(), NOW(), NOW(), 12)";
+
+            await _context.Database.ExecuteSqlRawAsync(
+                removeStockQuery,
+                -request.Amount,        // Cantidad negativa
+                lot.UnitCost ?? 0,      // Mismo costo del lote original (0 si es NULL)
+                lot.ProductId,
+                lot.StoreId,
+                request.LotId           // Referencia al lote padre
+            );
+
             // Si la cantidad a eliminar es igual a la cantidad disponible, desactivar el lote
-            if (lot.Amount == request.Amount)
+            if (availableInLot == request.Amount)
             {
                 var deactivateLotQuery = @"
                     UPDATE stock 
@@ -442,22 +509,6 @@ public class OptimizedInventoryController : ControllerBase
                 await _context.Database.ExecuteSqlRawAsync(deactivateLotQuery, request.LotId);
                 
                 _logger.LogInformation("🔄 Lote {lotId} desactivado completamente (stock agotado)", request.LotId);
-            }
-            else
-            {
-                // Crear registro negativo vinculado al lote original
-                var removeStockQuery = @"
-                    INSERT INTO stock (amount, cost, product, id_store, stock_id, active, date, created_at, updated_at, flow)
-                    VALUES ({0}, {1}, {2}, {3}, {4}, 1, NOW(), NOW(), NOW(), 12)";
-
-                await _context.Database.ExecuteSqlRawAsync(
-                    removeStockQuery,
-                    -request.Amount,        // Cantidad negativa
-                    lot.UnitCost ?? 0,      // Mismo costo del lote original (0 si es NULL)
-                    lot.ProductId,
-                    lot.StoreId,
-                    request.LotId           // Referencia al lote padre
-                );
             }
 
             await _context.SaveChangesAsync();
@@ -575,6 +626,7 @@ public class StockLotResult
     public int ProductId { get; set; }
     public int StoreId { get; set; }
     public DateTime? CreatedAt { get; set; }
+    public DateTime? ExpirationDate { get; set; }
 }
 
 /// <summary>
