@@ -19,7 +19,7 @@ public class SupplyRepository : ISupplyRepository
         Supply? supply = null;
 
         await _context.Database.OpenConnectionAsync();
-        
+
         try
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
@@ -39,7 +39,7 @@ public class SupplyRepository : ISupplyRepository
                     s.updated_at
                 FROM supplies s
                 WHERE s.id = @supplyId";
-            
+
             var supplyIdParam = command.CreateParameter();
             supplyIdParam.ParameterName = "@supplyId";
             supplyIdParam.Value = id;
@@ -60,7 +60,7 @@ public class SupplyRepository : ISupplyRepository
 
                 // Set Id via reflection or use a property setter if available
                 typeof(Supply).GetProperty("Id")?.SetValue(supply, reader.GetInt32(0));
-                
+
                 // Set additional properties
                 supply.SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7);
                 supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
@@ -82,7 +82,7 @@ public class SupplyRepository : ISupplyRepository
         Supply? supply = null;
 
         await _context.Database.OpenConnectionAsync();
-        
+
         try
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
@@ -110,14 +110,14 @@ public class SupplyRepository : ISupplyRepository
                 LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
                 LEFT JOIN supply_categories sc ON s.supply_category_id = sc.id
                 WHERE s.id = @supplyId";
-            
+
             var parameter = command.CreateParameter();
             parameter.ParameterName = "@supplyId";
             parameter.Value = id;
             command.Parameters.Add(parameter);
 
             using var reader = await command.ExecuteReaderAsync();
-            
+
             if (await reader.ReadAsync())
             {
                 supply = new Supply
@@ -163,7 +163,7 @@ public class SupplyRepository : ISupplyRepository
         {
             await _context.Database.CloseConnectionAsync();
         }
-        
+
         if (supply == null)
             return null;
 
@@ -183,7 +183,7 @@ public class SupplyRepository : ISupplyRepository
         // Load SupplyEntries using simple SQL to avoid EF conflicts
         var supplyEntries = new List<SupplyEntry>();
         var totalStock = 0;
-        
+
         try
         {
             await _context.Database.OpenConnectionAsync();
@@ -198,26 +198,26 @@ public class SupplyRepository : ISupplyRepository
                   AND (
                     (se.active = 1 AND se.amount > 0) OR  
                     (se.amount < 0 AND se.supply_entry_id IS NOT NULL AND sep.active = 1)
-                  )";;
+                  )"; ;
 
             var parameter = command.CreateParameter();
             parameter.ParameterName = "@supplyId";
             parameter.Value = id;
             command.Parameters.Add(parameter);
-            
+
             using var reader = await command.ExecuteReaderAsync();
-            
+
             while (await reader.ReadAsync())
             {
                 var amount = Convert.ToInt32(reader.GetValue(2)); // se.Amount
-                
+
                 // Solo sumar al stock las entradas positivas (stock disponible)
                 // Las entradas negativas son consumos y no se suman al stock total
                 if (amount > 0)
                 {
                     totalStock += amount;
                 }
-                
+
                 var supplyEntry = new SupplyEntry
                 {
                     Id = reader.GetInt32(0), // se.Id
@@ -244,11 +244,11 @@ public class SupplyRepository : ISupplyRepository
         }
 
         supply.SupplyEntries = supplyEntries;
-        
+
         // Store the calculated stock somewhere accessible
         // Since Supply entity doesn't have a Stock property, we'll add it to a custom property or use a service method
         // For now, let's add the stock information to the SupplyDto in the service layer
-        
+
         return supply;
     }
 
@@ -264,7 +264,7 @@ public class SupplyRepository : ISupplyRepository
 
         await _context.Database.OpenConnectionAsync();
         using var command = _context.Database.GetDbConnection().CreateCommand();
-        
+
         command.CommandText = @"
             SELECT 
                 s.id,
@@ -301,7 +301,7 @@ public class SupplyRepository : ISupplyRepository
             ) proc_count ON s.id = proc_count.supply_id
             WHERE s.business_id = @BusinessId
             ORDER BY s.name";
-        
+
         var businessIdParam = command.CreateParameter();
         businessIdParam.ParameterName = "@BusinessId";
         businessIdParam.Value = businessId;
@@ -392,7 +392,7 @@ public class SupplyRepository : ISupplyRepository
     {
         entity.CreatedAt = DateTime.UtcNow;
         entity.UpdatedAt = DateTime.UtcNow;
-        
+
         _context.Supplies.Add(entity);
         await _context.SaveChangesAsync();
         return entity;
@@ -401,9 +401,9 @@ public class SupplyRepository : ISupplyRepository
     public async Task UpdateAsync(Supply entity)
     {
         entity.UpdatedAt = DateTime.UtcNow;
-        
+
         await _context.Database.OpenConnectionAsync();
-        
+
         try
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
@@ -501,7 +501,7 @@ public class SupplyRepository : ISupplyRepository
         Supply? supply = null;
 
         await _context.Database.OpenConnectionAsync();
-        
+
         try
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
@@ -521,12 +521,12 @@ public class SupplyRepository : ISupplyRepository
                     s.updated_at
                 FROM supplies s
                 WHERE s.name = @Name AND s.business_id = @BusinessId";
-            
+
             var nameParam = command.CreateParameter();
             nameParam.ParameterName = "@Name";
             nameParam.Value = name;
             command.Parameters.Add(nameParam);
-            
+
             var businessIdParam = command.CreateParameter();
             businessIdParam.ParameterName = "@BusinessId";
             businessIdParam.Value = businessId;
@@ -546,7 +546,7 @@ public class SupplyRepository : ISupplyRepository
                 );
 
                 typeof(Supply).GetProperty("Id")?.SetValue(supply, reader.GetInt32(0));
-                
+
                 supply.SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7);
                 supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
                 supply.CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10);
@@ -559,5 +559,89 @@ public class SupplyRepository : ISupplyRepository
         }
 
         return supply;
+    }
+
+    public async Task<IEnumerable<Application.DTOs.Production.SupplyStockDto>> GetAllSupplyStocksAsync(int? businessId = null)
+    {
+        var stockList = new List<Application.DTOs.Production.SupplyStockDto>();
+
+        try
+        {
+            await _context.Database.OpenConnectionAsync();
+
+            try
+            {
+                using var command = _context.Database.GetDbConnection().CreateCommand();
+
+                // Query optimizado que calcula todo en una sola consulta SQL
+                command.CommandText = @"
+                SELECT 
+                    s.id as supply_id,
+                    s.name as supply_name,
+                    um.name as unit_measure_name,
+                    um.symbol as unit_measure_symbol,
+                    COALESCE(SUM(CASE WHEN se.process_done_id IS NULL THEN se.amount ELSE 0 END), 0) as total_incoming,
+                    COALESCE(SUM(CASE WHEN se.process_done_id IS NOT NULL THEN se.amount ELSE 0 END), 0) as total_outgoing
+                FROM supplies s
+                LEFT JOIN supply_entry se ON s.id = se.supply_id
+                LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+                WHERE (@businessId IS NULL OR s.business_id = @businessId)
+                GROUP BY s.id, s.name, um.name, um.symbol
+                ORDER BY s.name";
+
+                var businessIdParam = command.CreateParameter();
+                businessIdParam.ParameterName = "@businessId";
+                businessIdParam.Value = businessId.HasValue ? (object)businessId.Value : DBNull.Value;
+                command.Parameters.Add(businessIdParam);
+
+                using var reader = await command.ExecuteReaderAsync();
+
+                while (await reader.ReadAsync())
+                {
+                    try
+                    {
+                        var supplyId = reader.GetInt32(reader.GetOrdinal("supply_id"));
+                        var supplyName = reader.GetString(reader.GetOrdinal("supply_name"));
+                        var unitMeasureName = reader.IsDBNull(reader.GetOrdinal("unit_measure_name"))
+                            ? "Unknown"
+                            : reader.GetString(reader.GetOrdinal("unit_measure_name"));
+                        var unitMeasureSymbol = reader.IsDBNull(reader.GetOrdinal("unit_measure_symbol"))
+                            ? null
+                            : reader.GetString(reader.GetOrdinal("unit_measure_symbol"));
+                        var totalIncoming = reader.GetDecimal(reader.GetOrdinal("total_incoming"));
+                        var totalOutgoing = reader.GetDecimal(reader.GetOrdinal("total_outgoing"));
+                        var currentStock = totalIncoming + totalOutgoing; // totalOutgoing ya incluye valores negativos
+
+                        stockList.Add(new Application.DTOs.Production.SupplyStockDto
+                        {
+                            SupplyId = supplyId,
+                            SupplyName = supplyName,
+                            CurrentStock = currentStock,
+                            UnitMeasureName = unitMeasureName,
+                            UnitMeasureSymbol = unitMeasureSymbol,
+                            TotalIncoming = totalIncoming,
+                            TotalOutgoing = Math.Abs(totalOutgoing) // Mostrar valor absoluto para la UI
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error processing supply stock row: {ex.Message}");
+                        // Continue processing other rows
+                    }
+                }
+            }
+            finally
+            {
+                await _context.Database.CloseConnectionAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error retrieving supply stocks: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw new Exception($"Failed to retrieve supply stocks: {ex.Message}", ex);
+        }
+
+        return stockList;
     }
 }

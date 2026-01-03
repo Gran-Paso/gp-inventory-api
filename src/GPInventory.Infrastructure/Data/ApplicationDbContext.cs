@@ -269,6 +269,10 @@ public class ApplicationDbContext : DbContext
             
             // BaseEntity properties
             entity.Ignore(e => e.IsActive);
+            
+            // Ignore calculated properties (not persisted in database)
+            entity.Ignore(e => e.ComponentUsageCount);
+            entity.Ignore(e => e.ProcessUsageCount); 
 
             // Ignore shadow properties that EF might try to create
             entity.Ignore("SupplyCategoryId1");

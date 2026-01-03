@@ -95,45 +95,7 @@ public class SupplyEntryService : ISupplyEntryService
 
     public async Task<IEnumerable<SupplyStockDto>> GetAllSupplyStocksAsync(int? businessId = null)
     {
-        // Load all supplies and all supply entries in separate queries to avoid connection conflicts
-        var allSupplies = await _supplyRepository.GetAllAsync();
-        var supplies = businessId.HasValue 
-            ? allSupplies.Where(s => s.BusinessId == businessId.Value)
-            : allSupplies;
-            
-        var allSupplyEntries = await _repository.GetAllAsync();
-        var unitMeasures = await _unitMeasureRepository.GetAllAsync();
-
-        var stockList = new List<SupplyStockDto>();
-
-        foreach (var supply in supplies)
-        {
-            // Filter entries for this supply
-            var supplyEntries = allSupplyEntries.Where(se => se.SupplyId == supply.Id).ToList();
-            
-            // Get unit measure from loaded collection
-            var unitMeasure = unitMeasures.FirstOrDefault(um => um.Id == supply.UnitMeasureId);
-            
-            // Calculate values based on ProcessDoneId
-            // Entradas: process_done_id IS NULL (incoming stock) - amounts positivos
-            // Salidas: process_done_id IS NOT NULL (outgoing stock used in processes) - amounts negativos
-            var totalIncoming = supplyEntries.Where(se => se.ProcessDoneId == null).Sum(se => (decimal)se.Amount);
-            var totalOutgoing = supplyEntries.Where(se => se.ProcessDoneId != null).Sum(se => (decimal)se.Amount);
-            var currentStock = totalIncoming + totalOutgoing; // totalOutgoing ya incluye valores negativos
-
-            stockList.Add(new SupplyStockDto
-            {
-                SupplyId = supply.Id,
-                SupplyName = supply.Name,
-                CurrentStock = currentStock,
-                UnitMeasureName = unitMeasure?.Name ?? "Unknown",
-                UnitMeasureSymbol = unitMeasure?.Symbol,
-                TotalIncoming = totalIncoming,
-                TotalOutgoing = Math.Abs(totalOutgoing) // Mostrar valor absoluto para la UI
-            });
-        }
-
-        return stockList.OrderBy(s => s.SupplyName);
+        return await _supplyRepository.GetAllSupplyStocksAsync(businessId);
     }
 
     public async Task<SupplyEntryDto> CreateAsync(CreateSupplyEntryDto createDto)

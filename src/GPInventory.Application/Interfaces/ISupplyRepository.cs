@@ -1,4 +1,5 @@
 using GPInventory.Domain.Entities;
+using GPInventory.Application.DTOs.Production;
 
 namespace GPInventory.Application.Interfaces;
 
@@ -16,4 +17,5 @@ public interface ISupplyRepository
     Task<IEnumerable<Supply>> GetSuppliesWithDetailsAsync(int[]? businessIds = null);
     Task<bool> ExistsAsync(int id);
     Task<Supply?> GetByNameAsync(string name, int businessId);
+    Task<IEnumerable<SupplyStockDto>> GetAllSupplyStocksAsync(int? businessId = null);
 }
