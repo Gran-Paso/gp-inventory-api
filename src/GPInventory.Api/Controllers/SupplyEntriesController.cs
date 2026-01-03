@@ -1,7 +1,9 @@
 using GPInventory.Application.DTOs.Production;
 using GPInventory.Application.Interfaces;
+using GPInventory.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GPInventory.Api.Controllers;
 
@@ -11,10 +13,17 @@ namespace GPInventory.Api.Controllers;
 public class SupplyEntriesController : ControllerBase
 {
     private readonly ISupplyEntryService _supplyEntryService;
+    private readonly ApplicationDbContext _context;
+    private readonly ILogger<SupplyEntriesController> _logger;
 
-    public SupplyEntriesController(ISupplyEntryService supplyEntryService)
+    public SupplyEntriesController(
+        ISupplyEntryService supplyEntryService,
+        ApplicationDbContext context,
+        ILogger<SupplyEntriesController> logger)
     {
         _supplyEntryService = supplyEntryService;
+        _context = context;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -178,4 +187,166 @@ public class SupplyEntriesController : ControllerBase
             return StatusCode(500, $"Error deleting supply entry: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Remover stock de un supply entry específico (agregar registro negativo)
+    /// </summary>
+    [HttpPost("entry/{entryId}/remove")]
+    public async Task<ActionResult<object>> RemoveStockFromSupplyEntry(int entryId, [FromBody] RemoveSupplyStockRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("🔄 Removiendo {amount} unidades del supply entry {entryId}", request.Amount, entryId);
+
+            await _context.Database.OpenConnectionAsync();
+            
+            try
+            {
+                using var connection = _context.Database.GetDbConnection();
+                
+                // Verificar que el entry existe y calcular el stock disponible real
+                var entryQuery = @"
+                    SELECT 
+                        se.id,
+                        se.amount,
+                        se.unit_cost,
+                        se.supply_id,
+                        se.provider_id,
+                        se.active
+                    FROM supply_entry se
+                    WHERE se.id = @entryId 
+                    AND se.amount > 0 
+                    AND se.active = 1
+                    AND se.supply_entry_id IS NULL";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = entryQuery;
+                var entryIdParam = cmd.CreateParameter();
+                entryIdParam.ParameterName = "@entryId";
+                entryIdParam.Value = entryId;
+                cmd.Parameters.Add(entryIdParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                
+                if (!await reader.ReadAsync())
+                {
+                    await reader.CloseAsync();
+                    return BadRequest(new { message = "Entry no encontrado o sin stock disponible" });
+                }
+
+                var originalAmount = reader.GetInt32(1); // amount es INT en la BD
+                var unitCost = reader.GetDecimal(2);
+                var supplyId = reader.GetInt32(3);
+                var providerId = reader.GetInt32(4);
+
+                await reader.CloseAsync();
+
+                // Calcular cuánto se ha removido o usado de este entry (registros negativos)
+                var removalsQuery = @"
+                    SELECT COALESCE(SUM(ABS(amount)), 0) as total_removed
+                    FROM supply_entry
+                    WHERE supply_entry_id = @entryId 
+                    AND amount < 0
+                    AND active = 1";
+
+                using var removalCmd = connection.CreateCommand();
+                removalCmd.CommandText = removalsQuery;
+                var removalEntryIdParam = removalCmd.CreateParameter();
+                removalEntryIdParam.ParameterName = "@entryId";
+                removalEntryIdParam.Value = entryId;
+                removalCmd.Parameters.Add(removalEntryIdParam);
+
+                var removedAmountObj = await removalCmd.ExecuteScalarAsync();
+                var removedAmount = Convert.ToInt32(removedAmountObj ?? 0); // amount es INT
+
+                // Calcular el stock disponible real
+                var availableInEntry = originalAmount - removedAmount;
+
+                _logger.LogInformation("📦 Entry {entryId} - Original: {original}, Removido: {removed}, Disponible: {available}", 
+                    entryId, originalAmount, removedAmount, availableInEntry);
+
+                if (availableInEntry < request.Amount)
+                {
+                    return BadRequest(new { message = $"Stock insuficiente. Disponible: {availableInEntry}, Solicitado: {request.Amount}" });
+                }
+
+                // Crear registro negativo vinculado al entry original
+                var removeStockQuery = @"
+                    INSERT INTO supply_entry (amount, unit_cost, supply_id, provider_id, supply_entry_id, active, created_at, updated_at)
+                    VALUES (@amount, @unitCost, @supplyId, @providerId, @supplyEntryId, 1, NOW(), NOW())";
+
+                using var insertCmd = connection.CreateCommand();
+                insertCmd.CommandText = removeStockQuery;
+                
+                var amountParam = insertCmd.CreateParameter();
+                amountParam.ParameterName = "@amount";
+                amountParam.Value = -request.Amount;
+                insertCmd.Parameters.Add(amountParam);
+
+                var costParam = insertCmd.CreateParameter();
+                costParam.ParameterName = "@unitCost";
+                costParam.Value = unitCost;
+                insertCmd.Parameters.Add(costParam);
+
+                var supplyIdParam = insertCmd.CreateParameter();
+                supplyIdParam.ParameterName = "@supplyId";
+                supplyIdParam.Value = supplyId;
+                insertCmd.Parameters.Add(supplyIdParam);
+
+                var providerIdParam = insertCmd.CreateParameter();
+                providerIdParam.ParameterName = "@providerId";
+                providerIdParam.Value = providerId;
+                insertCmd.Parameters.Add(providerIdParam);
+
+                var supplyEntryIdParam = insertCmd.CreateParameter();
+                supplyEntryIdParam.ParameterName = "@supplyEntryId";
+                supplyEntryIdParam.Value = entryId;
+                insertCmd.Parameters.Add(supplyEntryIdParam);
+
+                await insertCmd.ExecuteNonQueryAsync();
+
+                // Si la cantidad a eliminar es igual a la cantidad disponible, desactivar el entry
+                if (availableInEntry == request.Amount)
+                {
+                    var deactivateQuery = @"
+                        UPDATE supply_entry 
+                        SET active = 0, updated_at = NOW()
+                        WHERE id = @entryId";
+
+                    using var deactivateCmd = connection.CreateCommand();
+                    deactivateCmd.CommandText = deactivateQuery;
+                    var deactivateEntryIdParam = deactivateCmd.CreateParameter();
+                    deactivateEntryIdParam.ParameterName = "@entryId";
+                    deactivateEntryIdParam.Value = entryId;
+                    deactivateCmd.Parameters.Add(deactivateEntryIdParam);
+
+                    await deactivateCmd.ExecuteNonQueryAsync();
+                    
+                    _logger.LogInformation("🔄 Entry {entryId} desactivado completamente (stock agotado)", entryId);
+                }
+
+                _logger.LogInformation("✅ Stock de insumo removido exitosamente");
+
+                return Ok(new { 
+                    message = "Stock removido exitosamente",
+                    removedAmount = request.Amount,
+                    entryId = entryId
+                });
+            }
+            finally
+            {
+                await _context.Database.CloseConnectionAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error removiendo stock del supply entry {entryId}", entryId);
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
+        }
+    }
+}
+
+public class RemoveSupplyStockRequest
+{
+    public decimal Amount { get; set; }
 }

@@ -55,7 +55,7 @@ public class SupplyEntry : BaseEntity
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;
         ReferenceToSupplyEntry = referencedSupplyEntryId; // ⭐ Guardar la referencia
-        // Para consumos (negativos), IsActive = false
-        IsActive = amount > 0;
+        // Las entradas hijas (consumos) también deben estar activas por defecto
+        IsActive = true;
     }
 }

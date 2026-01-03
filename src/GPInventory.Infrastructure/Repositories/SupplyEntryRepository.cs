@@ -334,11 +334,18 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 se.created_at, 
                 se.updated_at,
                 se.supply_entry_id,
+                se.active,
+                s.name as supply_name,
+                um.name as unit_measure_name,
+                p.name as provider_name,
                 pd.id as process_done_id_full,
                 pd.process_id as process_id,
                 pd.notes as process_notes,
                 pd.completed_at as process_completed_at
             FROM supply_entry se 
+            LEFT JOIN supplies s ON se.supply_id = s.id
+            LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+            LEFT JOIN provider p ON se.provider_id = p.id
             LEFT JOIN process_done pd ON se.process_done_id = pd.id
             WHERE se.supply_id = @supplyId
             ORDER BY se.created_at DESC";
@@ -356,11 +363,18 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 se.created_at, 
                 se.updated_at,
                 se.supply_entry_id,
+                se.active,
+                s.name as supply_name,
+                um.name as unit_measure_name,
+                p.name as provider_name,
                 pd.id as process_done_id_full,
                 pd.process_id as process_id,
                 pd.notes as process_notes,
                 pd.completed_at as process_completed_at
             FROM supply_entry se 
+            LEFT JOIN supplies s ON se.supply_id = s.id
+            LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+            LEFT JOIN providers p ON se.provider_id = p.id
             LEFT JOIN process_done pd ON se.process_done_id = pd.id
             WHERE se.supply_entry_id = @supplyEntryId OR se.supply_id = @supplyId
             ORDER BY se.created_at DESC";
@@ -388,18 +402,44 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProviderId = reader.GetInt32(4), // provider_id
                 ProcessDoneId = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5), // process_done_id
                 CreatedAt = reader.GetDateTime(6), // created_at
-                UpdatedAt = reader.GetDateTime(7) // updated_at
+                UpdatedAt = reader.GetDateTime(7), // updated_at
+                ReferenceToSupplyEntry = reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8), // supply_entry_id
+                IsActive = !reader.IsDBNull(9) && reader.GetBoolean(9) // active
             };
 
+            // Agregar información de Supply
+            if (!reader.IsDBNull(10))
+            {
+                supplyEntry.Supply = new Supply
+                {
+                    Id = supplyEntry.SupplyId,
+                    Name = reader.GetString(10), // supply_name
+                    UnitMeasure = !reader.IsDBNull(11) ? new UnitMeasure
+                    {
+                        Name = reader.GetString(11) // unit_measure_name
+                    } : null
+                };
+            }
+
+            // Agregar información de Provider
+            if (!reader.IsDBNull(12))
+            {
+                supplyEntry.Provider = new Provider
+                {
+                    Id = supplyEntry.ProviderId,
+                    Name = reader.GetString(12) // provider_name
+                };
+            }
+
             // Si hay un process_done_id, crear el ProcessDone con la información disponible
-            if (!reader.IsDBNull(8))
+            if (!reader.IsDBNull(13))
             {
                 supplyEntry.ProcessDone = new ProcessDone
                 {
-                    Id = reader.GetInt32(8), // process_done_id_full
-                    ProcessId = reader.IsDBNull(9) ? 0 : reader.GetInt32(9), // process_id
-                    Notes = reader.IsDBNull(10) ? null : reader.GetString(10), // process_notes
-                    CompletedAt = reader.IsDBNull(11) ? DateTime.MinValue : reader.GetDateTime(11) // process_completed_at
+                    Id = reader.GetInt32(13), // process_done_id_full
+                    ProcessId = reader.IsDBNull(14) ? 0 : reader.GetInt32(14), // process_id
+                    Notes = reader.IsDBNull(15) ? null : reader.GetString(15), // process_notes
+                    CompletedAt = reader.IsDBNull(16) ? DateTime.MinValue : reader.GetDateTime(16) // process_completed_at
                 };
             }
 

@@ -11,6 +11,7 @@ public class SupplyEntryDto
     public int SupplyId { get; set; }
     public int? ProcessDoneId { get; set; }
     public int? ReferenceToSupplyEntry { get; set; }
+    public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

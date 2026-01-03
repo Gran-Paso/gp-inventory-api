@@ -115,16 +115,8 @@ public class ComponentInventoryController : ControllerBase
                 {
                     if (consumption.ItemType == "supply")
                     {
-                        // Consumir insumo (entrada negativa)
-                        var supplyEntry = new SupplyEntry(
-                            0,                           // UnitCost: 0 para consumos de producción
-                            -(int)consumption.Quantity,  // Cantidad negativa convertida a int
-                            1,                           // ProviderId por defecto
-                            consumption.ItemId,          // SupplyId
-                            null                         // ProcessDoneId
-                        );
-
-                        await _supplyEntryRepository.CreateAsync(supplyEntry);
+                        // Consumir insumo usando FIFO (entrada negativa con referencia al padre)
+                        await ConsumeSupplyWithFIFOAsync(consumption.ItemId, consumption.Quantity);
                     }
                     else if (consumption.ItemType == "component")
                     {
@@ -155,16 +147,8 @@ public class ComponentInventoryController : ControllerBase
 
                     if (ingredient.ItemType == "supply" && ingredient.SupplyId.HasValue)
                     {
-                        // Consumir insumo (entrada negativa)
-                        var supplyEntry = new SupplyEntry(
-                            0,                          // UnitCost: 0 para consumos de producción
-                            -(int)quantityToConsume,    // Cantidad negativa convertida a int
-                            1,                          // ProviderId por defecto
-                            ingredient.SupplyId.Value,  // SupplyId
-                            null                        // ProcessDoneId
-                        );
-
-                        await _supplyEntryRepository.CreateAsync(supplyEntry);
+                        // Consumir insumo usando FIFO (entrada negativa con referencia al padre)
+                        await ConsumeSupplyWithFIFOAsync(ingredient.SupplyId.Value, quantityToConsume);
                     }
                     else if (ingredient.ItemType == "component" && ingredient.SubComponentId.HasValue)
                     {
@@ -210,6 +194,71 @@ public class ComponentInventoryController : ControllerBase
         {
             return StatusCode(500, new { message = "Error al obtener las producciones", error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Consume insumos usando algoritmo FIFO con autoreferencia
+    /// </summary>
+    private async Task ConsumeSupplyWithFIFOAsync(int supplyId, decimal quantityToConsume)
+    {
+        var remainingQuantity = quantityToConsume;
+        
+        // Obtener todos los supply_entry disponibles para este insumo (FIFO)
+        var availableEntries = await _supplyEntryRepository.GetAvailableEntriesBySupplyIdAsync(supplyId);
+        
+        if (!availableEntries.Any())
+            throw new InvalidOperationException($"No hay stock disponible para el insumo ID {supplyId}");
+        
+        var entriesToUpdate = new List<SupplyEntry>(); // Entradas que necesitan actualización de active
+        
+        foreach (var availableEntry in availableEntries)
+        {
+            if (remainingQuantity <= 0) break;
+            
+            // Determinar cuánto consumir de esta entrada
+            var consumeFromThisEntry = Math.Min(remainingQuantity, availableEntry.Amount);
+            
+            // Crear supply_entry negativo con referencia al stock original usando el constructor correcto
+            var supplyEntry = new SupplyEntry(
+                availableEntry.UnitCost,           // Usar el costo del stock original
+                -(int)consumeFromThisEntry,        // Cantidad negativa
+                availableEntry.ProviderId,         // Usar el mismo proveedor
+                supplyId,                          // SupplyId
+                null,                              // ProcessDoneId (null para producción de componentes)
+                availableEntry.Id                  // ⭐ Referencia al stock original (supply_entry_id)
+            );
+            
+            await _supplyEntryRepository.CreateAsync(supplyEntry);
+            
+            // Si esta entrada se queda completamente vacía, marcarla para desactivar
+            var remainingInEntry = availableEntry.Amount - consumeFromThisEntry;
+            if (remainingInEntry == 0)
+            {
+                // Obtener la entrada original para actualizar su estado
+                var originalEntry = await _supplyEntryRepository.GetByIdAsync(availableEntry.Id);
+                if (originalEntry != null)
+                {
+                    originalEntry.IsActive = false; // Marcar como inactiva
+                    entriesToUpdate.Add(originalEntry);
+                }
+            }
+            
+            // Reducir la cantidad pendiente
+            remainingQuantity -= consumeFromThisEntry;
+        }
+        
+        // Actualizar todas las entradas que se quedaron vacías
+        foreach (var entry in entriesToUpdate)
+        {
+            await _supplyEntryRepository.UpdateAsync(entry);
+        }
+        
+        // Verificar que se pudo consumir toda la cantidad necesaria
+        if (remainingQuantity > 0)
+            throw new InvalidOperationException(
+                $"Stock insuficiente para el insumo ID {supplyId}. " +
+                $"Faltan {remainingQuantity} unidades"
+            );
     }
 }
 

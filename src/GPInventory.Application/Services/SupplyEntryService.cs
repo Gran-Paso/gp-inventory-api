@@ -263,7 +263,8 @@ public class SupplyEntryService : ISupplyEntryService
             ProviderId = supplyEntry.ProviderId,
             SupplyId = supplyEntry.SupplyId,
             ProcessDoneId = supplyEntry.ProcessDoneId,
-            ReferenceToSupplyEntry = supplyEntry.ReferenceToSupplyEntry, // ⭐ Agregar mapeo
+            ReferenceToSupplyEntry = supplyEntry.ReferenceToSupplyEntry,
+            IsActive = supplyEntry.IsActive,
             CreatedAt = supplyEntry.CreatedAt,
             UpdatedAt = supplyEntry.UpdatedAt,
             Provider = supplyEntry.Provider != null ? new ProviderDto
@@ -278,6 +279,12 @@ public class SupplyEntryService : ISupplyEntryService
                 Name = supplyEntry.Supply.Name,
                 Description = supplyEntry.Supply.Description,
                 UnitMeasureId = supplyEntry.Supply.UnitMeasureId,
+                UnitMeasure = supplyEntry.Supply.UnitMeasure != null ? new UnitMeasureDto
+                {
+                    Id = supplyEntry.Supply.UnitMeasure.Id,
+                    Name = supplyEntry.Supply.UnitMeasure.Name,
+                    Symbol = supplyEntry.Supply.UnitMeasure.Symbol
+                } : null,
                 FixedExpenseId = supplyEntry.Supply.FixedExpenseId,
                 Active = supplyEntry.Supply.Active,
                 BusinessId = supplyEntry.Supply.BusinessId,
