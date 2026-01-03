@@ -154,7 +154,7 @@ public class ProcessService : IProcessService
         if (process.ProcessSupplies?.Any() == true || process.ProcessComponents?.Any() == true)
         {
             // Limpiar las supplies y components del proceso
-            process.ProcessSupplies.Clear();
+            process.ProcessSupplies?.Clear();
             process.ProcessComponents.Clear();
             await _processRepository.UpdateAsync(process);
         }

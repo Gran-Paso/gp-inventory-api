@@ -542,7 +542,7 @@ public class StockController : ControllerBase
                 .OrderBy(s => s.Date) // FIFO: más antiguos primero
                 .ToListAsync();
 
-            // Para cada lote, calcular cuánto se ha usado en ventas
+            // Para cada lote, calcular cuánto se ha usado en ventas y salidas
             var lotsWithAvailability = new List<object>();
             var totalAvailable = 0;
 
@@ -555,7 +555,15 @@ public class StockController : ControllerBase
 
                 var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
 
-                var availableInLot = lot.Amount - soldFromLot;
+                // Calcular cuánto se ha removido de este lote (registros negativos con stock_id = lot.Id)
+                var removalsFromLot = await _context.Stocks
+                    .Where(s => s.StockId == lot.Id && s.Amount < 0)
+                    .ToListAsync();
+
+                var removedFromLot = removalsFromLot.Sum(s => Math.Abs(s.Amount));
+
+                // Calcular el stock disponible real
+                var availableInLot = lot.Amount - soldFromLot - removedFromLot;
 
                 // Solo incluir lotes con stock disponible
                 if (availableInLot > 0)
