@@ -15,10 +15,13 @@ public class ComponentProduction
     public string? Notes { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public int? ComponentProductionId { get; set; } // Auto-referencia para FIFO
     
     // Navigation properties
     public virtual Component Component { get; set; } = null!;
     public virtual ProcessDone? ProcessDone { get; set; }
     public virtual Business? Business { get; set; }
     public virtual Store? Store { get; set; }
+    public virtual ComponentProduction? ParentProduction { get; set; } // Producción padre (FIFO)
 }

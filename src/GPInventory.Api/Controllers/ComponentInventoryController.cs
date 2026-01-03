@@ -1,5 +1,6 @@
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
+using GPInventory.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,15 +15,21 @@ public class ComponentInventoryController : ControllerBase
     private readonly IComponentProductionRepository _componentProductionRepository;
     private readonly IComponentRepository _componentRepository;
     private readonly ISupplyEntryRepository _supplyEntryRepository;
+    private readonly ApplicationDbContext _context;
+    private readonly ILogger<ComponentInventoryController> _logger;
 
     public ComponentInventoryController(
         IComponentProductionRepository componentProductionRepository,
         IComponentRepository componentRepository,
-        ISupplyEntryRepository supplyEntryRepository)
+        ISupplyEntryRepository supplyEntryRepository,
+        ApplicationDbContext context,
+        ILogger<ComponentInventoryController> logger)
     {
         _componentProductionRepository = componentProductionRepository;
         _componentRepository = componentRepository;
         _supplyEntryRepository = supplyEntryRepository;
+        _context = context;
+        _logger = logger;
     }
 
     /// <summary>
@@ -260,6 +267,194 @@ public class ComponentInventoryController : ControllerBase
                 $"Faltan {remainingQuantity} unidades"
             );
     }
+
+    /// <summary>
+    /// Remover stock de una producción de componente específica (agregar registro negativo con FIFO)
+    /// </summary>
+    [HttpPost("production/{productionId}/remove")]
+    public async Task<ActionResult<object>> RemoveStockFromProduction(int productionId, [FromBody] RemoveComponentStockRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("🔄 Removiendo {amount} unidades de la producción de componente {productionId}", request.Amount, productionId);
+
+            await _context.Database.OpenConnectionAsync();
+            
+            try
+            {
+                using var connection = _context.Database.GetDbConnection();
+                
+                // Verificar que la producción existe y calcular el stock disponible real
+                var productionQuery = @"
+                    SELECT 
+                        cp.id,
+                        cp.produced_amount,
+                        cp.component_id,
+                        cp.business_id,
+                        cp.store_id,
+                        cp.is_active
+                    FROM component_production cp
+                    WHERE cp.id = @productionId 
+                    AND cp.produced_amount > 0 
+                    AND cp.is_active = 1
+                    AND cp.component_production_id IS NULL";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = productionQuery;
+                var productionIdParam = cmd.CreateParameter();
+                productionIdParam.ParameterName = "@productionId";
+                productionIdParam.Value = productionId;
+                cmd.Parameters.Add(productionIdParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                
+                if (!await reader.ReadAsync())
+                {
+                    await reader.CloseAsync();
+                    return BadRequest(new { message = "Producción no encontrada o sin stock disponible" });
+                }
+
+                var originalAmount = reader.GetInt32(1);
+                var componentId = reader.GetInt32(2);
+                var businessId = reader.GetInt32(3);
+                var storeId = reader.GetInt32(4);
+
+                await reader.CloseAsync();
+
+                // Calcular cuánto se ha removido de esta producción (registros negativos)
+                var removalsQuery = @"
+                    SELECT COALESCE(SUM(ABS(produced_amount)), 0) as total_removed
+                    FROM component_production
+                    WHERE component_production_id = @productionId 
+                    AND produced_amount < 0
+                    AND is_active = 1";
+
+                using var removalCmd = connection.CreateCommand();
+                removalCmd.CommandText = removalsQuery;
+                var removalProductionIdParam = removalCmd.CreateParameter();
+                removalProductionIdParam.ParameterName = "@productionId";
+                removalProductionIdParam.Value = productionId;
+                removalCmd.Parameters.Add(removalProductionIdParam);
+
+                var removedAmount = Convert.ToInt32(await removalCmd.ExecuteScalarAsync());
+
+                // Calcular el stock disponible real
+                var availableInProduction = originalAmount - removedAmount;
+
+                _logger.LogInformation("📦 Producción {productionId} - Original: {original}, Removido: {removed}, Disponible: {available}", 
+                    productionId, originalAmount, removedAmount, availableInProduction);
+
+                if (availableInProduction < request.Amount)
+                {
+                    return BadRequest(new { message = $"Stock insuficiente. Disponible: {availableInProduction}, Solicitado: {request.Amount}" });
+                }
+
+                // Crear registro negativo vinculado a la producción original
+                var removeStockQuery = @"
+                    INSERT INTO component_production (
+                        component_id, 
+                        business_id, 
+                        store_id, 
+                        produced_amount, 
+                        component_production_id, 
+                        is_active, 
+                        production_date, 
+                        created_at, 
+                        updated_at,
+                        notes
+                    )
+                    VALUES (
+                        @componentId, 
+                        @businessId, 
+                        @storeId, 
+                        @amount, 
+                        @componentProductionId, 
+                        1, 
+                        NOW(), 
+                        NOW(), 
+                        NOW(),
+                        @notes
+                    )";
+
+                using var insertCmd = connection.CreateCommand();
+                insertCmd.CommandText = removeStockQuery;
+                
+                var amountParam = insertCmd.CreateParameter();
+                amountParam.ParameterName = "@amount";
+                amountParam.Value = -request.Amount;
+                insertCmd.Parameters.Add(amountParam);
+
+                var componentIdParam = insertCmd.CreateParameter();
+                componentIdParam.ParameterName = "@componentId";
+                componentIdParam.Value = componentId;
+                insertCmd.Parameters.Add(componentIdParam);
+
+                var businessIdParam = insertCmd.CreateParameter();
+                businessIdParam.ParameterName = "@businessId";
+                businessIdParam.Value = businessId;
+                insertCmd.Parameters.Add(businessIdParam);
+
+                var storeIdParam = insertCmd.CreateParameter();
+                storeIdParam.ParameterName = "@storeId";
+                storeIdParam.Value = storeId;
+                insertCmd.Parameters.Add(storeIdParam);
+
+                var componentProductionIdParam = insertCmd.CreateParameter();
+                componentProductionIdParam.ParameterName = "@componentProductionId";
+                componentProductionIdParam.Value = productionId;
+                insertCmd.Parameters.Add(componentProductionIdParam);
+
+                var notesParam = insertCmd.CreateParameter();
+                notesParam.ParameterName = "@notes";
+                notesParam.Value = request.Notes ?? "Stock removido manualmente";
+                insertCmd.Parameters.Add(notesParam);
+
+                await insertCmd.ExecuteNonQueryAsync();
+
+                _logger.LogInformation("✅ Registro negativo creado para la producción {productionId}", productionId);
+
+                // Si la producción se queda vacía, desactivarla
+                if (availableInProduction == request.Amount)
+                {
+                    var deactivateQuery = @"
+                        UPDATE component_production 
+                        SET is_active = 0, updated_at = NOW()
+                        WHERE id = @productionId";
+
+                    using var deactivateCmd = connection.CreateCommand();
+                    deactivateCmd.CommandText = deactivateQuery;
+                    var deactivateIdParam = deactivateCmd.CreateParameter();
+                    deactivateIdParam.ParameterName = "@productionId";
+                    deactivateIdParam.Value = productionId;
+                    deactivateCmd.Parameters.Add(deactivateIdParam);
+
+                    await deactivateCmd.ExecuteNonQueryAsync();
+
+                    _logger.LogInformation("🔒 Producción {productionId} desactivada (stock agotado)", productionId);
+                }
+
+                await _context.Database.CloseConnectionAsync();
+
+                return Ok(new
+                {
+                    message = "Stock removido exitosamente",
+                    removedAmount = request.Amount,
+                    productionId = productionId
+                });
+            }
+            catch (Exception ex)
+            {
+                await _context.Database.CloseConnectionAsync();
+                _logger.LogError(ex, "❌ Error removiendo stock de la producción {productionId}", productionId);
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error removiendo stock de la producción {productionId}", productionId);
+            return StatusCode(500, new { message = "Error al remover stock", error = ex.Message });
+        }
+    }
 }
 
 // DTOs
@@ -291,4 +486,10 @@ public class IngredientConsumptionDto
     public string ItemType { get; set; } = "supply"; // 'supply' | 'component'
     public int ItemId { get; set; }
     public decimal Quantity { get; set; }
+}
+
+public class RemoveComponentStockRequest
+{
+    public int Amount { get; set; }
+    public string? Notes { get; set; }
 }

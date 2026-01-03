@@ -567,6 +567,8 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Notes).HasColumnName("notes");
             entity.Property(e => e.IsActive).HasColumnName("is_active");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.ComponentProductionId).HasColumnName("component_production_id");
 
             entity.HasOne(cp => cp.Component)
                 .WithMany(c => c.Productions)
@@ -588,6 +590,13 @@ public class ApplicationDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(cp => cp.StoreId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // Auto-referencia FIFO: producción padre
+            entity.HasOne(cp => cp.ParentProduction)
+                .WithMany()
+                .HasForeignKey(cp => cp.ComponentProductionId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
         });
 
         // ProcessDone configuration
