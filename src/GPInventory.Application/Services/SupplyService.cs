@@ -94,40 +94,53 @@ public class SupplyService : ISupplyService
 
     public async Task<SupplyDto> UpdateSupplyAsync(int id, UpdateSupplyDto updateSupplyDto)
     {
-        var supply = await _supplyRepository.GetByIdAsync(id);
-        if (supply == null)
-            throw new ArgumentException($"Supply with ID {id} not found");
-
-        // Verificar que no existe otro supply con el mismo nombre en el business
-        var existingSupply = await _supplyRepository.GetByNameAsync(updateSupplyDto.Name, supply.BusinessId);
-        if (existingSupply != null && existingSupply.Id != id)
-            throw new ArgumentException($"A supply with name '{updateSupplyDto.Name}' already exists in this business");
-
-        // Actualizar el gasto fijo asociado si existe
-        if (supply.FixedExpenseId.HasValue)
+        try
         {
-            var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
-            if (fixedExpense != null)
+            var supply = await _supplyRepository.GetByIdAsync(id);
+            if (supply == null)
+                throw new ArgumentException($"Supply with ID {id} not found");
+
+            // Verificar que no existe otro supply con el mismo nombre en el business
+            var existingSupply = await _supplyRepository.GetByNameAsync(updateSupplyDto.Name, supply.BusinessId);
+            if (existingSupply != null && existingSupply.Id != id)
+                throw new ArgumentException($"A supply with name '{updateSupplyDto.Name}' already exists in this business");
+
+            // Actualizar el gasto fijo asociado si existe
+            if (supply.FixedExpenseId.HasValue)
             {
-                fixedExpense.AdditionalNote = $"Gasto fijo para insumo: {updateSupplyDto.Name}";
-                fixedExpense.Amount = updateSupplyDto.FixedExpenseAmount;
-                fixedExpense.SubcategoryId = updateSupplyDto.SubcategoryId;
-                fixedExpense.PaymentDate = updateSupplyDto.PaymentDate;
-                fixedExpense.StoreId = updateSupplyDto.StoreId;
-                
-                await _fixedExpenseRepository.UpdateAsync(fixedExpense);
+                var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
+                if (fixedExpense != null)
+                {
+                    fixedExpense.AdditionalNote = $"Gasto fijo para insumo: {updateSupplyDto.Name}";
+                    fixedExpense.Amount = updateSupplyDto.FixedExpenseAmount;
+                    fixedExpense.SubcategoryId = updateSupplyDto.SubcategoryId;
+                    fixedExpense.PaymentDate = updateSupplyDto.PaymentDate;
+                    fixedExpense.StoreId = updateSupplyDto.StoreId;
+                    
+                    await _fixedExpenseRepository.UpdateAsync(fixedExpense);
+                }
             }
+
+            // Actualizar el supply
+            supply.Name = updateSupplyDto.Name;
+            supply.Description = updateSupplyDto.Description;
+            supply.UnitMeasureId = updateSupplyDto.UnitMeasureId;
+            supply.Active = updateSupplyDto.Active;
+            supply.StoreId = updateSupplyDto.StoreId;
+            supply.SupplyCategoryId = updateSupplyDto.SupplyCategoryId;
+            supply.Type = updateSupplyDto.Type;
+
+            await _supplyRepository.UpdateAsync(supply);
+            return MapToDto(supply);
         }
-
-        // Actualizar el supply
-        supply.Name = updateSupplyDto.Name;
-        supply.Description = updateSupplyDto.Description;
-        supply.UnitMeasureId = updateSupplyDto.UnitMeasureId;
-        supply.Active = updateSupplyDto.Active;
-        supply.StoreId = updateSupplyDto.StoreId;
-
-        await _supplyRepository.UpdateAsync(supply);
-        return MapToDto(supply);
+        catch (ArgumentException)
+        {
+            throw; // Re-throw validation errors
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Error updating supply: {ex.Message}", ex);
+        }
     }
 
     public async Task DeleteSupplyAsync(int id)
@@ -159,6 +172,11 @@ public class SupplyService : ISupplyService
             StoreId = supply.StoreId,
             CreatedAt = supply.CreatedAt,
             UpdatedAt = supply.UpdatedAt,
+            SupplyCategoryId = supply.SupplyCategoryId,
+            Type = supply.Type,
+            ComponentUsageCount = supply.ComponentUsageCount,
+            ProcessUsageCount = supply.ProcessUsageCount,
+            UsageCount = supply.ComponentUsageCount + supply.ProcessUsageCount, // Total
             
             // Calculate current stock from SupplyEntries
             CurrentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0,
@@ -169,6 +187,12 @@ public class SupplyService : ISupplyService
                 Id = supply.UnitMeasure.Id,
                 Name = supply.UnitMeasure.Name,
                 Symbol = supply.UnitMeasure.Symbol
+            } : null,
+            SupplyCategory = supply.SupplyCategory != null ? new SupplyCategoryDto
+            {
+                Id = supply.SupplyCategory.Id,
+                Name = supply.SupplyCategory.Name,
+                Description = supply.SupplyCategory.Description
             } : null,
             FixedExpense = supply.FixedExpense != null ? new DTOs.Production.FixedExpenseDto
             {

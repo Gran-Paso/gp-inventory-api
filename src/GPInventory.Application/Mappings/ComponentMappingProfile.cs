@@ -1,5 +1,6 @@
 using AutoMapper;
 using GPInventory.Application.DTOs.Components;
+using GPInventory.Application.DTOs.Production;
 using GPInventory.Domain.Entities;
 
 namespace GPInventory.Application.Mappings;
@@ -9,10 +10,12 @@ public class ComponentMappingProfile : Profile
     public ComponentMappingProfile()
     {
         // Component mappings
-        CreateMap<Component, ComponentDto>();
+        CreateMap<Component, ComponentDto>()
+            .ForMember(dest => dest.SupplyCategory, opt => opt.MapFrom(src => src.SupplyCategory));
         
         CreateMap<Component, ComponentWithSuppliesDto>()
-            .ForMember(dest => dest.Supplies, opt => opt.MapFrom(src => src.Supplies));
+            .ForMember(dest => dest.Supplies, opt => opt.MapFrom(src => src.Supplies))
+            .ForMember(dest => dest.SupplyCategory, opt => opt.MapFrom(src => src.SupplyCategory));
         
         CreateMap<CreateComponentDto, Component>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
@@ -70,5 +73,8 @@ public class ComponentMappingProfile : Profile
             .ForMember(dest => dest.ProcessDone, opt => opt.Ignore())
             .ForMember(dest => dest.Business, opt => opt.Ignore())
             .ForMember(dest => dest.Store, opt => opt.Ignore());
+        
+        // SupplyCategory mapping
+        CreateMap<SupplyCategory, SupplyCategoryDto>();
     }
 }

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using GPInventory.Application.DTOs.Expenses;
+using GPInventory.Domain.Enums;
 
 namespace GPInventory.Application.DTOs.Production;
 
@@ -25,6 +26,10 @@ public class CreateSupplyDto
     
     public bool Active { get; set; } = true;
     
+    public int? SupplyCategoryId { get; set; }
+    
+    public SupplyType Type { get; set; } = SupplyType.Both;
+    
     [Required]
     public int BusinessId { get; set; }
     
@@ -43,6 +48,11 @@ public class SupplyDto
     public bool Active { get; set; }
     public int BusinessId { get; set; }
     public int StoreId { get; set; }
+    public int? SupplyCategoryId { get; set; }
+    public SupplyType Type { get; set; }
+    public int UsageCount { get; set; } = 0; // Total usage (legacy)
+    public int ComponentUsageCount { get; set; } = 0; // Usage in components
+    public int ProcessUsageCount { get; set; } = 0; // Usage in processes
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     
@@ -55,6 +65,7 @@ public class SupplyDto
     public ExpenseTypeDto? ExpenseType { get; set; }
     public BusinessDto? Business { get; set; }
     public StoreDto? Store { get; set; }
+    public SupplyCategoryDto? SupplyCategory { get; set; }
     
     // Collection properties
     public ICollection<SupplyEntryDto> SupplyEntries { get; set; } = new List<SupplyEntryDto>();
@@ -84,6 +95,10 @@ public class UpdateSupplyDto
     
     public bool Active { get; set; } = true;
     
+    public int? SupplyCategoryId { get; set; }
+    
+    public SupplyType Type { get; set; } = SupplyType.Both;
+    
     [Required]
     public int StoreId { get; set; }
 }
@@ -100,6 +115,29 @@ public class StoreDto
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Location { get; set; }
+}
+
+public class SupplyCategoryDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool Active { get; set; }
+}
+
+public class CreateSupplyCategoryDto
+{
+    [Required]
+    [StringLength(100)]
+    public string Name { get; set; } = string.Empty;
+    
+    [StringLength(500)]
+    public string? Description { get; set; }
+    
+    public bool Active { get; set; } = true;
+    
+    [Required]
+    public int BusinessId { get; set; }
 }
 
 public class FixedExpenseDto

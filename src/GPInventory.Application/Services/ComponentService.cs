@@ -51,6 +51,13 @@ public class ComponentService : IComponentService
             throw new KeyNotFoundException($"Component with id {id} not found");
 
         _mapper.Map(dto, existing);
+        
+        // Asegurarse de que SupplyCategoryId se actualice correctamente
+        if (dto.SupplyCategoryId.HasValue)
+        {
+            existing.SupplyCategoryId = dto.SupplyCategoryId.Value == 0 ? null : dto.SupplyCategoryId;
+        }
+        
         existing.UpdatedAt = DateTime.UtcNow;
 
         var updated = await _repository.UpdateAsync(existing);

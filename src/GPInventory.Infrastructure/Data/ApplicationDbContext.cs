@@ -38,6 +38,7 @@ public class ApplicationDbContext : DbContext
     
     // Production entities
     public DbSet<Supply> Supplies { get; set; }
+    public DbSet<SupplyCategory> SupplyCategories { get; set; }
     public DbSet<SupplyEntry> SupplyEntries { get; set; }
     public DbSet<UnitMeasure> UnitMeasures { get; set; }
     public DbSet<TimeUnit> TimeUnits { get; set; }
@@ -261,11 +262,23 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.FixedExpenseId).HasColumnName("fixed_expense_id");
             entity.Property(e => e.Active).HasColumnName("active");
             entity.Property(e => e.UnitMeasureId).HasColumnName("unit_measure_id");
+            entity.Property(e => e.SupplyCategoryId).HasColumnName("supply_category_id");
+            entity.Property(e => e.Type).HasColumnName("type");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             
-            // BaseEntity properties - ignore since they don't exist in the database
-            entity.Ignore(e => e.CreatedAt);
-            entity.Ignore(e => e.UpdatedAt);
+            // BaseEntity properties
             entity.Ignore(e => e.IsActive);
+
+            // Ignore shadow properties that EF might try to create
+            entity.Ignore("SupplyCategoryId1");
+            entity.Ignore("UnitMeasure");
+
+            entity.HasOne(e => e.SupplyCategory)
+                .WithMany()
+                .HasForeignKey(e => e.SupplyCategoryId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
 
             entity.HasOne(e => e.Business)
                 .WithMany()
@@ -281,10 +294,6 @@ public class ApplicationDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.FixedExpenseId)
                 .OnDelete(DeleteBehavior.SetNull);
-
-            // Explicitly ignore any automatic UnitMeasure navigation property
-            // to prevent EF from generating UnitMeasureId1 columns
-            entity.Ignore("UnitMeasure");
             
             // Temporarily removed UnitMeasure navigation to fix EF Core issue
             // entity.HasOne(e => e.UnitMeasure)
@@ -292,6 +301,28 @@ public class ApplicationDbContext : DbContext
             //     .HasForeignKey(e => e.UnitMeasureId)
             //     .HasConstraintName("FK_supplies_unit_measures_unit_measure_id")
             //     .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // SupplyCategory configuration
+        modelBuilder.Entity<SupplyCategory>(entity =>
+        {
+            entity.ToTable("supply_categories");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255).IsRequired();
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.BusinessId).HasColumnName("business_id").IsRequired();
+            entity.Property(e => e.Active).HasColumnName("active").IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            
+            // BaseEntity properties
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(e => e.Business)
+                .WithMany()
+                .HasForeignKey(e => e.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // UnitMeasure configuration
@@ -429,12 +460,18 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.TimeUnitId).HasColumnName("time_unit_id");
             entity.Property(e => e.YieldAmount).HasColumnName("yield_amount");
             entity.Property(e => e.Active).HasColumnName("active");
+            entity.Property(e => e.SupplyCategoryId).HasColumnName("supply_category_id");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             
             // Ignore non-persisted display properties
             entity.Ignore(e => e.UnitMeasureName);
             entity.Ignore(e => e.UnitMeasureSymbol);
+            entity.Ignore(e => e.ComponentUsageCount);
+            entity.Ignore(e => e.ProcessUsageCount);
+            
+            // Ignore shadow properties that EF might try to create
+            entity.Ignore("SupplyCategoryId1");
 
             entity.HasOne<Business>()
                 .WithMany()
@@ -455,6 +492,11 @@ public class ApplicationDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.TimeUnitId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.SupplyCategory)
+                .WithMany()
+                .HasForeignKey(e => e.SupplyCategoryId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Configure the ComponentSupply relationships explicitly
             entity.HasMany(c => c.Supplies)

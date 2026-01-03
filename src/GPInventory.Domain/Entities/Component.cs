@@ -12,6 +12,7 @@ public class Component
     public int? TimeUnitId { get; set; }
     public decimal YieldAmount { get; set; }
     public bool Active { get; set; } = true;
+    public int? SupplyCategoryId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
@@ -19,7 +20,12 @@ public class Component
     public string? UnitMeasureName { get; set; }
     public string? UnitMeasureSymbol { get; set; }
     
+    // Usage tracking (not mapped to database)
+    public int ComponentUsageCount { get; set; }
+    public int ProcessUsageCount { get; set; }
+    
     // Navigation properties
+    public virtual SupplyCategory? SupplyCategory { get; set; }
     public virtual ICollection<ComponentSupply> Supplies { get; set; } = new List<ComponentSupply>();
     public virtual ICollection<ComponentSupply> UsedInComponents { get; set; } = new List<ComponentSupply>();
     public virtual ICollection<ComponentProduction> Productions { get; set; } = new List<ComponentProduction>();

@@ -167,6 +167,7 @@ builder.Services.AddScoped<IInstallmentDocumentRepository, InstallmentDocumentRe
 
 // Production repositories
 builder.Services.AddScoped<ISupplyRepository, SupplyRepository>();
+builder.Services.AddScoped<ISupplyCategoryRepository, SupplyCategoryRepository>();
 builder.Services.AddScoped<IProcessRepository, ProcessRepository>();
 builder.Services.AddScoped<IProcessDoneRepository, ProcessDoneRepository>();
 builder.Services.AddScoped<IUnitMeasureRepository, UnitMeasureRepository>();
@@ -195,6 +196,7 @@ builder.Services.AddScoped<IInstallmentDocumentService, InstallmentDocumentServi
 
 // Production services
 builder.Services.AddScoped<ISupplyService, SupplyService>();
+builder.Services.AddScoped<ISupplyCategoryService, SupplyCategoryService>();
 builder.Services.AddScoped<IProcessService, ProcessService>();
 builder.Services.AddScoped<IProcessDoneService, ProcessDoneService>();
 builder.Services.AddScoped<IUnitMeasureService, UnitMeasureService>();

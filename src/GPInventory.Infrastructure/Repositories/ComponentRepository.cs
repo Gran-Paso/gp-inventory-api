@@ -49,10 +49,31 @@ public class ComponentRepository : IComponentRepository
 
     public async Task<IEnumerable<Component>> GetAllAsync(int businessId, bool? activeOnly = true)
     {
-        var sql = @"
-            SELECT c.*, um.name as unit_measure_name, um.symbol as unit_measure_symbol
+        try
+        {
+            var sql = @"
+            SELECT 
+                c.*, 
+                um.name as unit_measure_name, 
+                um.symbol as unit_measure_symbol,
+                sc.id as sc_id,
+                sc.name as sc_name,
+                COALESCE(comp_count.component_usage, 0) as component_usage,
+                COALESCE(proc_count.process_usage, 0) as process_usage
             FROM components c
             LEFT JOIN unit_measures um ON c.unit_measure_id = um.id
+            LEFT JOIN supply_categories sc ON c.supply_category_id = sc.id
+            LEFT JOIN (
+                SELECT sub_component_id as component_id, COUNT(DISTINCT component_id) as component_usage
+                FROM component_supplies
+                WHERE item_type = 'component' AND sub_component_id IS NOT NULL
+                GROUP BY sub_component_id
+            ) comp_count ON c.id = comp_count.component_id
+            LEFT JOIN (
+                SELECT component_id, COUNT(DISTINCT process_id) as process_usage
+                FROM process_components
+                GROUP BY component_id
+            ) proc_count ON c.id = proc_count.component_id
             WHERE c.business_id = @BusinessId";
 
         if (activeOnly == true)
@@ -73,10 +94,33 @@ public class ComponentRepository : IComponentRepository
 
         while (await reader.ReadAsync())
         {
-            components.Add(MapComponent(reader));
+            var component = MapComponent(reader);
+            
+            // Add usage counts
+            var componentUsageIdx = reader.GetOrdinal("component_usage");
+            var processUsageIdx = reader.GetOrdinal("process_usage");
+            component.ComponentUsageCount = reader.GetInt32(componentUsageIdx);
+            component.ProcessUsageCount = reader.GetInt32(processUsageIdx);
+            
+            // Add SupplyCategory if present
+            if (!reader.IsDBNull(reader.GetOrdinal("sc_id")))
+            {
+                component.SupplyCategory = new SupplyCategory
+                {
+                    Id = reader.GetInt32(reader.GetOrdinal("sc_id")),
+                    Name = reader.GetString(reader.GetOrdinal("sc_name"))
+                };
+            }
+            
+            components.Add(component);
         }
 
         return components;
+        } catch (Exception ex)
+        {
+            throw new Exception($"Error retrieving components for business {businessId}: {ex.Message}", ex);
+        }
+        
     }
 
     public async Task<Component> CreateAsync(Component component)
@@ -84,10 +128,10 @@ public class ComponentRepository : IComponentRepository
         const string sql = @"
             INSERT INTO components 
             (name, description, business_id, store_id, unit_measure_id, 
-             preparation_time, time_unit_id, yield_amount, active, created_at)
+             preparation_time, time_unit_id, yield_amount, supply_category_id, active, created_at)
             VALUES 
             (@Name, @Description, @BusinessId, @StoreId, @UnitMeasureId,
-             @PreparationTime, @TimeUnitId, @YieldAmount, @Active, @CreatedAt);
+             @PreparationTime, @TimeUnitId, @YieldAmount, @SupplyCategoryId, @Active, @CreatedAt);
             SELECT LAST_INSERT_ID();";
 
         using var connection = new MySqlConnection(_connectionString);
@@ -102,6 +146,7 @@ public class ComponentRepository : IComponentRepository
         command.Parameters.AddWithValue("@PreparationTime", component.PreparationTime ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@TimeUnitId", component.TimeUnitId ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@YieldAmount", component.YieldAmount);
+        command.Parameters.AddWithValue("@SupplyCategoryId", component.SupplyCategoryId ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@Active", component.Active);
         command.Parameters.AddWithValue("@CreatedAt", DateTime.UtcNow);
 
@@ -123,6 +168,7 @@ public class ComponentRepository : IComponentRepository
                 preparation_time = @PreparationTime,
                 time_unit_id = @TimeUnitId,
                 yield_amount = @YieldAmount,
+                supply_category_id = @SupplyCategoryId,
                 active = @Active,
                 updated_at = @UpdatedAt
             WHERE id = @Id";
@@ -139,6 +185,7 @@ public class ComponentRepository : IComponentRepository
         command.Parameters.AddWithValue("@PreparationTime", component.PreparationTime ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@TimeUnitId", component.TimeUnitId ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@YieldAmount", component.YieldAmount);
+        command.Parameters.AddWithValue("@SupplyCategoryId", component.SupplyCategoryId ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@Active", component.Active);
         command.Parameters.AddWithValue("@UpdatedAt", DateTime.UtcNow);
 
@@ -500,6 +547,21 @@ public class ComponentRepository : IComponentRepository
     // Private mapping methods
     private Component MapComponent(MySqlDataReader reader)
     {
+        // Helper method to safely get column ordinal
+        int GetColumnOrdinal(string columnName)
+        {
+            try
+            {
+                return reader.GetOrdinal(columnName);
+            }
+            catch
+            {
+                return -1;
+            }
+        }
+        
+        var supplyCategoryIdOrdinal = GetColumnOrdinal("supply_category_id");
+        
         return new Component
         {
             Id = reader.GetInt32("id"),
@@ -511,6 +573,7 @@ public class ComponentRepository : IComponentRepository
             PreparationTime = reader.IsDBNull(reader.GetOrdinal("preparation_time")) ? null : reader.GetInt32("preparation_time"),
             TimeUnitId = reader.IsDBNull(reader.GetOrdinal("time_unit_id")) ? null : reader.GetInt32("time_unit_id"),
             YieldAmount = reader.GetDecimal("yield_amount"),
+            SupplyCategoryId = supplyCategoryIdOrdinal >= 0 && !reader.IsDBNull(supplyCategoryIdOrdinal) ? reader.GetInt32(supplyCategoryIdOrdinal) : null,
             Active = reader.GetBoolean("active"),
             CreatedAt = reader.GetDateTime("created_at"),
             UpdatedAt = reader.IsDBNull(reader.GetOrdinal("updated_at")) ? null : reader.GetDateTime("updated_at"),

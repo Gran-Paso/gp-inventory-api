@@ -16,22 +16,158 @@ public class SupplyRepository : ISupplyRepository
 
     public async Task<Supply?> GetByIdAsync(int id)
     {
-        return await _context.Supplies
-            .FirstOrDefaultAsync(s => s.Id == id);
+        Supply? supply = null;
+
+        await _context.Database.OpenConnectionAsync();
+        
+        try
+        {
+            using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = @"
+                SELECT 
+                    s.id,
+                    s.name,
+                    s.description,
+                    s.business_id,
+                    s.store_id,
+                    s.unit_measure_id,
+                    s.fixed_expense_id,
+                    s.supply_category_id,
+                    s.type,
+                    s.active,
+                    s.created_at,
+                    s.updated_at
+                FROM supplies s
+                WHERE s.id = @supplyId";
+            
+            var supplyIdParam = command.CreateParameter();
+            supplyIdParam.ParameterName = "@supplyId";
+            supplyIdParam.Value = id;
+            command.Parameters.Add(supplyIdParam);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                supply = new Supply(
+                    name: reader.GetString(1),
+                    businessId: reader.GetInt32(3),
+                    storeId: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                    unitMeasureId: reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                    description: reader.IsDBNull(2) ? null : reader.GetString(2),
+                    fixedExpenseId: reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    active: reader.GetBoolean(9)
+                );
+
+                // Set Id via reflection or use a property setter if available
+                typeof(Supply).GetProperty("Id")?.SetValue(supply, reader.GetInt32(0));
+                
+                // Set additional properties
+                supply.SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7);
+                supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
+                supply.CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10);
+                supply.UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
+            }
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
+        }
+
+        return supply;
     }
 
     public async Task<Supply?> GetByIdWithDetailsAsync(int id)
     {
-        // Get the basic supply data using Entity Framework
-        var supply = await _context.Supplies.FirstOrDefaultAsync(s => s.Id == id);
+        // Get the basic supply data using raw SQL to avoid EF mapping issues
+        Supply? supply = null;
+
+        await _context.Database.OpenConnectionAsync();
+        
+        try
+        {
+            using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = @"
+                SELECT 
+                    s.id,
+                    s.name,
+                    s.description,
+                    s.business_id,
+                    s.store_id,
+                    s.unit_measure_id,
+                    s.fixed_expense_id,
+                    s.supply_category_id,
+                    s.type,
+                    s.active,
+                    s.created_at,
+                    s.updated_at,
+                    um.id as um_id,
+                    um.name as um_name,
+                    um.symbol as um_symbol,
+                    sc.id as sc_id,
+                    sc.name as sc_name,
+                    sc.description as sc_description
+                FROM supplies s
+                LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+                LEFT JOIN supply_categories sc ON s.supply_category_id = sc.id
+                WHERE s.id = @supplyId";
+            
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@supplyId";
+            parameter.Value = id;
+            command.Parameters.Add(parameter);
+
+            using var reader = await command.ExecuteReaderAsync();
+            
+            if (await reader.ReadAsync())
+            {
+                supply = new Supply
+                {
+                    Id = reader.GetInt32(0),
+                    Name = reader.GetString(1),
+                    Description = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    BusinessId = reader.GetInt32(3),
+                    StoreId = reader.GetInt32(4),
+                    UnitMeasureId = reader.GetInt32(5),
+                    FixedExpenseId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8),
+                    Active = reader.GetBoolean(9),
+                    CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10),
+                    UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11)
+                };
+
+                // Populate UnitMeasure
+                if (!reader.IsDBNull(12))
+                {
+                    supply.UnitMeasure = new UnitMeasure
+                    {
+                        Id = reader.GetInt32(12),
+                        Name = reader.GetString(13),
+                        Symbol = reader.IsDBNull(14) ? null : reader.GetString(14)
+                    };
+                }
+
+                // Populate SupplyCategory
+                if (!reader.IsDBNull(15))
+                {
+                    supply.SupplyCategory = new SupplyCategory
+                    {
+                        Id = reader.GetInt32(15),
+                        Name = reader.GetString(16),
+                        Description = reader.IsDBNull(17) ? null : reader.GetString(17)
+                    };
+                }
+            }
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
+        }
         
         if (supply == null)
             return null;
 
-        // Manually load related entities to avoid EF mapping issues
-        supply.UnitMeasure = await _context.UnitMeasures
-            .FirstOrDefaultAsync(um => um.Id == supply.UnitMeasureId) ?? new UnitMeasure();
-
+        // Load Business, Store, FixedExpense separately
         supply.Business = await _context.Businesses
             .FirstOrDefaultAsync(b => b.Id == supply.BusinessId);
 
@@ -50,6 +186,7 @@ public class SupplyRepository : ISupplyRepository
         
         try
         {
+            await _context.Database.OpenConnectionAsync();
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
                 SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
@@ -67,8 +204,6 @@ public class SupplyRepository : ISupplyRepository
             parameter.ParameterName = "@supplyId";
             parameter.Value = id;
             command.Parameters.Add(parameter);
-
-            await _context.Database.OpenConnectionAsync();
             
             using var reader = await command.ExecuteReaderAsync();
             
@@ -134,16 +269,36 @@ public class SupplyRepository : ISupplyRepository
             SELECT 
                 s.id,
                 s.name,
+                s.description,
                 s.business_id,
                 s.store_id,
                 s.unit_measure_id,
                 s.fixed_expense_id,
+                s.supply_category_id,
+                s.type,
                 s.active,
-                um.id as unit_measure_id_val,
-                um.name as unit_measure_name,
-                um.symbol as unit_measure_symbol
+                s.created_at,
+                s.updated_at,
+                um.id as um_id,
+                um.name as um_name,
+                um.symbol as um_symbol,
+                sc.id as sc_id,
+                sc.name as sc_name,
+                COALESCE(comp_count.component_usage, 0) as component_usage,
+                COALESCE(proc_count.process_usage, 0) as process_usage
             FROM supplies s
             LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+            LEFT JOIN supply_categories sc ON s.supply_category_id = sc.id
+            LEFT JOIN (
+                SELECT supply_id, COUNT(DISTINCT component_id) as component_usage
+                FROM component_supplies
+                GROUP BY supply_id
+            ) comp_count ON s.id = comp_count.supply_id
+            LEFT JOIN (
+                SELECT supply_id, COUNT(DISTINCT process_id) as process_usage
+                FROM process_supplies
+                GROUP BY supply_id
+            ) proc_count ON s.id = proc_count.supply_id
             WHERE s.business_id = @BusinessId
             ORDER BY s.name";
         
@@ -157,23 +312,40 @@ public class SupplyRepository : ISupplyRepository
         {
             var supply = new Supply
             {
-                Id = Convert.ToInt32(reader["id"]),
-                Name = Convert.ToString(reader["name"]) ?? string.Empty,
-                BusinessId = Convert.ToInt32(reader["business_id"]),
-                StoreId = Convert.ToInt32(reader["store_id"]),
-                UnitMeasureId = Convert.ToInt32(reader["unit_measure_id"]),
-                FixedExpenseId = reader.IsDBNull(reader.GetOrdinal("fixed_expense_id")) ? null : Convert.ToInt32(reader["fixed_expense_id"]),
-                Active = Convert.ToBoolean(reader["active"])
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                Description = reader.IsDBNull(2) ? null : reader.GetString(2),
+                BusinessId = reader.GetInt32(3),
+                StoreId = reader.GetInt32(4),
+                UnitMeasureId = reader.GetInt32(5),
+                FixedExpenseId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8),
+                Active = reader.GetBoolean(9),
+                CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10),
+                UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
+                ComponentUsageCount = reader.GetInt32(17),
+                ProcessUsageCount = reader.GetInt32(18)
             };
 
             // Populate UnitMeasure navigation property
-            if (!reader.IsDBNull(reader.GetOrdinal("unit_measure_id_val")))
+            if (!reader.IsDBNull(12))
             {
                 supply.UnitMeasure = new UnitMeasure
                 {
-                    Id = reader.GetInt32(reader.GetOrdinal("unit_measure_id_val")),
-                    Name = reader.GetString(reader.GetOrdinal("unit_measure_name")),
-                    Symbol = reader.GetString(reader.GetOrdinal("unit_measure_symbol"))
+                    Id = reader.GetInt32(12),
+                    Name = reader.GetString(13),
+                    Symbol = reader.IsDBNull(14) ? null : reader.GetString(14)
+                };
+            }
+
+            // Populate SupplyCategory navigation property
+            if (!reader.IsDBNull(15))
+            {
+                supply.SupplyCategory = new SupplyCategory
+                {
+                    Id = reader.GetInt32(15),
+                    Name = reader.GetString(16)
                 };
             }
 
@@ -229,8 +401,59 @@ public class SupplyRepository : ISupplyRepository
     public async Task UpdateAsync(Supply entity)
     {
         entity.UpdatedAt = DateTime.UtcNow;
-        _context.Supplies.Update(entity);
-        await _context.SaveChangesAsync();
+        
+        await _context.Database.OpenConnectionAsync();
+        
+        try
+        {
+            using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = @"
+                UPDATE supplies 
+                SET 
+                    name = @Name,
+                    description = @Description,
+                    unit_measure_id = @UnitMeasureId,
+                    fixed_expense_id = @FixedExpenseId,
+                    supply_category_id = @SupplyCategoryId,
+                    type = @Type,
+                    active = @Active,
+                    store_id = @StoreId,
+                    updated_at = @UpdatedAt
+                WHERE id = @Id";
+
+            var parameters = new[]
+            {
+                CreateParameter(command, "@Id", entity.Id),
+                CreateParameter(command, "@Name", entity.Name),
+                CreateParameter(command, "@Description", (object?)entity.Description ?? DBNull.Value),
+                CreateParameter(command, "@UnitMeasureId", entity.UnitMeasureId),
+                CreateParameter(command, "@FixedExpenseId", (object?)entity.FixedExpenseId ?? DBNull.Value),
+                CreateParameter(command, "@SupplyCategoryId", (object?)entity.SupplyCategoryId ?? DBNull.Value),
+                CreateParameter(command, "@Type", (int)entity.Type),
+                CreateParameter(command, "@Active", entity.Active),
+                CreateParameter(command, "@StoreId", entity.StoreId),
+                CreateParameter(command, "@UpdatedAt", entity.UpdatedAt)
+            };
+
+            foreach (var param in parameters)
+            {
+                command.Parameters.Add(param);
+            }
+
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
+        }
+    }
+
+    private static System.Data.Common.DbParameter CreateParameter(System.Data.Common.DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        return parameter;
     }
 
     public async Task DeleteAsync(int id)
@@ -275,7 +498,66 @@ public class SupplyRepository : ISupplyRepository
 
     public async Task<Supply?> GetByNameAsync(string name, int businessId)
     {
-        return await _context.Supplies
-            .FirstOrDefaultAsync(s => s.Name == name && s.BusinessId == businessId);
+        Supply? supply = null;
+
+        await _context.Database.OpenConnectionAsync();
+        
+        try
+        {
+            using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = @"
+                SELECT 
+                    s.id,
+                    s.name,
+                    s.description,
+                    s.business_id,
+                    s.store_id,
+                    s.unit_measure_id,
+                    s.fixed_expense_id,
+                    s.supply_category_id,
+                    s.type,
+                    s.active,
+                    s.created_at,
+                    s.updated_at
+                FROM supplies s
+                WHERE s.name = @Name AND s.business_id = @BusinessId";
+            
+            var nameParam = command.CreateParameter();
+            nameParam.ParameterName = "@Name";
+            nameParam.Value = name;
+            command.Parameters.Add(nameParam);
+            
+            var businessIdParam = command.CreateParameter();
+            businessIdParam.ParameterName = "@BusinessId";
+            businessIdParam.Value = businessId;
+            command.Parameters.Add(businessIdParam);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                supply = new Supply(
+                    name: reader.GetString(1),
+                    businessId: reader.GetInt32(3),
+                    storeId: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                    unitMeasureId: reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                    description: reader.IsDBNull(2) ? null : reader.GetString(2),
+                    fixedExpenseId: reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                    active: reader.GetBoolean(9)
+                );
+
+                typeof(Supply).GetProperty("Id")?.SetValue(supply, reader.GetInt32(0));
+                
+                supply.SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7);
+                supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
+                supply.CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10);
+                supply.UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
+            }
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
+        }
+
+        return supply;
     }
 }

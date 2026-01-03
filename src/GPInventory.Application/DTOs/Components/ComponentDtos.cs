@@ -1,3 +1,5 @@
+using GPInventory.Application.DTOs.Production;
+
 namespace GPInventory.Application.DTOs.Components;
 
 public class ComponentDto
@@ -15,6 +17,11 @@ public class ComponentDto
     public string? TimeUnitName { get; set; }
     public decimal YieldAmount { get; set; }
     public bool Active { get; set; }
+    public int? SupplyCategoryId { get; set; }
+    public SupplyCategoryDto? SupplyCategory { get; set; }
+    public int ComponentUsageCount { get; set; } = 0;
+    public int ProcessUsageCount { get; set; } = 0;
+    public int UsageCount => ComponentUsageCount + ProcessUsageCount;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -51,6 +58,7 @@ public class CreateComponentDto
     public int? PreparationTime { get; set; }
     public int? TimeUnitId { get; set; }
     public decimal YieldAmount { get; set; }
+    public int? SupplyCategoryId { get; set; }
     public List<CreateComponentSupplyDto> Supplies { get; set; } = new();
 }
 
@@ -73,6 +81,7 @@ public class UpdateComponentDto
     public int? PreparationTime { get; set; }
     public int? TimeUnitId { get; set; }
     public decimal? YieldAmount { get; set; }
+    public int? SupplyCategoryId { get; set; }
     public bool? Active { get; set; }
     public List<CreateComponentSupplyDto>? Supplies { get; set; }
 }
