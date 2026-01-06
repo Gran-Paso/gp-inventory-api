@@ -26,6 +26,8 @@ public class Supply : BaseEntity
     
     public SupplyType Type { get; set; } = SupplyType.Both;
     
+    public int MinimumStock { get; set; } = 0;
+    
     // Usage tracking (not mapped to database)
     public int ComponentUsageCount { get; set; }
     public int ProcessUsageCount { get; set; }

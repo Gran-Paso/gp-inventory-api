@@ -128,10 +128,10 @@ public class ComponentRepository : IComponentRepository
         const string sql = @"
             INSERT INTO components 
             (name, description, business_id, store_id, unit_measure_id, 
-             preparation_time, time_unit_id, yield_amount, supply_category_id, active, created_at)
+             preparation_time, time_unit_id, yield_amount, supply_category_id, minimum_stock, active, created_at)
             VALUES 
             (@Name, @Description, @BusinessId, @StoreId, @UnitMeasureId,
-             @PreparationTime, @TimeUnitId, @YieldAmount, @SupplyCategoryId, @Active, @CreatedAt);
+             @PreparationTime, @TimeUnitId, @YieldAmount, @SupplyCategoryId, @MinimumStock, @Active, @CreatedAt);
             SELECT LAST_INSERT_ID();";
 
         using var connection = new MySqlConnection(_connectionString);
@@ -147,6 +147,7 @@ public class ComponentRepository : IComponentRepository
         command.Parameters.AddWithValue("@TimeUnitId", component.TimeUnitId ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@YieldAmount", component.YieldAmount);
         command.Parameters.AddWithValue("@SupplyCategoryId", component.SupplyCategoryId ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("@MinimumStock", component.MinimumStock);
         command.Parameters.AddWithValue("@Active", component.Active);
         command.Parameters.AddWithValue("@CreatedAt", DateTime.UtcNow);
 
@@ -169,6 +170,7 @@ public class ComponentRepository : IComponentRepository
                 time_unit_id = @TimeUnitId,
                 yield_amount = @YieldAmount,
                 supply_category_id = @SupplyCategoryId,
+                minimum_stock = @MinimumStock,
                 active = @Active,
                 updated_at = @UpdatedAt
             WHERE id = @Id";
@@ -186,6 +188,7 @@ public class ComponentRepository : IComponentRepository
         command.Parameters.AddWithValue("@TimeUnitId", component.TimeUnitId ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("@YieldAmount", component.YieldAmount);
         command.Parameters.AddWithValue("@SupplyCategoryId", component.SupplyCategoryId ?? (object)DBNull.Value);
+        command.Parameters.AddWithValue("@MinimumStock", component.MinimumStock);
         command.Parameters.AddWithValue("@Active", component.Active);
         command.Parameters.AddWithValue("@UpdatedAt", DateTime.UtcNow);
 
@@ -561,6 +564,7 @@ public class ComponentRepository : IComponentRepository
         }
         
         var supplyCategoryIdOrdinal = GetColumnOrdinal("supply_category_id");
+        var minimumStockOrdinal = GetColumnOrdinal("minimum_stock");
         
         return new Component
         {
@@ -574,6 +578,7 @@ public class ComponentRepository : IComponentRepository
             TimeUnitId = reader.IsDBNull(reader.GetOrdinal("time_unit_id")) ? null : reader.GetInt32("time_unit_id"),
             YieldAmount = reader.GetDecimal("yield_amount"),
             SupplyCategoryId = supplyCategoryIdOrdinal >= 0 && !reader.IsDBNull(supplyCategoryIdOrdinal) ? reader.GetInt32(supplyCategoryIdOrdinal) : null,
+            MinimumStock = minimumStockOrdinal >= 0 && !reader.IsDBNull(minimumStockOrdinal) ? reader.GetInt32(minimumStockOrdinal) : 0,
             Active = reader.GetBoolean("active"),
             CreatedAt = reader.GetDateTime("created_at"),
             UpdatedAt = reader.IsDBNull(reader.GetOrdinal("updated_at")) ? null : reader.GetDateTime("updated_at"),

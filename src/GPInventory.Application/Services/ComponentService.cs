@@ -1,6 +1,7 @@
 using AutoMapper;
 using GPInventory.Application.DTOs.Components;
 using GPInventory.Application.Interfaces;
+using GPInventory.Application.Helpers;
 using GPInventory.Domain.Entities;
 
 namespace GPInventory.Application.Services;
@@ -8,30 +9,61 @@ namespace GPInventory.Application.Services;
 public class ComponentService : IComponentService
 {
     private readonly IComponentRepository _repository;
+    private readonly IComponentProductionRepository _productionRepository;
     private readonly IMapper _mapper;
 
-    public ComponentService(IComponentRepository repository, IMapper mapper)
+    public ComponentService(
+        IComponentRepository repository, 
+        IComponentProductionRepository productionRepository,
+        IMapper mapper)
     {
         _repository = repository;
+        _productionRepository = productionRepository;
         _mapper = mapper;
     }
 
     public async Task<ComponentDto?> GetByIdAsync(int id)
     {
         var component = await _repository.GetByIdAsync(id);
-        return component == null ? null : _mapper.Map<ComponentDto>(component);
+        if (component == null) return null;
+        
+        var dto = _mapper.Map<ComponentDto>(component);
+        await EnrichWithStockInfoAsync(dto);
+        return dto;
     }
 
     public async Task<ComponentWithSuppliesDto?> GetByIdWithSuppliesAsync(int id)
     {
         var component = await _repository.GetByIdWithSuppliesAsync(id);
-        return component == null ? null : _mapper.Map<ComponentWithSuppliesDto>(component);
+        if (component == null) return null;
+        
+        var dto = _mapper.Map<ComponentWithSuppliesDto>(component);
+        await EnrichWithStockInfoAsync(dto);
+        return dto;
     }
 
     public async Task<IEnumerable<ComponentDto>> GetAllAsync(int businessId, bool? activeOnly = true)
     {
         var components = await _repository.GetAllAsync(businessId, activeOnly);
-        return _mapper.Map<IEnumerable<ComponentDto>>(components);
+        var dtos = _mapper.Map<IEnumerable<ComponentDto>>(components).ToList();
+        
+        // Enrich all components with stock information
+        foreach (var dto in dtos)
+        {
+            await EnrichWithStockInfoAsync(dto);
+        }
+        
+        return dtos;
+    }
+
+    private async Task EnrichWithStockInfoAsync(ComponentDto dto)
+    {
+        // Get current stock from productions
+        var currentStock = await _productionRepository.GetCurrentStockAsync(dto.Id);
+        dto.CurrentStock = currentStock;
+        
+        // Calculate stock status
+        dto.StockStatus = StockHelper.CalculateStockStatus(currentStock, dto.MinimumStock);
     }
 
     public async Task<ComponentDto> CreateAsync(CreateComponentDto dto)
@@ -58,10 +90,19 @@ public class ComponentService : IComponentService
             existing.SupplyCategoryId = dto.SupplyCategoryId.Value == 0 ? null : dto.SupplyCategoryId;
         }
         
+        // Asegurarse de que MinimumStock se actualice correctamente
+        if (dto.MinimumStock.HasValue)
+        {
+            existing.MinimumStock = dto.MinimumStock.Value;
+        }
+        
         existing.UpdatedAt = DateTime.UtcNow;
 
-        var updated = await _repository.UpdateAsync(existing);
-        return _mapper.Map<ComponentDto>(updated);
+        await _repository.UpdateAsync(existing);
+        
+        // Reload from database to ensure we have the latest data
+        var updated = await _repository.GetByIdAsync(id);
+        return _mapper.Map<ComponentDto>(updated ?? existing);
     }
 
     public async Task<bool> DeleteAsync(int id)

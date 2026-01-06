@@ -36,7 +36,8 @@ public class SupplyRepository : ISupplyRepository
                     s.type,
                     s.active,
                     s.created_at,
-                    s.updated_at
+                    s.updated_at,
+                    s.minimum_stock
                 FROM supplies s
                 WHERE s.id = @supplyId";
 
@@ -66,6 +67,7 @@ public class SupplyRepository : ISupplyRepository
                 supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
                 supply.CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10);
                 supply.UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
+                supply.MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12);
             }
         }
         finally
@@ -100,6 +102,7 @@ public class SupplyRepository : ISupplyRepository
                     s.active,
                     s.created_at,
                     s.updated_at,
+                    s.minimum_stock,
                     um.id as um_id,
                     um.name as um_name,
                     um.symbol as um_symbol,
@@ -133,28 +136,29 @@ public class SupplyRepository : ISupplyRepository
                     Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8),
                     Active = reader.GetBoolean(9),
                     CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10),
-                    UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11)
+                    UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
+                    MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12)
                 };
 
                 // Populate UnitMeasure
-                if (!reader.IsDBNull(12))
+                if (!reader.IsDBNull(13))
                 {
                     supply.UnitMeasure = new UnitMeasure
                     {
-                        Id = reader.GetInt32(12),
-                        Name = reader.GetString(13),
-                        Symbol = reader.IsDBNull(14) ? null : reader.GetString(14)
+                        Id = reader.GetInt32(13),
+                        Name = reader.GetString(14),
+                        Symbol = reader.IsDBNull(15) ? null : reader.GetString(15)
                     };
                 }
 
                 // Populate SupplyCategory
-                if (!reader.IsDBNull(15))
+                if (!reader.IsDBNull(16))
                 {
                     supply.SupplyCategory = new SupplyCategory
                     {
-                        Id = reader.GetInt32(15),
-                        Name = reader.GetString(16),
-                        Description = reader.IsDBNull(17) ? null : reader.GetString(17)
+                        Id = reader.GetInt32(16),
+                        Name = reader.GetString(17),
+                        Description = reader.IsDBNull(18) ? null : reader.GetString(18)
                     };
                 }
             }
@@ -279,6 +283,7 @@ public class SupplyRepository : ISupplyRepository
                 s.active,
                 s.created_at,
                 s.updated_at,
+                s.minimum_stock,
                 um.id as um_id,
                 um.name as um_name,
                 um.symbol as um_symbol,
@@ -324,28 +329,29 @@ public class SupplyRepository : ISupplyRepository
                 Active = reader.GetBoolean(9),
                 CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10),
                 UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
-                ComponentUsageCount = reader.GetInt32(17),
-                ProcessUsageCount = reader.GetInt32(18)
+                MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
+                ComponentUsageCount = reader.GetInt32(18),
+                ProcessUsageCount = reader.GetInt32(19)
             };
 
             // Populate UnitMeasure navigation property
-            if (!reader.IsDBNull(12))
+            if (!reader.IsDBNull(13))
             {
                 supply.UnitMeasure = new UnitMeasure
                 {
-                    Id = reader.GetInt32(12),
-                    Name = reader.GetString(13),
-                    Symbol = reader.IsDBNull(14) ? null : reader.GetString(14)
+                    Id = reader.GetInt32(13),
+                    Name = reader.GetString(14),
+                    Symbol = reader.IsDBNull(15) ? null : reader.GetString(15)
                 };
             }
 
             // Populate SupplyCategory navigation property
-            if (!reader.IsDBNull(15))
+            if (!reader.IsDBNull(16))
             {
                 supply.SupplyCategory = new SupplyCategory
                 {
-                    Id = reader.GetInt32(15),
-                    Name = reader.GetString(16)
+                    Id = reader.GetInt32(16),
+                    Name = reader.GetString(17)
                 };
             }
 
@@ -418,6 +424,7 @@ public class SupplyRepository : ISupplyRepository
                     type = @Type,
                     active = @Active,
                     store_id = @StoreId,
+                    minimum_stock = @MinimumStock,
                     updated_at = @UpdatedAt
                 WHERE id = @Id";
 
@@ -432,6 +439,7 @@ public class SupplyRepository : ISupplyRepository
                 CreateParameter(command, "@Type", (int)entity.Type),
                 CreateParameter(command, "@Active", entity.Active),
                 CreateParameter(command, "@StoreId", entity.StoreId),
+                CreateParameter(command, "@MinimumStock", entity.MinimumStock),
                 CreateParameter(command, "@UpdatedAt", entity.UpdatedAt)
             };
 
@@ -518,7 +526,8 @@ public class SupplyRepository : ISupplyRepository
                     s.type,
                     s.active,
                     s.created_at,
-                    s.updated_at
+                    s.updated_at,
+                    s.minimum_stock
                 FROM supplies s
                 WHERE s.name = @Name AND s.business_id = @BusinessId";
 
@@ -551,6 +560,7 @@ public class SupplyRepository : ISupplyRepository
                 supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
                 supply.CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10);
                 supply.UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
+                supply.MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12);
             }
         }
         finally
@@ -580,13 +590,14 @@ public class SupplyRepository : ISupplyRepository
                     s.name as supply_name,
                     um.name as unit_measure_name,
                     um.symbol as unit_measure_symbol,
+                    s.minimum_stock,
                     COALESCE(SUM(CASE WHEN se.process_done_id IS NULL THEN se.amount ELSE 0 END), 0) as total_incoming,
                     COALESCE(SUM(CASE WHEN se.process_done_id IS NOT NULL THEN se.amount ELSE 0 END), 0) as total_outgoing
                 FROM supplies s
                 LEFT JOIN supply_entry se ON s.id = se.supply_id
                 LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
                 WHERE (@businessId IS NULL OR s.business_id = @businessId)
-                GROUP BY s.id, s.name, um.name, um.symbol
+                GROUP BY s.id, s.name, um.name, um.symbol, s.minimum_stock
                 ORDER BY s.name";
 
                 var businessIdParam = command.CreateParameter();
@@ -608,6 +619,9 @@ public class SupplyRepository : ISupplyRepository
                         var unitMeasureSymbol = reader.IsDBNull(reader.GetOrdinal("unit_measure_symbol"))
                             ? null
                             : reader.GetString(reader.GetOrdinal("unit_measure_symbol"));
+                        var minimumStock = reader.IsDBNull(reader.GetOrdinal("minimum_stock"))
+                            ? 0
+                            : reader.GetInt32(reader.GetOrdinal("minimum_stock"));
                         var totalIncoming = reader.GetDecimal(reader.GetOrdinal("total_incoming"));
                         var totalOutgoing = reader.GetDecimal(reader.GetOrdinal("total_outgoing"));
                         var currentStock = totalIncoming + totalOutgoing; // totalOutgoing ya incluye valores negativos
@@ -620,7 +634,9 @@ public class SupplyRepository : ISupplyRepository
                             UnitMeasureName = unitMeasureName,
                             UnitMeasureSymbol = unitMeasureSymbol,
                             TotalIncoming = totalIncoming,
-                            TotalOutgoing = Math.Abs(totalOutgoing) // Mostrar valor absoluto para la UI
+                            TotalOutgoing = Math.Abs(totalOutgoing), // Mostrar valor absoluto para la UI
+                            MinimumStock = minimumStock,
+                            StockStatus = Application.Helpers.StockHelper.CalculateStockStatus(currentStock, minimumStock)
                         });
                     }
                     catch (Exception ex)

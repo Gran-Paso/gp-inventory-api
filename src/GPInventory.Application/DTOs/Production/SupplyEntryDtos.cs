@@ -47,6 +47,8 @@ public class SupplyStockDto
     public string? UnitMeasureSymbol { get; set; }
     public decimal TotalIncoming { get; set; }
     public decimal TotalOutgoing { get; set; }
+    public int MinimumStock { get; set; }
+    public Domain.Enums.StockStatus StockStatus { get; set; }
 }
 
 public class ProviderDto

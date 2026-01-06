@@ -1,6 +1,7 @@
 using GPInventory.Application.DTOs.Production;
 using GPInventory.Application.DTOs.Expenses;
 using GPInventory.Application.Interfaces;
+using GPInventory.Application.Helpers;
 using GPInventory.Domain.Entities;
 
 namespace GPInventory.Application.Services;
@@ -87,6 +88,10 @@ public class SupplyService : ISupplyService
             fixedExpenseId: createdFixedExpense.Id,
             active: createSupplyDto.Active
         );
+        
+        supply.SupplyCategoryId = createSupplyDto.SupplyCategoryId;
+        supply.Type = createSupplyDto.Type;
+        supply.MinimumStock = createSupplyDto.MinimumStock;
 
         var createdSupply = await _supplyRepository.AddAsync(supply);
         return MapToDto(createdSupply);
@@ -129,9 +134,13 @@ public class SupplyService : ISupplyService
             supply.StoreId = updateSupplyDto.StoreId;
             supply.SupplyCategoryId = updateSupplyDto.SupplyCategoryId;
             supply.Type = updateSupplyDto.Type;
+            supply.MinimumStock = updateSupplyDto.MinimumStock;
 
             await _supplyRepository.UpdateAsync(supply);
-            return MapToDto(supply);
+            
+            // Reload from database to ensure we have the latest data
+            var updatedSupply = await _supplyRepository.GetByIdWithDetailsAsync(id);
+            return MapToDto(updatedSupply ?? supply);
         }
         catch (ArgumentException)
         {
@@ -160,6 +169,8 @@ public class SupplyService : ISupplyService
 
     private static SupplyDto MapToDto(Supply supply)
     {
+        var currentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0;
+        
         return new SupplyDto
         {
             Id = supply.Id,
@@ -174,12 +185,16 @@ public class SupplyService : ISupplyService
             UpdatedAt = supply.UpdatedAt,
             SupplyCategoryId = supply.SupplyCategoryId,
             Type = supply.Type,
+            MinimumStock = supply.MinimumStock,
             ComponentUsageCount = supply.ComponentUsageCount,
             ProcessUsageCount = supply.ProcessUsageCount,
             UsageCount = supply.ComponentUsageCount + supply.ProcessUsageCount, // Total
             
             // Calculate current stock from SupplyEntries
-            CurrentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0,
+            CurrentStock = currentStock,
+            
+            // Calculate stock status based on current stock and minimum threshold
+            StockStatus = StockHelper.CalculateStockStatus(currentStock, supply.MinimumStock),
             
             // Navigation properties - only include if loaded
             UnitMeasure = supply.UnitMeasure != null ? new UnitMeasureDto

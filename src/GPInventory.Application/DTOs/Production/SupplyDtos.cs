@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using GPInventory.Application.DTOs.Expenses;
 using GPInventory.Domain.Enums;
+using GPInventory.Domain.Enums;
 
 namespace GPInventory.Application.DTOs.Production;
 
@@ -30,6 +31,8 @@ public class CreateSupplyDto
     
     public SupplyType Type { get; set; } = SupplyType.Both;
     
+    public int MinimumStock { get; set; } = 0;
+    
     [Required]
     public int BusinessId { get; set; }
     
@@ -53,11 +56,13 @@ public class SupplyDto
     public int UsageCount { get; set; } = 0; // Total usage (legacy)
     public int ComponentUsageCount { get; set; } = 0; // Usage in components
     public int ProcessUsageCount { get; set; } = 0; // Usage in processes
+    public int MinimumStock { get; set; } = 0;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     
     // Stock information
     public int CurrentStock { get; set; } = 0;
+    public StockStatus StockStatus { get; set; } = StockStatus.OutOfStock;
     
     // Navigation properties
     public UnitMeasureDto? UnitMeasure { get; set; }
@@ -98,6 +103,8 @@ public class UpdateSupplyDto
     public int? SupplyCategoryId { get; set; }
     
     public SupplyType Type { get; set; } = SupplyType.Both;
+    
+    public int MinimumStock { get; set; } = 0;
     
     [Required]
     public int StoreId { get; set; }

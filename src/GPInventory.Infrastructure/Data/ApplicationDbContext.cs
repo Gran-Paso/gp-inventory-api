@@ -264,6 +264,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.UnitMeasureId).HasColumnName("unit_measure_id");
             entity.Property(e => e.SupplyCategoryId).HasColumnName("supply_category_id");
             entity.Property(e => e.Type).HasColumnName("type");
+            entity.Property(e => e.MinimumStock).HasColumnName("minimum_stock").HasDefaultValue(0);
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             
@@ -465,6 +466,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.YieldAmount).HasColumnName("yield_amount");
             entity.Property(e => e.Active).HasColumnName("active");
             entity.Property(e => e.SupplyCategoryId).HasColumnName("supply_category_id");
+            entity.Property(e => e.MinimumStock).HasColumnName("minimum_stock").HasDefaultValue(0);
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             

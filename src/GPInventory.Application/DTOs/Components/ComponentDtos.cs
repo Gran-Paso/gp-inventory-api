@@ -1,4 +1,5 @@
 using GPInventory.Application.DTOs.Production;
+using GPInventory.Domain.Enums;
 
 namespace GPInventory.Application.DTOs.Components;
 
@@ -19,11 +20,16 @@ public class ComponentDto
     public bool Active { get; set; }
     public int? SupplyCategoryId { get; set; }
     public SupplyCategoryDto? SupplyCategory { get; set; }
+    public int MinimumStock { get; set; } = 0;
     public int ComponentUsageCount { get; set; } = 0;
     public int ProcessUsageCount { get; set; } = 0;
     public int UsageCount => ComponentUsageCount + ProcessUsageCount;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    
+    // Stock information (not persisted, calculated at runtime)
+    public decimal CurrentStock { get; set; } = 0;
+    public StockStatus StockStatus { get; set; } = StockStatus.OutOfStock;
 }
 
 public class ComponentSupplyDto
@@ -59,6 +65,7 @@ public class CreateComponentDto
     public int? TimeUnitId { get; set; }
     public decimal YieldAmount { get; set; }
     public int? SupplyCategoryId { get; set; }
+    public int MinimumStock { get; set; } = 0;
     public List<CreateComponentSupplyDto> Supplies { get; set; } = new();
 }
 
@@ -82,6 +89,7 @@ public class UpdateComponentDto
     public int? TimeUnitId { get; set; }
     public decimal? YieldAmount { get; set; }
     public int? SupplyCategoryId { get; set; }
+    public int? MinimumStock { get; set; }
     public bool? Active { get; set; }
     public List<CreateComponentSupplyDto>? Supplies { get; set; }
 }

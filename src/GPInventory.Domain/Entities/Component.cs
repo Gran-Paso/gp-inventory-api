@@ -13,6 +13,7 @@ public class Component
     public decimal YieldAmount { get; set; }
     public bool Active { get; set; } = true;
     public int? SupplyCategoryId { get; set; }
+    public int MinimumStock { get; set; } = 0;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
