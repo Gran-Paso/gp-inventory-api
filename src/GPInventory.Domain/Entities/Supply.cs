@@ -9,6 +9,9 @@ public class Supply : BaseEntity
     [StringLength(255)]
     public string Name { get; set; } = string.Empty;
     
+    [StringLength(100)]
+    public string? Sku { get; set; }
+    
     [StringLength(500)]
     public string? Description { get; set; }
     
@@ -28,6 +31,8 @@ public class Supply : BaseEntity
     
     public int MinimumStock { get; set; } = 0;
     
+    public int? PreferredProviderId { get; set; }
+    
     // Usage tracking (not mapped to database)
     public int ComponentUsageCount { get; set; }
     public int ProcessUsageCount { get; set; }
@@ -38,6 +43,7 @@ public class Supply : BaseEntity
     public Business? Business { get; set; }
     public Store? Store { get; set; }
     public SupplyCategory? SupplyCategory { get; set; }
+    public Provider? PreferredProvider { get; set; }
     
     // Collection navigation properties
     public ICollection<SupplyEntry> SupplyEntries { get; set; } = new List<SupplyEntry>();

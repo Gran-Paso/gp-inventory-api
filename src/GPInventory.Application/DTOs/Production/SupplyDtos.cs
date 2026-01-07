@@ -11,6 +11,9 @@ public class CreateSupplyDto
     [StringLength(255)]
     public string Name { get; set; } = string.Empty;
     
+    [StringLength(100)]
+    public string? Sku { get; set; }
+    
     [StringLength(500)]
     public string? Description { get; set; }
     
@@ -33,6 +36,8 @@ public class CreateSupplyDto
     
     public int MinimumStock { get; set; } = 0;
     
+    public int? PreferredProviderId { get; set; }
+    
     [Required]
     public int BusinessId { get; set; }
     
@@ -44,6 +49,7 @@ public class SupplyDto
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? Sku { get; set; }
     public string? Description { get; set; }
     public int UnitMeasureId { get; set; }
     public int? FixedExpenseId { get; set; }
@@ -57,6 +63,7 @@ public class SupplyDto
     public int ComponentUsageCount { get; set; } = 0; // Usage in components
     public int ProcessUsageCount { get; set; } = 0; // Usage in processes
     public int MinimumStock { get; set; } = 0;
+    public int? PreferredProviderId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     
@@ -71,6 +78,7 @@ public class SupplyDto
     public BusinessDto? Business { get; set; }
     public StoreDto? Store { get; set; }
     public SupplyCategoryDto? SupplyCategory { get; set; }
+    public ProviderDto? PreferredProvider { get; set; }
     
     // Collection properties
     public ICollection<SupplyEntryDto> SupplyEntries { get; set; } = new List<SupplyEntryDto>();
@@ -81,6 +89,9 @@ public class UpdateSupplyDto
     [Required]
     [StringLength(255)]
     public string Name { get; set; } = string.Empty;
+    
+    [StringLength(100)]
+    public string? Sku { get; set; }
     
     [StringLength(500)]
     public string? Description { get; set; }
@@ -105,6 +116,8 @@ public class UpdateSupplyDto
     public SupplyType Type { get; set; } = SupplyType.Both;
     
     public int MinimumStock { get; set; } = 0;
+    
+    public int? PreferredProviderId { get; set; }
     
     [Required]
     public int StoreId { get; set; }

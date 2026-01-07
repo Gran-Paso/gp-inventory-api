@@ -122,6 +122,12 @@ public class SupplyEntryService : ISupplyEntryService
             createDto.ProcessDoneId
         );
         
+        // Asignar Tag si está presente
+        if (!string.IsNullOrEmpty(createDto.Tag))
+        {
+            supplyEntry.Tag = createDto.Tag;
+        }
+        
         // Si se especifica una referencia, asignarla después de la creación
         if (createDto.ReferenceToSupplyEntry.HasValue)
         {
@@ -161,7 +167,8 @@ public class SupplyEntryService : ISupplyEntryService
                     BusinessId = supply.BusinessId,
                     StoreId = supply.StoreId,
                     IsFixed = true,
-                    FixedExpenseId = supply.FixedExpenseId.Value
+                    FixedExpenseId = supply.FixedExpenseId.Value,
+                    ProviderId = createDto.ProviderId
                 };
 
                 await _expenseService.CreateExpenseAsync(expenseDto);
@@ -232,6 +239,12 @@ public class SupplyEntryService : ISupplyEntryService
         supplyEntry.UnitCost = updateDto.UnitCost;
         supplyEntry.Amount = (int)updateDto.Amount; // Convert decimal to int
         supplyEntry.ProviderId = updateDto.ProviderId;
+        
+        // Actualizar Tag si está presente en el DTO
+        if (!string.IsNullOrEmpty(updateDto.Tag))
+        {
+            supplyEntry.Tag = updateDto.Tag;
+        }
 
         var updated = await _repository.UpdateAsync(supplyEntry);
         return MapToDto(updated);
@@ -260,6 +273,7 @@ public class SupplyEntryService : ISupplyEntryService
             Id = supplyEntry.Id,
             UnitCost = supplyEntry.UnitCost,
             Amount = (decimal)supplyEntry.Amount, // Convert int to decimal
+            Tag = supplyEntry.Tag,
             ProviderId = supplyEntry.ProviderId,
             SupplyId = supplyEntry.SupplyId,
             ProcessDoneId = supplyEntry.ProcessDoneId,

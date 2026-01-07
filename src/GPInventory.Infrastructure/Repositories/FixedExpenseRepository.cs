@@ -138,13 +138,14 @@ public class FixedExpenseRepository : IFixedExpenseRepository
         {
             Console.WriteLine($"GetFixedExpensesWithDetailsAsync called with businessIds: {(businessIds != null ? string.Join(",", businessIds) : "null")}, expenseTypeId: {expenseTypeId}");
             
+            // Usar IgnoreAutoIncludes para evitar que EF Core genere columnas incorrectas
             var query = _context.Set<FixedExpense>()
+                .IgnoreAutoIncludes()
                 .Include(fe => fe.Subcategory)
-                    .ThenInclude(s => s!.ExpenseCategory) // Incluir la categoría de la subcategoría
-                .Include(fe => fe.RecurrenceType) // Incluir tipo de recurrencia
+                    .ThenInclude(s => s!.ExpenseCategory)
+                .Include(fe => fe.RecurrenceType)
                 .Include(fe => fe.Store)
                 .Include(fe => fe.Business)
-                .Include(fe => fe.GeneratedExpenses) // Incluir expenses asociados
                 .AsQueryable();
 
             Console.WriteLine($"Base query created");
@@ -178,6 +179,12 @@ public class FixedExpenseRepository : IFixedExpenseRepository
             
             Console.WriteLine($"Retrieved {result.Count} fixed expenses from database");
             
+            // Cargar manualmente los GeneratedExpenses con sus Providers usando raw SQL
+            foreach (var fixedExpense in result)
+            {
+                await LoadGeneratedExpensesWithProvidersAsync(fixedExpense);
+            }
+            
             if (result.Count == 0)
             {
                 Console.WriteLine("No fixed expenses found for the specified business IDs");
@@ -195,6 +202,85 @@ public class FixedExpenseRepository : IFixedExpenseRepository
             }
             
             throw new ApplicationException($"Error al obtener gastos fijos con detalles: {ex.Message}", ex);
+        }
+    }
+
+    private async Task LoadGeneratedExpensesWithProvidersAsync(FixedExpense fixedExpense)
+    {
+        var connection = _context.Database.GetDbConnection();
+        await _context.Database.OpenConnectionAsync();
+
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT 
+                    e.id, e.date, e.subcategory_id, e.amount, e.description, 
+                    e.is_fixed, e.fixed_expense_id, e.business_id, e.store_id, 
+                    e.expense_type_id, e.provider_id,
+                    p.id as provider_id_val, p.name as provider_name, p.id_business, 
+                    p.id_store as provider_store_id, p.contact, p.address, p.mail, 
+                    p.prefix, p.active, p.created_at as provider_created_at, 
+                    p.updated_at as provider_updated_at
+                FROM expenses e
+                LEFT JOIN provider p ON e.provider_id = p.id
+                WHERE e.fixed_expense_id = @fixedExpenseId
+                ORDER BY e.date DESC";
+
+            var param = command.CreateParameter();
+            param.ParameterName = "@fixedExpenseId";
+            param.Value = fixedExpense.Id;
+            command.Parameters.Add(param);
+
+            using var reader = await command.ExecuteReaderAsync();
+            var expenses = new List<Expense>();
+
+            while (await reader.ReadAsync())
+            {
+                var expense = new Expense
+                {
+                    Id = reader.GetInt32(0),
+                    Date = reader.GetDateTime(1),
+                    SubcategoryId = reader.GetInt32(2),
+                    Amount = reader.GetInt32(3),
+                    Description = reader.GetString(4),
+                    IsFixed = !reader.IsDBNull(5) && reader.GetBoolean(5),
+                    FixedExpenseId = !reader.IsDBNull(6) ? reader.GetInt32(6) : null,
+                    BusinessId = reader.GetInt32(7),
+                    StoreId = !reader.IsDBNull(8) ? reader.GetInt32(8) : null,
+                    ExpenseTypeId = !reader.IsDBNull(9) ? reader.GetInt32(9) : null,
+                    ProviderId = !reader.IsDBNull(10) ? reader.GetInt32(10) : null,
+                    CreatedAt = DateTime.UtcNow.ToString("o") // Usar fecha actual como default
+                };
+
+                // Cargar el Provider si existe
+                if (!reader.IsDBNull(11)) // provider_id_val
+                {
+                    expense.Provider = new Provider(
+                        name: reader.GetString(12), // provider_name
+                        businessId: reader.GetInt32(13), // id_business
+                        storeId: !reader.IsDBNull(14) ? reader.GetInt32(14) : null // provider_store_id
+                    )
+                    {
+                        Id = reader.GetInt32(11), // provider_id_val
+                        Contact = !reader.IsDBNull(15) ? reader.GetInt32(15) : null,
+                        Address = !reader.IsDBNull(16) ? reader.GetString(16) : null,
+                        Mail = !reader.IsDBNull(17) ? reader.GetString(17) : null,
+                        Prefix = !reader.IsDBNull(18) ? reader.GetString(18) : null,
+                        Active = !reader.IsDBNull(19) && reader.GetBoolean(19),
+                        CreatedAt = reader.GetDateTime(20),
+                        UpdatedAt = reader.GetDateTime(21)
+                    };
+                }
+
+                expenses.Add(expense);
+            }
+
+            fixedExpense.GeneratedExpenses = expenses;
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
         }
     }
 

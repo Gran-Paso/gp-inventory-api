@@ -104,6 +104,26 @@ public class ProcessDoneService : IProcessDoneService
             }
         }
 
+        // ⭐ AGREGAR: Crear las ComponentUsages automáticamente basado en la configuración del proceso
+        var componentUsages = new List<CreateComponentUsageDto>();
+        
+        if (process.ProcessComponents != null && process.ProcessComponents.Any())
+        {
+            foreach (var processComponent in process.ProcessComponents)
+            {
+                // Por ahora, asumir que se necesita 1 componente por cada unidad producida
+                // TODO: En el futuro, agregar un campo QuantityNeeded a ProcessComponent
+                var quantityNeeded = 1 * amountProduced;
+                
+                componentUsages.Add(new CreateComponentUsageDto
+                {
+                    ComponentId = processComponent.ComponentId,
+                    QuantityUsed = quantityNeeded,
+                    UnitCost = 0 // Se obtendrá del stock actual del componente
+                });
+            }
+        }
+
         // Crear el ProcessDone usando el método existente
         var createProcessDoneDto = new CreateProcessDoneDto
         {
@@ -113,10 +133,33 @@ public class ProcessDoneService : IProcessDoneService
             StartDate = DateTime.UtcNow,
             EndDate = DateTime.UtcNow, // Completado inmediatamente
             Notes = notes ?? "Proceso completado automáticamente",
-            SupplyUsages = supplyUsages
+            SupplyUsages = supplyUsages,
+            ComponentUsages = componentUsages
         };
 
-        return await CreateProcessDoneAsync(createProcessDoneDto);
+        var processDoneDto = await CreateProcessDoneAsync(createProcessDoneDto);
+        
+        // ⭐ AGREGAR: Crear el ComponentProduction positivo del componente producido
+        if (process.Product != null)
+        {
+            var componentProduction = new ComponentProduction
+            {
+                ComponentId = process.Product.Id,
+                ProcessDoneId = processDoneDto.Id,
+                BusinessId = process.Product.BusinessId,
+                StoreId = process.StoreId,
+                ProducedAmount = amountProduced, // Positivo para stock producido
+                ProductionDate = DateTime.UtcNow,
+                Cost = processDoneDto.Cost, // Usar el costo calculado del proceso
+                Notes = notes ?? $"Producción completada del proceso {process.Name}",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _componentProductionRepository.CreateAsync(componentProduction);
+        }
+        
+        return processDoneDto;
     }
 
     /// <summary>
@@ -419,22 +462,79 @@ public class ProcessDoneService : IProcessDoneService
 
         foreach (var componentUsage in componentUsages)
         {
-            // Crear entrada negativa de component_production para representar el consumo
+            await ProcessComponentConsumptionAsync(componentUsage, processDoneId, process);
+        }
+    }
+
+    /// <summary>
+    /// Procesa el consumo de un componente usando algoritmo FIFO con autoreferencia
+    /// </summary>
+    private async Task ProcessComponentConsumptionAsync(CreateComponentUsageDto componentUsage, int processDoneId, Process process)
+    {
+        var remainingQuantity = componentUsage.QuantityUsed;
+        
+        // Obtener todos los component_production disponibles para este componente (FIFO)
+        var availableProductions = await _componentProductionRepository.GetAvailableProductionsByComponentIdAsync(componentUsage.ComponentId);
+        
+        if (!availableProductions.Any())
+            throw new InvalidOperationException($"No stock available for Component ID {componentUsage.ComponentId}");
+        
+        var productionsToUpdate = new List<ComponentProduction>(); // Producciones que necesitan actualización
+        
+        foreach (var availableProduction in availableProductions)
+        {
+            if (remainingQuantity <= 0) break;
+            
+            // Determinar cuánto consumir de esta producción
+            var consumeFromThisProduction = Math.Min(remainingQuantity, availableProduction.ProducedAmount);
+            
+            // Calcular costo proporcional del stock consumido
+            var costPerUnit = availableProduction.ProducedAmount > 0 
+                ? availableProduction.Cost / availableProduction.ProducedAmount 
+                : 0;
+            
+            // Crear component_production negativo con referencia al lote original
             var componentProduction = new ComponentProduction
             {
                 ComponentId = componentUsage.ComponentId,
                 ProcessDoneId = processDoneId,
-                BusinessId = process.Product?.BusinessId ?? 1, // Obtener del proceso o usar default
+                BusinessId = process.Product?.BusinessId ?? availableProduction.BusinessId,
                 StoreId = process.StoreId,
-                ProducedAmount = -componentUsage.QuantityUsed, // Negativo para representar consumo
+                ProducedAmount = -consumeFromThisProduction, // Cantidad negativa
                 ProductionDate = DateTime.Now,
-                Cost = componentUsage.UnitCost * componentUsage.QuantityUsed,
+                Cost = costPerUnit * consumeFromThisProduction, // Costo proporcional
                 Notes = $"Consumido en proceso {process.Name}",
+                ComponentProductionId = availableProduction.Id, // ⭐ Referencia al lote original (FIFO)
                 IsActive = true,
                 CreatedAt = DateTime.Now
             };
 
             await _componentProductionRepository.CreateAsync(componentProduction);
+            
+            // Si esta producción se queda completamente vacía, marcarla para desactivar
+            var remainingInProduction = availableProduction.ProducedAmount - consumeFromThisProduction;
+            if (remainingInProduction == 0)
+            {
+                // Obtener la producción original para actualizar su estado
+                var originalProduction = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
+                if (originalProduction != null)
+                {
+                    originalProduction.IsActive = false; // Marcar como inactiva
+                    productionsToUpdate.Add(originalProduction);
+                }
+            }
+            
+            // Reducir la cantidad pendiente
+            remainingQuantity -= consumeFromThisProduction;
         }
+        
+        // Actualizar todas las producciones que se quedaron vacías
+        foreach (var production in productionsToUpdate)
+        {
+            await _componentProductionRepository.UpdateAsync(production);
+        }
+        
+        if (remainingQuantity > 0)
+            throw new InvalidOperationException($"Insufficient stock for Component ID {componentUsage.ComponentId}. Missing: {remainingQuantity}");
     }
 }

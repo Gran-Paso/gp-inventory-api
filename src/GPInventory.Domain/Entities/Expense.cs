@@ -36,12 +36,17 @@ public class Expense
     [ForeignKey(nameof(ExpenseType))]
     public int? ExpenseTypeId { get; set; } // Tipo de egreso: Gasto, Costo o Inversión
 
+    [ForeignKey(nameof(Provider))]
+    [Column("provider_id")]
+    public int? ProviderId { get; set; } // Proveedor asociado al gasto (cuando viene de un supply entry)
+
     // Navigation properties
     public ExpenseSubcategory ExpenseSubcategory { get; set; } = null!;
     public Business Business { get; set; } = null!;
     public Store? Store { get; set; }
     public FixedExpense? FixedExpense { get; set; } // Navigation to the fixed expense that generated this
     public ExpenseType? ExpenseType { get; set; } // Tipo de egreso
+    public Provider? Provider { get; set; } // Proveedor asociado
     public string Notes { get; set; } = string.Empty;
     public string CreatedAt { get; set; } = DateTime.UtcNow.ToString("o"); // ISO 8601 format for consistency
 

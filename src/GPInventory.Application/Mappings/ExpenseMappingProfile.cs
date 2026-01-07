@@ -1,6 +1,8 @@
 using AutoMapper;
 using GPInventory.Application.DTOs.Expenses;
+using GPInventory.Application.DTOs.Production;
 using GPInventory.Domain.Entities;
+using ExpenseFixedExpenseDto = GPInventory.Application.DTOs.Expenses.FixedExpenseDto;
 
 namespace GPInventory.Application.Mappings;
 
@@ -21,10 +23,24 @@ public class ExpenseMappingProfile : Profile
             .ForMember(dest => dest.Subcategory, opt => opt.MapFrom(src => src.ExpenseSubcategory))
             .ForMember(dest => dest.Category, opt => opt.MapFrom(src => src.ExpenseSubcategory.ExpenseCategory))
             .ForMember(dest => dest.StoreName, opt => opt.MapFrom(src => src.Store != null ? src.Store.Name : null))
-            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId));
+            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId))
+            .ForMember(dest => dest.Provider, opt => opt.MapFrom(src => src.Provider != null ? new ProviderDto
+            {
+                Id = src.Provider.Id,
+                Name = src.Provider.Name,
+                BusinessId = src.Provider.BusinessId,
+                StoreId = src.Provider.StoreId,
+                Contact = src.Provider.Contact,
+                Address = src.Provider.Address,
+                Mail = src.Provider.Mail,
+                Prefix = src.Provider.Prefix,
+                Active = src.Provider.Active,
+                CreatedAt = src.Provider.CreatedAt,
+                UpdatedAt = src.Provider.UpdatedAt
+            } : null));
 
         // FixedExpense mappings
-        CreateMap<FixedExpense, FixedExpenseDto>()
+        CreateMap<FixedExpense, ExpenseFixedExpenseDto>()
             .ForMember(dest => dest.Description, opt => opt.MapFrom(src => src.AdditionalNote))
             .ForMember(dest => dest.StartDate, opt => opt.MapFrom(src => src.PaymentDate ?? DateTime.UtcNow))
             .ForMember(dest => dest.Notes, opt => opt.MapFrom(src => src.AdditionalNote));

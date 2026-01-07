@@ -70,6 +70,7 @@ public class ExpenseRepository : IExpenseRepository
         var query = _dbSet
             .Include(e => e.ExpenseSubcategory)
                 .ThenInclude(s => s.ExpenseCategory)
+            .Include(e => e.Provider)
             .AsQueryable();
 
         // Aplicar filtros de business ID usando business_id

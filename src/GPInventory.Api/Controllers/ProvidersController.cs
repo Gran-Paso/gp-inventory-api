@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using GPInventory.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
+using GPInventory.Application.DTOs.Production;
+using GPInventory.Application.Interfaces;
 
 namespace GPInventory.Api.Controllers;
 
@@ -11,114 +11,108 @@ namespace GPInventory.Api.Controllers;
 [EnableCors("AllowFrontend")]
 public class ProvidersController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
+    private readonly IProviderService _providerService;
     private readonly ILogger<ProvidersController> _logger;
 
-    public ProvidersController(ApplicationDbContext context, ILogger<ProvidersController> logger)
+    public ProvidersController(IProviderService providerService, ILogger<ProvidersController> logger)
     {
-        _context = context;
+        _providerService = providerService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Obtiene todos los proveedores con filtros opcionales
+    /// Get all providers or filter by business
     /// </summary>
-    /// <param name="businessId">ID del negocio (opcional)</param>
-    /// <param name="search">Búsqueda por nombre (opcional)</param>
-    /// <returns>Lista de proveedores</returns>
     [HttpGet]
     [Authorize]
     [ProducesResponseType(200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<IEnumerable<object>>> GetProviders(
-        [FromQuery] int? businessId = null,
-        [FromQuery] string? search = null)
+    public async Task<ActionResult<IEnumerable<ProviderDto>>> GetProviders([FromQuery] int? businessId = null)
     {
         try
         {
-            _logger.LogInformation("Obteniendo proveedores con filtros");
+            _logger.LogInformation("Getting providers with filters");
 
-            var query = _context.Providers
-                .Include(p => p.Business)
-                .AsQueryable();
+            IEnumerable<ProviderDto> providers;
 
             if (businessId.HasValue)
             {
-                query = query.Where(p => p.BusinessId == businessId.Value);
+                providers = await _providerService.GetProvidersByBusinessIdAsync(businessId.Value);
             }
-
-            if (!string.IsNullOrEmpty(search))
+            else
             {
-                query = query.Where(p => p.Name.Contains(search));
+                providers = await _providerService.GetAllProvidersAsync();
             }
 
-            var providers = await query
-                .Select(p => new
-                {
-                    id = p.Id,
-                    name = p.Name,
-                    business = new { id = p.Business!.Id, companyName = p.Business.CompanyName }
-                })
-                .ToListAsync();
-
-            _logger.LogInformation($"Se encontraron {providers.Count} proveedores");
+            _logger.LogInformation($"Found {providers.Count()} providers");
             return Ok(providers);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al obtener proveedores");
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            _logger.LogError(ex, "Error retrieving providers");
+            return StatusCode(500, new { message = "Error retrieving providers", error = ex.Message });
         }
     }
 
     /// <summary>
-    /// Obtiene un proveedor específico por ID
+    /// Get provider by ID
     /// </summary>
-    /// <param name="id">ID del proveedor</param>
-    /// <returns>Proveedor encontrado</returns>
     [HttpGet("{id}")]
     [Authorize]
     [ProducesResponseType(200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<object>> GetProvider(int id)
+    public async Task<ActionResult<ProviderDto>> GetProvider(int id)
     {
         try
         {
-            _logger.LogInformation("Obteniendo proveedor con ID: {id}", id);
+            _logger.LogInformation("Getting provider with ID: {id}", id);
 
-            var provider = await _context.Providers
-                .Include(p => p.Business)
-                .Where(p => p.Id == id)
-                .Select(p => new
-                {
-                    id = p.Id,
-                    name = p.Name,
-                    business = new { id = p.Business!.Id, companyName = p.Business.CompanyName }
-                })
-                .FirstOrDefaultAsync();
-
-            if (provider == null)
-            {
-                return NotFound(new { message = "Proveedor no encontrado" });
-            }
-
+            var provider = await _providerService.GetProviderByIdAsync(id);
             return Ok(provider);
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al obtener proveedor con ID: {id}", id);
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            _logger.LogError(ex, "Error retrieving provider with ID: {id}", id);
+            return StatusCode(500, new { message = "Error retrieving provider", error = ex.Message });
         }
     }
 
     /// <summary>
-    /// Crea un nuevo proveedor
+    /// Get providers by business ID
     /// </summary>
-    /// <param name="request">Datos del nuevo proveedor</param>
-    /// <returns>Proveedor creado</returns>
+    [HttpGet("business/{businessId}")]
+    [Authorize]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<IEnumerable<ProviderDto>>> GetProvidersByBusiness(int businessId)
+    {
+        try
+        {
+            _logger.LogInformation("Getting providers for business ID: {businessId}", businessId);
+
+            var providers = await _providerService.GetProvidersByBusinessIdAsync(businessId);
+
+            _logger.LogInformation($"Found {providers.Count()} providers for business {businessId}");
+            return Ok(providers);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving providers for business ID: {businessId}", businessId);
+            return StatusCode(500, new { message = "Error retrieving providers", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Create a new provider
+    /// </summary>
     [HttpPost]
     [Authorize]
     [ProducesResponseType(201)]
@@ -126,76 +120,31 @@ public class ProvidersController : ControllerBase
     [ProducesResponseType(401)]
     [ProducesResponseType(409)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<object>> CreateProvider([FromBody] CreateProviderRequest request)
+    public async Task<ActionResult<ProviderDto>> CreateProvider([FromBody] CreateProviderDto createProviderDto)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(request.Name))
-            {
-                return BadRequest(new { message = "El nombre del proveedor es requerido" });
-            }
+            _logger.LogInformation("Creating new provider: {providerName}", createProviderDto.Name);
 
-            if (request.BusinessId <= 0)
-            {
-                return BadRequest(new { message = "El negocio es requerido" });
-            }
+            var provider = await _providerService.CreateProviderAsync(createProviderDto);
 
-            _logger.LogInformation("Creando nuevo proveedor: {providerName}", request.Name);
-
-            // Verificar que el negocio existe
-            var businessExists = await _context.Businesses.AnyAsync(b => b.Id == request.BusinessId);
-            if (!businessExists)
-            {
-                return BadRequest(new { message = "El negocio especificado no existe" });
-            }
-
-            // Verificar si ya existe un proveedor con el mismo nombre en el mismo negocio
-            var existingProvider = await _context.Providers
-                .FirstOrDefaultAsync(p => p.Name.ToLower() == request.Name.ToLower().Trim() 
-                                     && p.BusinessId == request.BusinessId);
-
-            if (existingProvider != null)
-            {
-                return Conflict(new { message = "Ya existe un proveedor con ese nombre en este negocio" });
-            }
-
-            var newProvider = new GPInventory.Domain.Entities.Provider
-            {
-                Name = request.Name.Trim(),
-                BusinessId = request.BusinessId
-            };
-
-            _context.Providers.Add(newProvider);
-            await _context.SaveChangesAsync();
-
-            // Obtener el proveedor creado con sus relaciones
-            var createdProvider = await _context.Providers
-                .Include(p => p.Business)
-                .Where(p => p.Id == newProvider.Id)
-                .Select(p => new
-                {
-                    id = p.Id,
-                    name = p.Name,
-                    business = new { id = p.Business!.Id, companyName = p.Business.CompanyName }
-                })
-                .FirstOrDefaultAsync();
-
-            _logger.LogInformation("Proveedor creado exitosamente: {providerName} con ID: {providerId}", request.Name, newProvider.Id);
-            return CreatedAtAction(nameof(GetProvider), new { id = newProvider.Id }, createdProvider);
+            _logger.LogInformation("Provider created successfully: {providerName} with ID: {providerId}", provider.Name, provider.Id);
+            return CreatedAtAction(nameof(GetProvider), new { id = provider.Id }, provider);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al crear proveedor");
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            _logger.LogError(ex, "Error creating provider");
+            return StatusCode(500, new { message = "Error creating provider", error = ex.Message });
         }
     }
 
     /// <summary>
-    /// Actualiza un proveedor existente
+    /// Update an existing provider
     /// </summary>
-    /// <param name="id">ID del proveedor a actualizar</param>
-    /// <param name="request">Datos actualizados del proveedor</param>
-    /// <returns>Proveedor actualizado</returns>
     [HttpPut("{id}")]
     [Authorize]
     [ProducesResponseType(200)]
@@ -204,176 +153,78 @@ public class ProvidersController : ControllerBase
     [ProducesResponseType(404)]
     [ProducesResponseType(409)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<object>> UpdateProvider(int id, [FromBody] UpdateProviderRequest request)
+    public async Task<ActionResult<ProviderDto>> UpdateProvider(int id, [FromBody] UpdateProviderDto updateProviderDto)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(request.Name))
-            {
-                return BadRequest(new { message = "El nombre del proveedor es requerido" });
-            }
+            _logger.LogInformation("Updating provider with ID: {id}", id);
 
-            _logger.LogInformation("Actualizando proveedor con ID: {id}", id);
+            var provider = await _providerService.UpdateProviderAsync(id, updateProviderDto);
 
-            var existingProvider = await _context.Providers.FindAsync(id);
-            if (existingProvider == null)
-            {
-                return NotFound(new { message = "Proveedor no encontrado" });
-            }
-
-            // Verificar si ya existe otro proveedor con el mismo nombre en el mismo negocio
-            var duplicateProvider = await _context.Providers
-                .FirstOrDefaultAsync(p => p.Name.ToLower() == request.Name.ToLower().Trim() 
-                                     && p.BusinessId == existingProvider.BusinessId
-                                     && p.Id != id);
-
-            if (duplicateProvider != null)
-            {
-                return Conflict(new { message = "Ya existe otro proveedor con ese nombre en este negocio" });
-            }
-
-            // Actualizar campos
-            existingProvider.Name = request.Name.Trim();
-
-            await _context.SaveChangesAsync();
-
-            // Obtener el proveedor actualizado con sus relaciones
-            var updatedProvider = await _context.Providers
-                .Include(p => p.Business)
-                .Where(p => p.Id == id)
-                .Select(p => new
-                {
-                    id = p.Id,
-                    name = p.Name,
-                    business = new { id = p.Business!.Id, companyName = p.Business.CompanyName }
-                })
-                .FirstOrDefaultAsync();
-
-            _logger.LogInformation("Proveedor actualizado exitosamente: {providerName} con ID: {id}", request.Name, id);
-            return Ok(updatedProvider);
+            _logger.LogInformation("Provider updated successfully: {providerName} with ID: {id}", provider.Name, id);
+            return Ok(provider);
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al actualizar proveedor con ID: {id}", id);
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            _logger.LogError(ex, "Error updating provider with ID: {id}", id);
+            return StatusCode(500, new { message = "Error updating provider", error = ex.Message });
         }
     }
 
     /// <summary>
-    /// Elimina un proveedor
+    /// Delete a provider
     /// </summary>
-    /// <param name="id">ID del proveedor a eliminar</param>
-    /// <returns>Confirmación de eliminación</returns>
     [HttpDelete("{id}")]
     [Authorize]
     [ProducesResponseType(200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
-    [ProducesResponseType(409)]
     [ProducesResponseType(500)]
     public async Task<ActionResult> DeleteProvider(int id)
     {
         try
         {
-            _logger.LogInformation("Eliminando proveedor con ID: {id}", id);
+            _logger.LogInformation("Deleting provider with ID: {id}", id);
 
-            var existingProvider = await _context.Providers.FindAsync(id);
-            if (existingProvider == null)
-            {
-                return NotFound(new { message = "Proveedor no encontrado" });
-            }
+            await _providerService.DeleteProviderAsync(id);
 
-            // Verificar si tiene movimientos de stock asociados
-            var hasStockMovements = await _context.Stocks.AnyAsync(s => s.ProviderId == id);
-            if (hasStockMovements)
-            {
-                return Conflict(new { message = "No se puede eliminar el proveedor porque tiene movimientos de stock asociados" });
-            }
-
-            _context.Providers.Remove(existingProvider);
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation("Proveedor eliminado exitosamente: {providerName} con ID: {id}", existingProvider.Name, id);
-            return Ok(new { message = "Proveedor eliminado exitosamente", providerId = id });
+            _logger.LogInformation("Provider deleted successfully with ID: {id}", id);
+            return NoContent();
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al eliminar proveedor con ID: {id}", id);
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            _logger.LogError(ex, "Error deleting provider with ID: {id}", id);
+            return StatusCode(500, new { message = "Error deleting provider", error = ex.Message });
         }
     }
 
     /// <summary>
-    /// Busca proveedores por nombre (para autocompletado)
+    /// Get providers by store ID
     /// </summary>
-    /// <param name="businessId">ID del negocio</param>
-    /// <param name="query">Término de búsqueda</param>
-    /// <returns>Lista de nombres de proveedores que coinciden</returns>
-    [HttpGet("search")]
+    [HttpGet("store/{storeId}")]
     [Authorize]
     [ProducesResponseType(200)]
-    [ProducesResponseType(400)]
     [ProducesResponseType(401)]
     [ProducesResponseType(500)]
-    public async Task<ActionResult<IEnumerable<string>>> SearchProviders(
-        [FromQuery] int businessId,
-        [FromQuery] string query)
+    public async Task<ActionResult<IEnumerable<ProviderDto>>> GetProvidersByStore(int storeId)
     {
         try
         {
-            if (businessId <= 0)
-            {
-                return BadRequest(new { message = "ID de negocio requerido" });
-            }
-
-            if (string.IsNullOrWhiteSpace(query) || query.Length < 2)
-            {
-                return Ok(new List<string>());
-            }
-
-            _logger.LogInformation("Buscando proveedores para negocio: {businessId} con query: {query}", businessId, query);
-
-            var providerNames = await _context.Providers
-                .Where(p => p.BusinessId == businessId && p.Name.Contains(query))
-                .Select(p => p.Name)
-                .Distinct()
-                .OrderBy(name => name)
-                .Take(10)
-                .ToListAsync();
-
-            return Ok(providerNames);
+            var providers = await _providerService.GetProvidersByStoreIdAsync(storeId);
+            return Ok(providers);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error al buscar proveedores");
-            return StatusCode(500, new { message = "Error interno del servidor" });
+            _logger.LogError(ex, "Error retrieving providers for store: {storeId}", storeId);
+            return StatusCode(500, new { message = "Error retrieving providers", error = ex.Message });
         }
     }
-}
-
-/// <summary>
-/// Modelo para crear un nuevo proveedor
-/// </summary>
-public class CreateProviderRequest
-{
-    /// <summary>
-    /// Nombre del proveedor
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>
-    /// ID del negocio
-    /// </summary>
-    public int BusinessId { get; set; }
-}
-
-/// <summary>
-/// Modelo para actualizar un proveedor existente
-/// </summary>
-public class UpdateProviderRequest
-{
-    /// <summary>
-    /// Nombre del proveedor
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
 }

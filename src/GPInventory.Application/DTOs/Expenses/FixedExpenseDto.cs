@@ -112,6 +112,6 @@ public class FixedExpenseWithDetailsDto
     public RecurrenceTypeDto RecurrenceType { get; set; } = null!;
     public string? StoreName { get; set; }
     
-    // Expenses asociados a este gasto fijo
-    public List<ExpenseDto> AssociatedExpenses { get; set; } = new List<ExpenseDto>();
+    // Expenses asociados a este gasto fijo (con detalles para incluir provider)
+    public List<ExpenseWithDetailsDto> AssociatedExpenses { get; set; } = new List<ExpenseWithDetailsDto>();
 }

@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using GPInventory.Application.DTOs.Payments;
+using GPInventory.Application.DTOs.Production;
 
 namespace GPInventory.Application.DTOs.Expenses;
 
@@ -36,6 +37,9 @@ public class CreateExpenseDto
 
     [JsonPropertyName("expense_type_id")]
     public int? ExpenseTypeId { get; set; }
+
+    [JsonPropertyName("provider_id")]
+    public int? ProviderId { get; set; }
 }
 
 public class UpdateExpenseDto
@@ -71,6 +75,8 @@ public class ExpenseDto
     public int BusinessId { get; set; }
     [JsonPropertyName("store_id")]
     public int? StoreId { get; set; }
+    [JsonPropertyName("provider_id")]
+    public int? ProviderId { get; set; }
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; }
 }
@@ -93,6 +99,8 @@ public class ExpenseWithDetailsDto
     public DateTime CreatedAt { get; set; }
     [JsonPropertyName("expense_type_id")]
     public int? ExpenseTypeId { get; set; }
+    [JsonPropertyName("provider_id")]
+    public int? ProviderId { get; set; }
     
     // Detalles relacionados
     public ExpenseSubcategoryDto Subcategory { get; set; } = null!;
@@ -103,4 +111,7 @@ public class ExpenseWithDetailsDto
     // NUEVO: Payment Plan con cuotas
     [JsonPropertyName("payment_plan")]
     public PaymentPlanWithInstallmentsDto? PaymentPlan { get; set; }
+    
+    // NUEVO: Provider (para costos asociados a supply entries)
+    public ProviderDto? Provider { get; set; }
 }

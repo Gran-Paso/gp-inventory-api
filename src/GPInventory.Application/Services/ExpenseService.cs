@@ -934,7 +934,7 @@ public class ExpenseService : IExpenseService
             // Populate associated expenses
             if (fixedExpense.GeneratedExpenses != null && fixedExpense.GeneratedExpenses.Any())
             {
-                dto.AssociatedExpenses = _mapper.Map<List<ExpenseDto>>(fixedExpense.GeneratedExpenses);
+                dto.AssociatedExpenses = _mapper.Map<List<ExpenseWithDetailsDto>>(fixedExpense.GeneratedExpenses);
             }
             
             // Get the last expense date for this fixed expense
@@ -1039,7 +1039,7 @@ public class ExpenseService : IExpenseService
             dto.IsUpToDate = false;
             dto.NextDueDate = DateTime.Now.AddDays(30); // Default to 30 days
             dto.LastPaymentDate = null;
-            dto.AssociatedExpenses = new List<ExpenseDto>();
+            dto.AssociatedExpenses = new List<ExpenseWithDetailsDto>();
         }
     }
 
