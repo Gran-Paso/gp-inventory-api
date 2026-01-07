@@ -19,6 +19,44 @@ public class ExpensesController : ControllerBase
         _logger = logger;
     }
 
+    // GET: api/expenses/list - Endpoint optimizado para listas
+    [HttpGet("list")]
+    public async Task<IActionResult> GetExpensesList([FromQuery] ExpenseFiltersDto filters)
+    {
+        try
+        {
+            // Construir array de business IDs para el filtrado
+            int[]? targetBusinessIds = null;
+            
+            if (filters.BusinessIds != null && filters.BusinessIds.Length > 0)
+            {
+                targetBusinessIds = filters.BusinessIds;
+            }
+            else if (filters.BusinessId.HasValue)
+            {
+                targetBusinessIds = new[] { filters.BusinessId.Value };
+            }
+
+            // Validar que se proporcione al menos un business ID
+            if (targetBusinessIds == null || targetBusinessIds.Length == 0)
+            {
+                return BadRequest(new { message = "Se debe proporcionar al menos un ID de negocio" });
+            }
+
+            // Actualizar filters con los business IDs procesados
+            filters.BusinessIds = targetBusinessIds;
+            filters.BusinessId = null;
+
+            var expenses = await _expenseService.GetExpensesListAsync(filters);
+            return Ok(expenses);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving expenses list");
+            return StatusCode(500, new { message = "Error al obtener la lista de gastos" });
+        }
+    }
+
     // GET: api/expenses
     [HttpGet]
     public async Task<IActionResult> GetExpenses([FromQuery] ExpenseFiltersDto filters)
@@ -54,6 +92,27 @@ public class ExpensesController : ControllerBase
         {
             _logger.LogError(ex, "Error retrieving expenses");
             return StatusCode(500, new { message = "Error al obtener los gastos" });
+        }
+    }
+
+    // GET: api/expenses/{id}/details - Endpoint optimizado para detalles
+    [HttpGet("{id}/details")]
+    public async Task<IActionResult> GetExpenseDetails(int id)
+    {
+        try
+        {
+            var expense = await _expenseService.GetExpenseWithDetailsAsync(id);
+            return Ok(expense);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Expense not found: {Id}", id);
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving expense details: {Id}", id);
+            return StatusCode(500, new { message = "Error al obtener los detalles del gasto" });
         }
     }
 

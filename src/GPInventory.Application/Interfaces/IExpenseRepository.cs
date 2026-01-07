@@ -5,6 +5,7 @@ namespace GPInventory.Application.Interfaces;
 public interface IExpenseRepository
 {
     Task<Expense?> GetByIdAsync(int id);
+    Task<Expense?> GetByIdWithDetailsAsync(int id);
     Task<IEnumerable<Expense>> GetAllAsync();
     Task<Expense> AddAsync(Expense entity);
     Task UpdateAsync(Expense entity);

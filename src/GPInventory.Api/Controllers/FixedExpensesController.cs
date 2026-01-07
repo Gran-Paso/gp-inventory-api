@@ -19,6 +19,40 @@ public class FixedExpensesController : ControllerBase
         _logger = logger;
     }
 
+    // GET: api/fixed-expenses/list - Endpoint optimizado para listas
+    [HttpGet("list")]
+    public async Task<IActionResult> GetFixedExpensesList([FromQuery] int? businessId, [FromQuery] int[]? businessIds, [FromQuery] int? expenseTypeId)
+    {
+        try
+        {
+            _logger.LogInformation("GetFixedExpensesList called with businessId: {BusinessId}, businessIds: {BusinessIds}, expenseTypeId: {ExpenseTypeId}", 
+                businessId, businessIds != null ? string.Join(",", businessIds) : "null", expenseTypeId);
+            
+            var targetBusinessIds = businessIds?.Length > 0 ? businessIds : (businessId.HasValue ? new[] { businessId.Value } : null);
+            
+            if (targetBusinessIds == null || targetBusinessIds.Length == 0)
+            {
+                return BadRequest(new { message = "Se debe proporcionar al menos un ID de negocio" });
+            }
+            
+            var fixedExpensesList = await _expenseService.GetFixedExpensesListAsync(targetBusinessIds, expenseTypeId);
+            
+            _logger.LogInformation("Retrieved {Count} fixed expenses list items", fixedExpensesList.Count());
+            
+            return Ok(fixedExpensesList);
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid arguments for GetFixedExpensesList");
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving fixed expenses list");
+            return StatusCode(500, new { message = "Error al obtener la lista de gastos fijos" });
+        }
+    }
+
     // GET: api/fixed-expenses
     [HttpGet]
     public async Task<IActionResult> GetFixedExpenses([FromQuery] int? businessId, [FromQuery] int[]? businessIds, [FromQuery] int? expenseTypeId)
@@ -55,6 +89,27 @@ public class FixedExpensesController : ControllerBase
         {
             _logger.LogError(ex, "Error retrieving fixed expenses");
             return StatusCode(500, new { message = "Error al obtener los gastos fijos" });
+        }
+    }
+
+    // GET: api/fixed-expenses/{id}/details - Endpoint optimizado para detalles
+    [HttpGet("{id}/details")]
+    public async Task<IActionResult> GetFixedExpenseDetails(int id)
+    {
+        try
+        {
+            var fixedExpense = await _expenseService.GetFixedExpenseWithDetailsAsync(id);
+            return Ok(fixedExpense);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Fixed expense not found: {Id}", id);
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving fixed expense details: {Id}", id);
+            return StatusCode(500, new { message = "Error al obtener los detalles del gasto fijo" });
         }
     }
 

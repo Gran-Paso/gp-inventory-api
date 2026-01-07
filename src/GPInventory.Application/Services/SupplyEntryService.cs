@@ -168,7 +168,15 @@ public class SupplyEntryService : ISupplyEntryService
                     StoreId = supply.StoreId,
                     IsFixed = true,
                     FixedExpenseId = supply.FixedExpenseId.Value,
-                    ProviderId = createDto.ProviderId
+                    ProviderId = createDto.ProviderId,
+                    ExpenseTypeId = 2, // Costos - compra de insumos
+                    
+                    // Payment Plan data (if financing)
+                    PaymentTypeId = createDto.PaymentTypeId,
+                    InstallmentsCount = createDto.InstallmentsCount,
+                    ExpressedInUf = createDto.ExpressedInUf ?? false,
+                    BankEntityId = createDto.BankEntityId,
+                    PaymentStartDate = createDto.PaymentStartDate
                 };
 
                 await _expenseService.CreateExpenseAsync(expenseDto);

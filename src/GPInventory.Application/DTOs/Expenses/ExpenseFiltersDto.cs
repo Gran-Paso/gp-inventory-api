@@ -14,7 +14,7 @@ public class ExpenseFiltersDto
     public bool? IsFixed { get; set; }
     public int? ExpenseTypeId { get; set; }
     public int Page { get; set; } = 1;
-    public int PageSize { get; set; } = 10;
+    public int PageSize { get; set; } = 1000; // Aumentado para mostrar todos los gastos por defecto
     public string? OrderBy { get; set; } = "Date";
     public bool OrderDescending { get; set; } = true;
 }

@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using GPInventory.Application.DTOs.Expenses;
 using GPInventory.Domain.Enums;
-using GPInventory.Domain.Enums;
 
 namespace GPInventory.Application.DTOs.Production;
 

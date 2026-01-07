@@ -32,6 +32,13 @@ public class CreateSupplyEntryDto
     public int SupplyId { get; set; }
     public int? ProcessDoneId { get; set; }
     public int? ReferenceToSupplyEntry { get; set; }
+    
+    // Payment Plan fields (optional - for financing)
+    public int? PaymentTypeId { get; set; }
+    public int? InstallmentsCount { get; set; }
+    public bool? ExpressedInUf { get; set; }
+    public int? BankEntityId { get; set; }
+    public DateTime? PaymentStartDate { get; set; }
 }
 
 public class UpdateSupplyEntryDto
