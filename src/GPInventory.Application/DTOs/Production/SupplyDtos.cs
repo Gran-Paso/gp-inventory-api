@@ -74,6 +74,7 @@ public class SupplyDto
     public UnitMeasureDto? UnitMeasure { get; set; }
     public FixedExpenseDto? FixedExpense { get; set; }
     public ExpenseTypeDto? ExpenseType { get; set; }
+    public int? SubcategoryId => FixedExpense?.SubcategoryId; // Subcategory from fixed expense
     public BusinessDto? Business { get; set; }
     public StoreDto? Store { get; set; }
     public SupplyCategoryDto? SupplyCategory { get; set; }
@@ -164,4 +165,5 @@ public class FixedExpenseDto
     public int Id { get; set; }
     public string AdditionalNote { get; set; } = string.Empty;
     public int Amount { get; set; }
+    public int? SubcategoryId { get; set; }
 }

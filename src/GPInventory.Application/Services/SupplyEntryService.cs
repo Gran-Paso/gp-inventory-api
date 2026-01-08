@@ -12,19 +12,22 @@ public class SupplyEntryService : ISupplyEntryService
     private readonly IUnitMeasureRepository _unitMeasureRepository;
     private readonly IExpenseService _expenseService;
     private readonly IExpenseSubcategoryRepository _subcategoryRepository;
+    private readonly IFixedExpenseRepository _fixedExpenseRepository;
 
     public SupplyEntryService(
         ISupplyEntryRepository repository,
         ISupplyRepository supplyRepository,
         IUnitMeasureRepository unitMeasureRepository,
         IExpenseService expenseService,
-        IExpenseSubcategoryRepository subcategoryRepository)
+        IExpenseSubcategoryRepository subcategoryRepository,
+        IFixedExpenseRepository fixedExpenseRepository)
     {
         _repository = repository;
         _supplyRepository = supplyRepository;
         _unitMeasureRepository = unitMeasureRepository;
         _expenseService = expenseService;
         _subcategoryRepository = subcategoryRepository;
+        _fixedExpenseRepository = fixedExpenseRepository;
     }
 
     public async Task<IEnumerable<SupplyEntryDto>> GetAllAsync()
@@ -156,7 +159,17 @@ public class SupplyEntryService : ISupplyEntryService
                     totalAmount = createDto.UnitCost * createDto.Amount;
                 }
                 
-                var subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
+                // Usar la subcategoría del FixedExpense del supply, o buscar una por defecto
+                int subcategoryId;
+                var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
+                if (fixedExpense?.SubcategoryId.HasValue == true)
+                {
+                    subcategoryId = fixedExpense.SubcategoryId.Value;
+                }
+                else
+                {
+                    subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
+                }
                 
                 var expenseDto = new CreateExpenseDto
                 {

@@ -3,6 +3,7 @@ using GPInventory.Application.DTOs.Expenses;
 using GPInventory.Application.Interfaces;
 using GPInventory.Application.Helpers;
 using GPInventory.Domain.Entities;
+using ProductionDtos = GPInventory.Application.DTOs.Production;
 
 namespace GPInventory.Application.Services;
 
@@ -215,11 +216,12 @@ public class SupplyService : ISupplyService
                 Name = supply.SupplyCategory.Name,
                 Description = supply.SupplyCategory.Description
             } : null,
-            FixedExpense = supply.FixedExpense != null ? new DTOs.Production.FixedExpenseDto
+            FixedExpense = supply.FixedExpense != null ? new ProductionDtos.FixedExpenseDto
             {
                 Id = supply.FixedExpense.Id,
                 AdditionalNote = supply.FixedExpense.AdditionalNote,
-                Amount = supply.FixedExpense.Amount
+                Amount = supply.FixedExpense.Amount,
+                SubcategoryId = supply.FixedExpense.SubcategoryId
             } : null,
             Business = supply.Business != null ? new BusinessDto
             {
