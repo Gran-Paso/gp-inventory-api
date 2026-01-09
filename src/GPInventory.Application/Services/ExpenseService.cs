@@ -854,26 +854,84 @@ public class ExpenseService : IExpenseService
                 page: 1,
                 pageSize: int.MaxValue);
 
-            // Calculate totals by type
-            var totalThisMonth = thisMonthExpenses.Sum(e => e.Amount);
-            var totalLastMonth = lastMonthExpenses.Sum(e => e.Amount);
-
             var expensesList = thisMonthExpenses.ToList();
-            Console.WriteLine($"📊 GetMonthlyKPIs - This month expenses count: {expensesList.Count}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - This month total: {totalThisMonth}");
             
-            var gastos = expensesList.Where(e => e.ExpenseTypeId == 1).Sum(e => e.Amount);
-            var costos = expensesList.Where(e => e.ExpenseTypeId == 2).Sum(e => e.Amount);
-            var inversiones = expensesList.Where(e => e.ExpenseTypeId == 3).Sum(e => e.Amount);
+            // Calculate totals considering payment plans
+            decimal totalThisMonth = 0;
+            decimal totalLastMonth = 0;
+            decimal gastos = 0;
+            decimal costos = 0;
+            decimal inversiones = 0;
+            
+            // Process this month expenses
+            foreach (var expense in expensesList)
+            {
+                decimal amountToAdd = 0;
+                
+                // Check if expense has payment plan
+                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+                var paymentPlan = paymentPlans.FirstOrDefault();
+                
+                if (paymentPlan != null)
+                {
+                    // Has payment plan - get installment for this month
+                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                    var thisMonthInstallment = installments.FirstOrDefault(i => 
+                        i.DueDate.Year == now.Year && 
+                        i.DueDate.Month == now.Month);
+                    
+                    if (thisMonthInstallment != null)
+                    {
+                        amountToAdd = thisMonthInstallment.AmountClp;
+                    }
+                }
+                else
+                {
+                    // No payment plan - use full amount
+                    amountToAdd = expense.Amount;
+                }
+                
+                totalThisMonth += amountToAdd;
+                
+                // Add to type-specific totals
+                if (expense.ExpenseTypeId == 1) gastos += amountToAdd;
+                else if (expense.ExpenseTypeId == 2) costos += amountToAdd;
+                else if (expense.ExpenseTypeId == 3) inversiones += amountToAdd;
+            }
+            
+            // Process last month expenses (same logic)
+            foreach (var expense in lastMonthExpenses)
+            {
+                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+                var paymentPlan = paymentPlans.FirstOrDefault();
+                
+                if (paymentPlan != null)
+                {
+                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                    var lastMonthInstallment = installments.FirstOrDefault(i => 
+                        i.DueDate.Year == firstDayLastMonth.Year && 
+                        i.DueDate.Month == firstDayLastMonth.Month);
+                    
+                    if (lastMonthInstallment != null)
+                    {
+                        totalLastMonth += lastMonthInstallment.AmountClp;
+                    }
+                }
+                else
+                {
+                    totalLastMonth += expense.Amount;
+                }
+            }
+
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month expenses count: {expensesList.Count}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month total (with payment plans): {totalThisMonth}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
 
             Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
             Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
             Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - Expenses by type:");
-            foreach (var exp in expensesList)
-            {
-                Console.WriteLine($"  - ID: {exp.Id}, Amount: {exp.Amount}, ExpenseTypeId: {exp.ExpenseTypeId}, Date: {exp.Date}");
-            }
 
             var totalDistribution = gastos + costos + inversiones;
 

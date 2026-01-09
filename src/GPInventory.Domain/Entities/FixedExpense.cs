@@ -17,7 +17,8 @@ public class FixedExpense
     public string AdditionalNote { get; set; } = string.Empty;
     
     [Required]
-    public int Amount { get; set; }
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal Amount { get; set; }
     
     public int? SubcategoryId { get; set; }
     public int RecurrenceTypeId { get; set; }

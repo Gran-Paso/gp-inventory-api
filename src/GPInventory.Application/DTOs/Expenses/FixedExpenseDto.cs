@@ -12,7 +12,7 @@ public class CreateFixedExpenseDto
 
     [Required]
     [Range(1, int.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
 
     [JsonPropertyName("subcategory_id")]
     public int? SubcategoryId { get; set; }
@@ -65,7 +65,7 @@ public class FixedExpenseDto
 {
     public int Id { get; set; }
     public string Description { get; set; } = string.Empty;
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public int? SubcategoryId { get; set; }
     public int RecurrenceTypeId { get; set; }
     public DateTime StartDate { get; set; }
@@ -88,7 +88,7 @@ public class FixedExpenseListItemDto
 {
     public int Id { get; set; }
     public string Description { get; set; } = string.Empty;
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public int BusinessId { get; set; }
@@ -105,7 +105,7 @@ public class FixedExpenseWithDetailsDto
 {
     public int Id { get; set; }
     public string Description { get; set; } = string.Empty;
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public int? SubcategoryId { get; set; }
     public int RecurrenceTypeId { get; set; }
     public DateTime StartDate { get; set; }

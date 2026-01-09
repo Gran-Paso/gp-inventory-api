@@ -10,7 +10,7 @@ public class ExpenseListItemDto
 {
     public int Id { get; set; }
     public DateTime Date { get; set; }
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public string Description { get; set; } = string.Empty;
     public bool? IsFixed { get; set; }
     public int BusinessId { get; set; }
