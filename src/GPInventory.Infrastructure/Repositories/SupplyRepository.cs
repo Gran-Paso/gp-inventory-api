@@ -27,6 +27,7 @@ public class SupplyRepository : ISupplyRepository
                 SELECT 
                     s.id,
                     s.name,
+                    s.sku,
                     s.description,
                     s.business_id,
                     s.store_id,
@@ -37,7 +38,8 @@ public class SupplyRepository : ISupplyRepository
                     s.active,
                     s.created_at,
                     s.updated_at,
-                    s.minimum_stock
+                    s.minimum_stock,
+                    s.preferred_provider_id
                 FROM supplies s
                 WHERE s.id = @supplyId";
 
@@ -51,23 +53,25 @@ public class SupplyRepository : ISupplyRepository
             {
                 supply = new Supply(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
-                    storeId: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
-                    unitMeasureId: reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
-                    description: reader.IsDBNull(2) ? null : reader.GetString(2),
-                    fixedExpenseId: reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                    active: reader.GetBoolean(9)
+                    businessId: reader.GetInt32(4),
+                    storeId: reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                    unitMeasureId: reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
+                    description: reader.IsDBNull(3) ? null : reader.GetString(3),
+                    fixedExpenseId: reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    active: reader.GetBoolean(10)
                 );
 
                 // Set Id via reflection or use a property setter if available
                 typeof(Supply).GetProperty("Id")?.SetValue(supply, reader.GetInt32(0));
 
                 // Set additional properties
-                supply.SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7);
-                supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
-                supply.CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10);
-                supply.UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
-                supply.MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12);
+                supply.Sku = reader.IsDBNull(2) ? null : reader.GetString(2);
+                supply.SupplyCategoryId = reader.IsDBNull(8) ? null : reader.GetInt32(8);
+                supply.Type = reader.IsDBNull(9) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(9);
+                supply.CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
+                supply.UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12);
+                supply.MinimumStock = reader.IsDBNull(13) ? 0 : reader.GetInt32(13);
+                supply.PreferredProviderId = reader.IsDBNull(14) ? null : reader.GetInt32(14);
             }
         }
         finally
@@ -92,6 +96,7 @@ public class SupplyRepository : ISupplyRepository
                 SELECT 
                     s.id,
                     s.name,
+                    s.sku,
                     s.description,
                     s.business_id,
                     s.store_id,
@@ -103,15 +108,28 @@ public class SupplyRepository : ISupplyRepository
                     s.created_at,
                     s.updated_at,
                     s.minimum_stock,
+                    s.preferred_provider_id,
                     um.id as um_id,
                     um.name as um_name,
                     um.symbol as um_symbol,
                     sc.id as sc_id,
                     sc.name as sc_name,
-                    sc.description as sc_description
+                    sc.description as sc_description,
+                    p.id as p_id,
+                    p.name as p_name,
+                    p.id_business as p_business_id,
+                    p.id_store as p_store_id,
+                    p.contact as p_contact,
+                    p.address as p_address,
+                    p.mail as p_mail,
+                    p.prefix as p_prefix,
+                    p.active as p_active,
+                    p.created_at as p_created_at,
+                    p.updated_at as p_updated_at
                 FROM supplies s
                 LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
                 LEFT JOIN supply_categories sc ON s.supply_category_id = sc.id
+                LEFT JOIN provider p ON s.preferred_provider_id = p.id
                 WHERE s.id = @supplyId";
 
             var parameter = command.CreateParameter();
@@ -127,39 +145,62 @@ public class SupplyRepository : ISupplyRepository
                 {
                     Id = reader.GetInt32(0),
                     Name = reader.GetString(1),
-                    Description = reader.IsDBNull(2) ? null : reader.GetString(2),
-                    BusinessId = reader.GetInt32(3),
-                    StoreId = reader.GetInt32(4),
-                    UnitMeasureId = reader.GetInt32(5),
-                    FixedExpenseId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                    SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
-                    Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8),
-                    Active = reader.GetBoolean(9),
-                    CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10),
-                    UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
-                    MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12)
+                    Sku = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Description = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    BusinessId = reader.GetInt32(4),
+                    StoreId = reader.GetInt32(5),
+                    UnitMeasureId = reader.GetInt32(6),
+                    FixedExpenseId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    SupplyCategoryId = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+                    Type = reader.IsDBNull(9) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(9),
+                    Active = reader.GetBoolean(10),
+                    CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
+                    UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12),
+                    MinimumStock = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
+                    PreferredProviderId = reader.IsDBNull(14) ? null : reader.GetInt32(14)
                 };
 
                 // Populate UnitMeasure
-                if (!reader.IsDBNull(13))
+                if (!reader.IsDBNull(15))
                 {
                     supply.UnitMeasure = new UnitMeasure
                     {
-                        Id = reader.GetInt32(13),
-                        Name = reader.GetString(14),
-                        Symbol = reader.IsDBNull(15) ? null : reader.GetString(15)
+                        Id = reader.GetInt32(15),
+                        Name = reader.GetString(16),
+                        Symbol = reader.IsDBNull(17) ? null : reader.GetString(17)
                     };
                 }
 
                 // Populate SupplyCategory
-                if (!reader.IsDBNull(16))
+                if (!reader.IsDBNull(18))
                 {
                     supply.SupplyCategory = new SupplyCategory
                     {
-                        Id = reader.GetInt32(16),
-                        Name = reader.GetString(17),
-                        Description = reader.IsDBNull(18) ? null : reader.GetString(18)
+                        Id = reader.GetInt32(18),
+                        Name = reader.GetString(19),
+                        Description = reader.IsDBNull(20) ? null : reader.GetString(20)
                     };
+                }
+
+                // Populate PreferredProvider
+                if (!reader.IsDBNull(21))
+                {
+                    supply.PreferredProvider = new Provider(
+                        name: reader.GetString(22),
+                        businessId: reader.GetInt32(23),
+                        storeId: reader.IsDBNull(24) ? null : reader.GetInt32(24)
+                    )
+                    {
+                        Contact = reader.IsDBNull(25) ? null : reader.GetInt32(25),
+                        Address = reader.IsDBNull(26) ? null : reader.GetString(26),
+                        Mail = reader.IsDBNull(27) ? null : reader.GetString(27),
+                        Prefix = reader.IsDBNull(28) ? null : reader.GetString(28),
+                        Active = reader.GetBoolean(29),
+                        CreatedAt = reader.GetDateTime(30),
+                        UpdatedAt = reader.GetDateTime(31)
+                    };
+                    
+                    typeof(Provider).GetProperty("Id")?.SetValue(supply.PreferredProvider, reader.GetInt32(21));
                 }
             }
         }
@@ -193,7 +234,7 @@ public class SupplyRepository : ISupplyRepository
             await _context.Database.OpenConnectionAsync();
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
+                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.tag as Tag, se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
                        se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt, se.active, sep.Id, sep.active as padre_active
                 FROM supply_entry se
                 LEFT JOIN process_done pd ON se.process_done_id = pd.id
@@ -227,12 +268,13 @@ public class SupplyRepository : ISupplyRepository
                     Id = reader.GetInt32(0), // se.Id
                     UnitCost = Convert.ToDecimal(reader.GetValue(1)), // se.UnitCost - safe conversion
                     Amount = amount, // se.Amount - safe conversion
-                    ProviderId = reader.GetInt32(3), // se.ProviderId
-                    SupplyId = reader.GetInt32(4), // se.SupplyId
-                    ReferenceToSupplyEntry = reader.IsDBNull(5) ? null : reader.GetInt32(5), // se.supply_entry_id
-                    ProcessDoneId = reader.IsDBNull(6) ? null : reader.GetInt32(6), // se.ProcessDoneId
-                    CreatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7), // se.CreatedAt
-                    UpdatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8) // se.UpdatedAt
+                    Tag = reader.IsDBNull(3) ? null : reader.GetString(3), // se.Tag
+                    ProviderId = reader.GetInt32(4), // se.ProviderId
+                    SupplyId = reader.GetInt32(5), // se.SupplyId
+                    ReferenceToSupplyEntry = reader.IsDBNull(6) ? null : reader.GetInt32(6), // se.supply_entry_id
+                    ProcessDoneId = reader.IsDBNull(7) ? null : reader.GetInt32(7), // se.ProcessDoneId
+                    CreatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8), // se.CreatedAt
+                    UpdatedAt = reader.IsDBNull(9) ? DateTime.UtcNow : reader.GetDateTime(9) // se.UpdatedAt
                 };
 
                 supplyEntries.Add(supplyEntry);
@@ -273,6 +315,7 @@ public class SupplyRepository : ISupplyRepository
             SELECT 
                 s.id,
                 s.name,
+                s.sku,
                 s.description,
                 s.business_id,
                 s.store_id,
@@ -284,16 +327,21 @@ public class SupplyRepository : ISupplyRepository
                 s.created_at,
                 s.updated_at,
                 s.minimum_stock,
+                s.preferred_provider_id,
                 um.id as um_id,
                 um.name as um_name,
                 um.symbol as um_symbol,
                 sc.id as sc_id,
                 sc.name as sc_name,
                 COALESCE(comp_count.component_usage, 0) as component_usage,
-                COALESCE(proc_count.process_usage, 0) as process_usage
+                COALESCE(proc_count.process_usage, 0) as process_usage,
+                p.id as p_id,
+                p.name as p_name,
+                p.contact as p_contact
             FROM supplies s
             LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
             LEFT JOIN supply_categories sc ON s.supply_category_id = sc.id
+            LEFT JOIN provider p ON s.preferred_provider_id = p.id
             LEFT JOIN (
                 SELECT supply_id, COUNT(DISTINCT component_id) as component_usage
                 FROM component_supplies
@@ -319,40 +367,61 @@ public class SupplyRepository : ISupplyRepository
             {
                 Id = reader.GetInt32(0),
                 Name = reader.GetString(1),
-                Description = reader.IsDBNull(2) ? null : reader.GetString(2),
-                BusinessId = reader.GetInt32(3),
-                StoreId = reader.GetInt32(4),
-                UnitMeasureId = reader.GetInt32(5),
-                FixedExpenseId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
-                Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8),
-                Active = reader.GetBoolean(9),
-                CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10),
-                UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
-                MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
-                ComponentUsageCount = reader.GetInt32(18),
-                ProcessUsageCount = reader.GetInt32(19)
+                Sku = reader.IsDBNull(2) ? null : reader.GetString(2),
+                Description = reader.IsDBNull(3) ? null : reader.GetString(3),
+                BusinessId = reader.GetInt32(4),
+                StoreId = reader.GetInt32(5),
+                UnitMeasureId = reader.GetInt32(6),
+                FixedExpenseId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                SupplyCategoryId = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+                Type = reader.IsDBNull(9) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(9),
+                Active = reader.GetBoolean(10),
+                CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
+                UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12),
+                MinimumStock = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
+                PreferredProviderId = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+                ComponentUsageCount = reader.GetInt32(20),
+                ProcessUsageCount = reader.GetInt32(21)
             };
 
             // Populate UnitMeasure navigation property
-            if (!reader.IsDBNull(13))
+            if (!reader.IsDBNull(15))
             {
                 supply.UnitMeasure = new UnitMeasure
                 {
-                    Id = reader.GetInt32(13),
-                    Name = reader.GetString(14),
-                    Symbol = reader.IsDBNull(15) ? null : reader.GetString(15)
+                    Id = reader.GetInt32(15),
+                    Name = reader.GetString(16),
+                    Symbol = reader.IsDBNull(17) ? null : reader.GetString(17)
                 };
             }
 
             // Populate SupplyCategory navigation property
-            if (!reader.IsDBNull(16))
+            if (!reader.IsDBNull(18))
             {
                 supply.SupplyCategory = new SupplyCategory
                 {
-                    Id = reader.GetInt32(16),
-                    Name = reader.GetString(17)
+                    Id = reader.GetInt32(18),
+                    Name = reader.GetString(19)
                 };
+            }
+
+            // Populate PreferredProvider navigation property
+            if (!reader.IsDBNull(22))
+            {
+                var providerId = reader.GetInt32(22);
+                var providerName = reader.GetString(23);
+                var providerContact = reader.IsDBNull(24) ? null : (int?)reader.GetInt32(24);
+                
+                supply.PreferredProvider = new Provider(
+                    name: providerName,
+                    businessId: supply.BusinessId,
+                    storeId: supply.StoreId > 0 ? supply.StoreId : null
+                )
+                {
+                    Contact = providerContact
+                };
+                
+                typeof(Provider).GetProperty("Id")?.SetValue(supply.PreferredProvider, providerId);
             }
 
             supplies.Add(supply);
@@ -417,6 +486,7 @@ public class SupplyRepository : ISupplyRepository
                 UPDATE supplies 
                 SET 
                     name = @Name,
+                    sku = @Sku,
                     description = @Description,
                     unit_measure_id = @UnitMeasureId,
                     fixed_expense_id = @FixedExpenseId,
@@ -425,6 +495,7 @@ public class SupplyRepository : ISupplyRepository
                     active = @Active,
                     store_id = @StoreId,
                     minimum_stock = @MinimumStock,
+                    preferred_provider_id = @PreferredProviderId,
                     updated_at = @UpdatedAt
                 WHERE id = @Id";
 
@@ -432,6 +503,7 @@ public class SupplyRepository : ISupplyRepository
             {
                 CreateParameter(command, "@Id", entity.Id),
                 CreateParameter(command, "@Name", entity.Name),
+                CreateParameter(command, "@Sku", (object?)entity.Sku ?? DBNull.Value),
                 CreateParameter(command, "@Description", (object?)entity.Description ?? DBNull.Value),
                 CreateParameter(command, "@UnitMeasureId", entity.UnitMeasureId),
                 CreateParameter(command, "@FixedExpenseId", (object?)entity.FixedExpenseId ?? DBNull.Value),
@@ -440,6 +512,7 @@ public class SupplyRepository : ISupplyRepository
                 CreateParameter(command, "@Active", entity.Active),
                 CreateParameter(command, "@StoreId", entity.StoreId),
                 CreateParameter(command, "@MinimumStock", entity.MinimumStock),
+                CreateParameter(command, "@PreferredProviderId", (object?)entity.PreferredProviderId ?? DBNull.Value),
                 CreateParameter(command, "@UpdatedAt", entity.UpdatedAt)
             };
 
@@ -517,6 +590,7 @@ public class SupplyRepository : ISupplyRepository
                 SELECT 
                     s.id,
                     s.name,
+                    s.sku,
                     s.description,
                     s.business_id,
                     s.store_id,
@@ -527,7 +601,8 @@ public class SupplyRepository : ISupplyRepository
                     s.active,
                     s.created_at,
                     s.updated_at,
-                    s.minimum_stock
+                    s.minimum_stock,
+                    s.preferred_provider_id
                 FROM supplies s
                 WHERE s.name = @Name AND s.business_id = @BusinessId";
 
@@ -546,21 +621,23 @@ public class SupplyRepository : ISupplyRepository
             {
                 supply = new Supply(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
-                    storeId: reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
-                    unitMeasureId: reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
-                    description: reader.IsDBNull(2) ? null : reader.GetString(2),
-                    fixedExpenseId: reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                    active: reader.GetBoolean(9)
+                    businessId: reader.GetInt32(4),
+                    storeId: reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+                    unitMeasureId: reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
+                    description: reader.IsDBNull(3) ? null : reader.GetString(3),
+                    fixedExpenseId: reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                    active: reader.GetBoolean(10)
                 );
 
                 typeof(Supply).GetProperty("Id")?.SetValue(supply, reader.GetInt32(0));
 
-                supply.SupplyCategoryId = reader.IsDBNull(7) ? null : reader.GetInt32(7);
-                supply.Type = reader.IsDBNull(8) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(8);
-                supply.CreatedAt = reader.IsDBNull(10) ? DateTime.UtcNow : reader.GetDateTime(10);
-                supply.UpdatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
-                supply.MinimumStock = reader.IsDBNull(12) ? 0 : reader.GetInt32(12);
+                supply.Sku = reader.IsDBNull(2) ? null : reader.GetString(2);
+                supply.SupplyCategoryId = reader.IsDBNull(8) ? null : reader.GetInt32(8);
+                supply.Type = reader.IsDBNull(9) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(9);
+                supply.CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11);
+                supply.UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12);
+                supply.MinimumStock = reader.IsDBNull(13) ? 0 : reader.GetInt32(13);
+                supply.PreferredProviderId = reader.IsDBNull(14) ? null : reader.GetInt32(14);
             }
         }
         finally
@@ -588,6 +665,7 @@ public class SupplyRepository : ISupplyRepository
                 SELECT 
                     s.id as supply_id,
                     s.name as supply_name,
+                    s.sku as supply_sku,
                     um.name as unit_measure_name,
                     um.symbol as unit_measure_symbol,
                     s.minimum_stock,
@@ -597,7 +675,7 @@ public class SupplyRepository : ISupplyRepository
                 LEFT JOIN supply_entry se ON s.id = se.supply_id
                 LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
                 WHERE (@businessId IS NULL OR s.business_id = @businessId)
-                GROUP BY s.id, s.name, um.name, um.symbol, s.minimum_stock
+                GROUP BY s.id, s.name, s.sku, um.name, um.symbol, s.minimum_stock
                 ORDER BY s.name";
 
                 var businessIdParam = command.CreateParameter();

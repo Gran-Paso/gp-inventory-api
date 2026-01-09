@@ -83,6 +83,24 @@ public class FixedExpenseDto
     public DateTime? LastPaymentDate { get; set; }
 }
 
+// Item ligero de un gasto fijo para listas (no confundir con FixedExpenseSummaryDto que es para reportes)
+public class FixedExpenseListItemDto
+{
+    public int Id { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public int Amount { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public int BusinessId { get; set; }
+    public int? ExpenseTypeId { get; set; }
+    public string CategoryName { get; set; } = string.Empty;
+    public string SubcategoryName { get; set; } = string.Empty;
+    public string RecurrenceTypeName { get; set; } = string.Empty;
+    public bool IsUpToDate { get; set; }
+    public DateTime NextDueDate { get; set; }
+    public int AssociatedExpensesCount { get; set; } // Cantidad de gastos generados
+}
+
 public class FixedExpenseWithDetailsDto
 {
     public int Id { get; set; }
@@ -112,6 +130,6 @@ public class FixedExpenseWithDetailsDto
     public RecurrenceTypeDto RecurrenceType { get; set; } = null!;
     public string? StoreName { get; set; }
     
-    // Expenses asociados a este gasto fijo
-    public List<ExpenseDto> AssociatedExpenses { get; set; } = new List<ExpenseDto>();
+    // Expenses asociados a este gasto fijo (con detalles para incluir provider)
+    public List<ExpenseWithDetailsDto> AssociatedExpenses { get; set; } = new List<ExpenseWithDetailsDto>();
 }

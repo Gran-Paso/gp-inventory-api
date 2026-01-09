@@ -173,6 +173,7 @@ builder.Services.AddScoped<IProcessDoneRepository, ProcessDoneRepository>();
 builder.Services.AddScoped<IUnitMeasureRepository, UnitMeasureRepository>();
 builder.Services.AddScoped<ISupplyEntryRepository, SupplyEntryRepository>();
 builder.Services.AddScoped<IComponentProductionRepository, ComponentProductionRepository>();
+builder.Services.AddScoped<IProviderRepository, ProviderRepository>();
 builder.Services.AddScoped<IComponentRepository>(provider => 
     new ComponentRepository(builder.Configuration.GetConnectionString("DefaultConnection")!));
 
@@ -202,6 +203,7 @@ builder.Services.AddScoped<IProcessDoneService, ProcessDoneService>();
 builder.Services.AddScoped<IUnitMeasureService, UnitMeasureService>();
 builder.Services.AddScoped<ISupplyEntryService, SupplyEntryService>();
 builder.Services.AddScoped<IComponentService, ComponentService>();
+builder.Services.AddScoped<IProviderService, ProviderService>();
 
 var app = builder.Build();
 

@@ -12,6 +12,9 @@ public class SupplyEntry : BaseEntity
     [Required]
     public int Amount { get; set; }
     
+    [StringLength(100)]
+    public string? Tag { get; set; }
+    
     public int ProviderId { get; set; }
     
     public int SupplyId { get; set; }

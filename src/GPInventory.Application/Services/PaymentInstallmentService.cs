@@ -8,13 +8,19 @@ namespace GPInventory.Application.Services;
 public class PaymentInstallmentService : IPaymentInstallmentService
 {
     private readonly IPaymentInstallmentRepository _repository;
+    private readonly IPaymentPlanRepository _paymentPlanRepository;
+    private readonly IExpenseRepository _expenseRepository;
     private readonly IMapper _mapper;
 
     public PaymentInstallmentService(
         IPaymentInstallmentRepository repository,
+        IPaymentPlanRepository paymentPlanRepository,
+        IExpenseRepository expenseRepository,
         IMapper mapper)
     {
         _repository = repository;
+        _paymentPlanRepository = paymentPlanRepository;
+        _expenseRepository = expenseRepository;
         _mapper = mapper;
     }
 
@@ -48,6 +54,62 @@ public class PaymentInstallmentService : IPaymentInstallmentService
         installment.PaidDate = updateDto.PaidDate;
         installment.PaymentMethodId = updateDto.PaymentMethodId;
         installment.ExpenseId = updateDto.ExpenseId;
+
+        await _repository.UpdateAsync(installment);
+
+        return _mapper.Map<PaymentInstallmentDto>(installment);
+    }
+
+    public async Task<PaymentInstallmentDto> PayInstallmentAsync(int id, PayInstallmentDto payDto)
+    {
+        // Obtener la cuota
+        var installment = await _repository.GetByIdAsync(id);
+        if (installment == null)
+            throw new KeyNotFoundException($"Cuota con ID {id} no encontrada");
+
+        // Verificar si ya está pagada
+        if (installment.Status == "pagado" || installment.Status == "paid")
+            throw new InvalidOperationException("Esta cuota ya está pagada");
+
+        // Validar que tenga un monto
+        if (installment.AmountClp <= 0)
+            throw new InvalidOperationException("La cuota no tiene un monto válido");
+
+        // Obtener el payment plan para acceder al expense original
+        var paymentPlan = await _paymentPlanRepository.GetByIdAsync(installment.PaymentPlanId);
+        if (paymentPlan == null)
+            throw new KeyNotFoundException("Plan de pago no encontrado");
+
+        if (!paymentPlan.ExpenseId.HasValue)
+            throw new InvalidOperationException("El plan de pago no tiene un gasto asociado");
+
+        // Obtener el expense original para copiar algunos datos
+        var originalExpense = await _expenseRepository.GetByIdAsync(paymentPlan.ExpenseId.Value);
+        if (originalExpense == null)
+            throw new KeyNotFoundException("Gasto original no encontrado");
+
+        // Crear un nuevo expense para registrar el pago de la cuota
+        var paymentExpense = new Expense
+        {
+            Date = payDto.PaymentDate,
+            SubcategoryId = originalExpense.SubcategoryId,
+            Amount = (int)Math.Round(installment.AmountClp),
+            Description = $"Pago cuota {installment.InstallmentNumber} - {originalExpense.Description}",
+            BusinessId = originalExpense.BusinessId,
+            StoreId = originalExpense.StoreId,
+            ExpenseTypeId = originalExpense.ExpenseTypeId,
+            ProviderId = originalExpense.ProviderId,
+            IsFixed = false
+        };
+
+        var createdExpense = await _expenseRepository.AddAsync(paymentExpense);
+
+        // Actualizar la cuota
+        installment.Status = "pagado";
+        installment.PaidDate = payDto.PaymentDate;
+        installment.PaymentMethodId = payDto.PaymentMethodId;
+        installment.ExpenseId = createdExpense.Id;
+        installment.UpdatedAt = DateTime.UtcNow;
 
         await _repository.UpdateAsync(installment);
 

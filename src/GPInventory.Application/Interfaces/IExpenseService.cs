@@ -10,14 +10,18 @@ public interface IExpenseService
     Task<IEnumerable<RecurrenceTypeDto>> GetRecurrenceTypesAsync();
 
     // Gastos
-    Task<IEnumerable<ExpenseWithDetailsDto>> GetExpensesAsync(ExpenseFiltersDto filters);
+    Task<IEnumerable<ExpenseListItemDto>> GetExpensesListAsync(ExpenseFiltersDto filters); // Optimizado: lista ligera
+    Task<ExpenseWithDetailsDto> GetExpenseWithDetailsAsync(int id); // Optimizado: detalles completos
+    Task<IEnumerable<ExpenseWithDetailsDto>> GetExpensesAsync(ExpenseFiltersDto filters); // Legacy: mantener compatibilidad
     Task<ExpenseDto> GetExpenseByIdAsync(int id);
     Task<ExpenseDto> CreateExpenseAsync(CreateExpenseDto createExpenseDto);
     Task<ExpenseDto> UpdateExpenseAsync(int id, UpdateExpenseDto updateExpenseDto);
     Task DeleteExpenseAsync(int id);
 
     // Gastos fijos
-    Task<IEnumerable<FixedExpenseWithDetailsDto>> GetFixedExpensesAsync(int[]? businessIds = null, int? expenseTypeId = null);
+    Task<IEnumerable<FixedExpenseListItemDto>> GetFixedExpensesListAsync(int[]? businessIds = null, int? expenseTypeId = null); // Optimizado: lista ligera
+    Task<FixedExpenseWithDetailsDto> GetFixedExpenseWithDetailsAsync(int id); // Optimizado: detalles completos
+    Task<IEnumerable<FixedExpenseWithDetailsDto>> GetFixedExpensesAsync(int[]? businessIds = null, int? expenseTypeId = null); // Legacy
     Task<FixedExpenseDto> GetFixedExpenseByIdAsync(int id);
     Task<FixedExpenseDto> CreateFixedExpenseAsync(CreateFixedExpenseDto createFixedExpenseDto);
     Task<FixedExpenseDto> UpdateFixedExpenseAsync(int id, UpdateFixedExpenseDto updateFixedExpenseDto);

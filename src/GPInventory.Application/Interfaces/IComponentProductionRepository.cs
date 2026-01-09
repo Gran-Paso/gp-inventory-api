@@ -9,4 +9,7 @@ public interface IComponentProductionRepository
     Task<decimal> GetCurrentStockAsync(int componentId);
     Task<IEnumerable<ComponentProduction>> GetByProcessDoneIdAsync(int processDoneId);
     Task<IEnumerable<ComponentProduction>> GetAllAsync();
+    Task<IEnumerable<ComponentProduction>> GetAvailableProductionsByComponentIdAsync(int componentId);
+    Task<ComponentProduction?> GetByIdAsync(int id);
+    Task UpdateAsync(ComponentProduction componentProduction);
 }

@@ -108,6 +108,43 @@ public class PaymentInstallmentsController : ControllerBase
         }
     }
 
+    [HttpPut("{id}/pay")]
+    public async Task<IActionResult> PayInstallment(int id, [FromBody] PayInstallmentDto payDto)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            _logger.LogInformation($"Paying installment {id} with payment method {payDto.PaymentMethodId}");
+
+            var installment = await _installmentService.PayInstallmentAsync(id, payDto);
+            
+            return Ok(new
+            {
+                message = "Cuota pagada exitosamente",
+                installment
+            });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "Installment not found: {Id}", id);
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Invalid operation on installment: {Id}", id);
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error paying installment: {Id}", id);
+            return StatusCode(500, new { message = $"Error al pagar la cuota: {ex.Message}" });
+        }
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {

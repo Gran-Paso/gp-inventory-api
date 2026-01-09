@@ -12,19 +12,22 @@ public class SupplyEntryService : ISupplyEntryService
     private readonly IUnitMeasureRepository _unitMeasureRepository;
     private readonly IExpenseService _expenseService;
     private readonly IExpenseSubcategoryRepository _subcategoryRepository;
+    private readonly IFixedExpenseRepository _fixedExpenseRepository;
 
     public SupplyEntryService(
         ISupplyEntryRepository repository,
         ISupplyRepository supplyRepository,
         IUnitMeasureRepository unitMeasureRepository,
         IExpenseService expenseService,
-        IExpenseSubcategoryRepository subcategoryRepository)
+        IExpenseSubcategoryRepository subcategoryRepository,
+        IFixedExpenseRepository fixedExpenseRepository)
     {
         _repository = repository;
         _supplyRepository = supplyRepository;
         _unitMeasureRepository = unitMeasureRepository;
         _expenseService = expenseService;
         _subcategoryRepository = subcategoryRepository;
+        _fixedExpenseRepository = fixedExpenseRepository;
     }
 
     public async Task<IEnumerable<SupplyEntryDto>> GetAllAsync()
@@ -122,6 +125,12 @@ public class SupplyEntryService : ISupplyEntryService
             createDto.ProcessDoneId
         );
         
+        // Asignar Tag si está presente
+        if (!string.IsNullOrEmpty(createDto.Tag))
+        {
+            supplyEntry.Tag = createDto.Tag;
+        }
+        
         // Si se especifica una referencia, asignarla después de la creación
         if (createDto.ReferenceToSupplyEntry.HasValue)
         {
@@ -150,7 +159,17 @@ public class SupplyEntryService : ISupplyEntryService
                     totalAmount = createDto.UnitCost * createDto.Amount;
                 }
                 
-                var subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
+                // Usar la subcategoría del FixedExpense del supply, o buscar una por defecto
+                int subcategoryId;
+                var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
+                if (fixedExpense?.SubcategoryId.HasValue == true)
+                {
+                    subcategoryId = fixedExpense.SubcategoryId.Value;
+                }
+                else
+                {
+                    subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
+                }
                 
                 var expenseDto = new CreateExpenseDto
                 {
@@ -161,7 +180,16 @@ public class SupplyEntryService : ISupplyEntryService
                     BusinessId = supply.BusinessId,
                     StoreId = supply.StoreId,
                     IsFixed = true,
-                    FixedExpenseId = supply.FixedExpenseId.Value
+                    FixedExpenseId = supply.FixedExpenseId.Value,
+                    ProviderId = createDto.ProviderId,
+                    ExpenseTypeId = 2, // Costos - compra de insumos
+                    
+                    // Payment Plan data (if financing)
+                    PaymentTypeId = createDto.PaymentTypeId,
+                    InstallmentsCount = createDto.InstallmentsCount,
+                    ExpressedInUf = createDto.ExpressedInUf ?? false,
+                    BankEntityId = createDto.BankEntityId,
+                    PaymentStartDate = createDto.PaymentStartDate
                 };
 
                 await _expenseService.CreateExpenseAsync(expenseDto);
@@ -232,6 +260,12 @@ public class SupplyEntryService : ISupplyEntryService
         supplyEntry.UnitCost = updateDto.UnitCost;
         supplyEntry.Amount = (int)updateDto.Amount; // Convert decimal to int
         supplyEntry.ProviderId = updateDto.ProviderId;
+        
+        // Actualizar Tag si está presente en el DTO
+        if (!string.IsNullOrEmpty(updateDto.Tag))
+        {
+            supplyEntry.Tag = updateDto.Tag;
+        }
 
         var updated = await _repository.UpdateAsync(supplyEntry);
         return MapToDto(updated);
@@ -260,6 +294,7 @@ public class SupplyEntryService : ISupplyEntryService
             Id = supplyEntry.Id,
             UnitCost = supplyEntry.UnitCost,
             Amount = (decimal)supplyEntry.Amount, // Convert int to decimal
+            Tag = supplyEntry.Tag,
             ProviderId = supplyEntry.ProviderId,
             SupplyId = supplyEntry.SupplyId,
             ProcessDoneId = supplyEntry.ProcessDoneId,

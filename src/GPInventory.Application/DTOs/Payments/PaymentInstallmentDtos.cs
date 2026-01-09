@@ -45,6 +45,12 @@ public class UpdateInstallmentStatusDto
     public int? ExpenseId { get; set; }
 }
 
+public class PayInstallmentDto
+{
+    public int PaymentMethodId { get; set; }
+    public DateTime PaymentDate { get; set; }
+}
+
 public class InstallmentsSummaryDto
 {
     public decimal TotalPending { get; set; }

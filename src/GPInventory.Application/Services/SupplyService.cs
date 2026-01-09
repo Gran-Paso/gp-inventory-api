@@ -3,6 +3,7 @@ using GPInventory.Application.DTOs.Expenses;
 using GPInventory.Application.Interfaces;
 using GPInventory.Application.Helpers;
 using GPInventory.Domain.Entities;
+using ProductionDtos = GPInventory.Application.DTOs.Production;
 
 namespace GPInventory.Application.Services;
 
@@ -89,9 +90,11 @@ public class SupplyService : ISupplyService
             active: createSupplyDto.Active
         );
         
+        supply.Sku = createSupplyDto.Sku;
         supply.SupplyCategoryId = createSupplyDto.SupplyCategoryId;
         supply.Type = createSupplyDto.Type;
         supply.MinimumStock = createSupplyDto.MinimumStock;
+        supply.PreferredProviderId = createSupplyDto.PreferredProviderId;
 
         var createdSupply = await _supplyRepository.AddAsync(supply);
         return MapToDto(createdSupply);
@@ -128,6 +131,7 @@ public class SupplyService : ISupplyService
 
             // Actualizar el supply
             supply.Name = updateSupplyDto.Name;
+            supply.Sku = updateSupplyDto.Sku;
             supply.Description = updateSupplyDto.Description;
             supply.UnitMeasureId = updateSupplyDto.UnitMeasureId;
             supply.Active = updateSupplyDto.Active;
@@ -135,6 +139,7 @@ public class SupplyService : ISupplyService
             supply.SupplyCategoryId = updateSupplyDto.SupplyCategoryId;
             supply.Type = updateSupplyDto.Type;
             supply.MinimumStock = updateSupplyDto.MinimumStock;
+            supply.PreferredProviderId = updateSupplyDto.PreferredProviderId;
 
             await _supplyRepository.UpdateAsync(supply);
             
@@ -175,6 +180,7 @@ public class SupplyService : ISupplyService
         {
             Id = supply.Id,
             Name = supply.Name,
+            Sku = supply.Sku,
             Description = supply.Description,
             UnitMeasureId = supply.UnitMeasureId,
             FixedExpenseId = supply.FixedExpenseId,
@@ -186,6 +192,7 @@ public class SupplyService : ISupplyService
             SupplyCategoryId = supply.SupplyCategoryId,
             Type = supply.Type,
             MinimumStock = supply.MinimumStock,
+            PreferredProviderId = supply.PreferredProviderId,
             ComponentUsageCount = supply.ComponentUsageCount,
             ProcessUsageCount = supply.ProcessUsageCount,
             UsageCount = supply.ComponentUsageCount + supply.ProcessUsageCount, // Total
@@ -209,11 +216,12 @@ public class SupplyService : ISupplyService
                 Name = supply.SupplyCategory.Name,
                 Description = supply.SupplyCategory.Description
             } : null,
-            FixedExpense = supply.FixedExpense != null ? new DTOs.Production.FixedExpenseDto
+            FixedExpense = supply.FixedExpense != null ? new ProductionDtos.FixedExpenseDto
             {
                 Id = supply.FixedExpense.Id,
                 AdditionalNote = supply.FixedExpense.AdditionalNote,
-                Amount = supply.FixedExpense.Amount
+                Amount = supply.FixedExpense.Amount,
+                SubcategoryId = supply.FixedExpense.SubcategoryId
             } : null,
             Business = supply.Business != null ? new BusinessDto
             {
@@ -224,6 +232,20 @@ public class SupplyService : ISupplyService
             {
                 Id = supply.Store.Id,
                 Name = supply.Store.Name ?? string.Empty
+            } : null,
+            PreferredProvider = supply.PreferredProvider != null ? new ProviderDto
+            {
+                Id = supply.PreferredProvider.Id,
+                Name = supply.PreferredProvider.Name,
+                BusinessId = supply.PreferredProvider.BusinessId,
+                StoreId = supply.PreferredProvider.StoreId,
+                Contact = supply.PreferredProvider.Contact,
+                Address = supply.PreferredProvider.Address,
+                Mail = supply.PreferredProvider.Mail,
+                Prefix = supply.PreferredProvider.Prefix,
+                Active = supply.PreferredProvider.Active,
+                CreatedAt = supply.PreferredProvider.CreatedAt,
+                UpdatedAt = supply.PreferredProvider.UpdatedAt
             } : null,
             // SupplyEntries - map without circular reference to Supply
             SupplyEntries = supply.SupplyEntries?.Select(se => new SupplyEntryDto

@@ -20,7 +20,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core model completely
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
             FROM supply_entry 
             ORDER BY created_at DESC";
 
@@ -35,12 +35,13 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             {
                 Id = reader.GetInt32(0), // id
                 Amount = reader.GetInt32(1), // amount
-                CreatedAt = reader.GetDateTime(2), // created_at
-                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
-                ProviderId = reader.GetInt32(4), // provider_id
-                SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
-                UpdatedAt = reader.GetDateTime(7) // updated_at
+                Tag = reader.IsDBNull(2) ? null : reader.GetString(2), // tag
+                CreatedAt = reader.GetDateTime(3), // created_at
+                ProcessDoneId = reader.IsDBNull(4) ? null : reader.GetInt32(4), // process_done_id
+                ProviderId = reader.GetInt32(5), // provider_id
+                SupplyId = reader.GetInt32(6), // supply_id
+                UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
+                UpdatedAt = reader.GetDateTime(8) // updated_at
             };
             results.Add(supplyEntry);
         }
@@ -53,7 +54,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
             FROM supply_entry 
             ORDER BY created_at DESC";
 
@@ -68,12 +69,13 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             {
                 Id = reader.GetInt32(0), // id
                 Amount = reader.GetInt32(1), // amount
-                CreatedAt = reader.GetDateTime(2), // created_at
-                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
-                ProviderId = reader.GetInt32(4), // provider_id
-                SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetInt32(6), // unit_cost
-                UpdatedAt = reader.GetDateTime(7) // updated_at
+                Tag = reader.IsDBNull(2) ? null : reader.GetString(2), // tag
+                CreatedAt = reader.GetDateTime(3), // created_at
+                ProcessDoneId = reader.IsDBNull(4) ? null : reader.GetInt32(4), // process_done_id
+                ProviderId = reader.GetInt32(5), // provider_id
+                SupplyId = reader.GetInt32(6), // supply_id
+                UnitCost = reader.GetInt32(7), // unit_cost
+                UpdatedAt = reader.GetDateTime(8) // updated_at
             };
             results.Add(supplyEntry);
         }
@@ -86,7 +88,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
             FROM supply_entry 
             WHERE id = @id";
 
@@ -105,12 +107,13 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             {
                 Id = reader.GetInt32(0), // id
                 Amount = reader.GetInt32(1), // amount
-                CreatedAt = reader.GetDateTime(2), // created_at
-                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
-                ProviderId = reader.GetInt32(4), // provider_id
-                SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
-                UpdatedAt = reader.GetDateTime(7) // updated_at
+                Tag = reader.IsDBNull(2) ? null : reader.GetString(2), // tag
+                CreatedAt = reader.GetDateTime(3), // created_at
+                ProcessDoneId = reader.IsDBNull(4) ? null : reader.GetInt32(4), // process_done_id
+                ProviderId = reader.GetInt32(5), // provider_id
+                SupplyId = reader.GetInt32(6), // supply_id
+                UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
+                UpdatedAt = reader.GetDateTime(8) // updated_at
             };
         }
 
@@ -122,7 +125,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
             FROM supply_entry 
             WHERE supply_id = @supplyId
             ORDER BY created_at DESC";
@@ -143,12 +146,13 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             {
                 Id = reader.GetInt32(0), // id
                 Amount = reader.GetInt32(1), // amount
-                CreatedAt = reader.GetDateTime(2), // created_at
-                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
-                ProviderId = reader.GetInt32(4), // provider_id
-                SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
-                UpdatedAt = reader.GetDateTime(7) // updated_at
+                Tag = reader.IsDBNull(2) ? null : reader.GetString(2), // tag
+                CreatedAt = reader.GetDateTime(3), // created_at
+                ProcessDoneId = reader.IsDBNull(4) ? null : reader.GetInt32(4), // process_done_id
+                ProviderId = reader.GetInt32(5), // provider_id
+                SupplyId = reader.GetInt32(6), // supply_id
+                UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
+                UpdatedAt = reader.GetDateTime(8) // updated_at
             };
             results.Add(supplyEntry);
         }
@@ -161,7 +165,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
             FROM supply_entry 
             WHERE process_done_id = @processDoneId
             ORDER BY created_at DESC";
@@ -182,12 +186,13 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             {
                 Id = reader.GetInt32(0), // id
                 Amount = reader.GetInt32(1), // amount
-                CreatedAt = reader.GetDateTime(2), // created_at
-                ProcessDoneId = reader.IsDBNull(3) ? null : reader.GetInt32(3), // process_done_id
-                ProviderId = reader.GetInt32(4), // provider_id
-                SupplyId = reader.GetInt32(5), // supply_id
-                UnitCost = reader.GetDecimal(6), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
-                UpdatedAt = reader.GetDateTime(7) // updated_at
+                Tag = reader.IsDBNull(2) ? null : reader.GetString(2), // tag
+                CreatedAt = reader.GetDateTime(3), // created_at
+                ProcessDoneId = reader.IsDBNull(4) ? null : reader.GetInt32(4), // process_done_id
+                ProviderId = reader.GetInt32(5), // provider_id
+                SupplyId = reader.GetInt32(6), // supply_id
+                UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
+                UpdatedAt = reader.GetDateTime(8) // updated_at
             };
             results.Add(supplyEntry);
         }
@@ -232,8 +237,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         await connection.OpenAsync();
 
         var query = @"
-            INSERT INTO supply_entry (unit_cost, amount, provider_id, supply_id, process_done_id, supply_entry_id, active, created_at, updated_at)
-            VALUES (@unitCost, @amount, @providerId, @supplyId, @processDoneId, @supplyEntryId, @active, @createdAt, @updatedAt);
+            INSERT INTO supply_entry (unit_cost, amount, tag, provider_id, supply_id, process_done_id, supply_entry_id, active, created_at, updated_at)
+            VALUES (@unitCost, @amount, @tag, @providerId, @supplyId, @processDoneId, @supplyEntryId, @active, @createdAt, @updatedAt);
             SELECT LAST_INSERT_ID();";
 
         using var command = new MySqlCommand(query, connection);
@@ -241,6 +246,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         var now = DateTime.UtcNow;
         command.Parameters.AddWithValue("@unitCost", supplyEntry.UnitCost);
         command.Parameters.AddWithValue("@amount", supplyEntry.Amount);
+        command.Parameters.AddWithValue("@tag", string.IsNullOrEmpty(supplyEntry.Tag) ? DBNull.Value : supplyEntry.Tag);
         command.Parameters.AddWithValue("@providerId", supplyEntry.ProviderId);
         command.Parameters.AddWithValue("@supplyId", supplyEntry.SupplyId);
         command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
@@ -271,6 +277,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             UPDATE supply_entry 
             SET unit_cost = @unitCost, 
                 amount = @amount, 
+                tag = @tag,
                 provider_id = @providerId, 
                 supply_id = @supplyId, 
                 process_done_id = @processDoneId, 
@@ -285,6 +292,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         command.Parameters.AddWithValue("@id", supplyEntry.Id);
         command.Parameters.AddWithValue("@unitCost", supplyEntry.UnitCost);
         command.Parameters.AddWithValue("@amount", supplyEntry.Amount);
+        command.Parameters.AddWithValue("@tag", string.IsNullOrEmpty(supplyEntry.Tag) ? DBNull.Value : supplyEntry.Tag);
         command.Parameters.AddWithValue("@providerId", supplyEntry.ProviderId);
         command.Parameters.AddWithValue("@supplyId", supplyEntry.SupplyId);
         command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
@@ -456,7 +464,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
 
         using var command = connection.CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, active
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, active
             FROM supply_entry 
             WHERE supply_id = @supplyId and process_done_id IS NULL and amount > 0 and active = 1
             ORDER BY created_at ASC
@@ -474,13 +482,14 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             {
                 Id = reader.GetInt32(0),
                 Amount = reader.GetInt32(1),
-                CreatedAt = reader.GetDateTime(2),
-                ProcessDoneId = reader.IsDBNull(3) ? (int?)null : reader.GetInt32(3),
-                ProviderId = reader.GetInt32(4),
-                SupplyId = reader.GetInt32(5),
-                UnitCost = reader.GetDecimal(6),
-                UpdatedAt = reader.GetDateTime(7),
-                IsActive = reader.GetBoolean(8)
+                Tag = reader.IsDBNull(2) ? null : reader.GetString(2),
+                CreatedAt = reader.GetDateTime(3),
+                ProcessDoneId = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4),
+                ProviderId = reader.GetInt32(5),
+                SupplyId = reader.GetInt32(6),
+                UnitCost = reader.GetDecimal(7),
+                UpdatedAt = reader.GetDateTime(8),
+                IsActive = reader.GetBoolean(9)
             };
 
             // Obtener todos los supply entries asociados al mismo supply
@@ -511,7 +520,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Consulta simplificada: solo obtener entradas activas con stock positivo
         // ya que la lógica de negocio marca como active=false las entradas vacías
         var rawSql = @"
-            SELECT id, amount, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, active
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, active
             FROM supply_entry 
             WHERE supply_id = {0}
               AND process_done_id IS NULL 
@@ -531,6 +540,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
             {
                 Id = se.id,
                 Amount = se.amount,
+                Tag = se.tag,
                 UnitCost = se.unit_cost,
                 SupplyId = se.supply_id,
                 ProviderId = se.provider_id,
@@ -553,6 +563,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
     {
         public int id { get; set; }
         public int amount { get; set; }
+        public string? tag { get; set; }
         public DateTime created_at { get; set; }
         public int? process_done_id { get; set; }
         public int provider_id { get; set; }

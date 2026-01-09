@@ -87,6 +87,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.SupplyId).HasColumnName("supply_id");
             entity.Property(e => e.UnitCost).HasColumnName("unit_cost");
             entity.Property(e => e.Amount).HasColumnName("amount");
+            entity.Property(e => e.Tag).HasColumnName("tag").HasMaxLength(100);
             entity.Property(e => e.ProviderId).HasColumnName("provider_id");
             entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");
             entity.Property(e => e.ReferenceToSupplyEntry).HasColumnName("supply_entry_id");
@@ -256,6 +257,7 @@ public class ApplicationDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            entity.Property(e => e.Sku).HasColumnName("sku").HasMaxLength(100);
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.BusinessId).HasColumnName("business_id");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
@@ -265,6 +267,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.SupplyCategoryId).HasColumnName("supply_category_id");
             entity.Property(e => e.Type).HasColumnName("type");
             entity.Property(e => e.MinimumStock).HasColumnName("minimum_stock").HasDefaultValue(0);
+            entity.Property(e => e.PreferredProviderId).HasColumnName("preferred_provider_id");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
             
@@ -282,6 +285,12 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.SupplyCategory)
                 .WithMany()
                 .HasForeignKey(e => e.SupplyCategoryId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+
+            entity.HasOne(e => e.PreferredProvider)
+                .WithMany(p => p.PreferredForSupplies)
+                .HasForeignKey(e => e.PreferredProviderId)
                 .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
 
@@ -328,6 +337,38 @@ public class ApplicationDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.BusinessId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Provider configuration
+        modelBuilder.Entity<Provider>(entity =>
+        {
+            entity.ToTable("provider");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255).IsRequired();
+            entity.Property(e => e.StoreId).HasColumnName("id_store");
+            entity.Property(e => e.BusinessId).HasColumnName("id_business").IsRequired();
+            entity.Property(e => e.Contact).HasColumnName("contact").HasMaxLength(200);
+            entity.Property(e => e.Address).HasColumnName("address").HasMaxLength(500);
+            entity.Property(e => e.Mail).HasColumnName("mail").HasMaxLength(200);
+            entity.Property(e => e.Prefix).HasColumnName("prefix").HasMaxLength(20);
+            entity.Property(e => e.Active).HasColumnName("active").IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            
+            // BaseEntity properties
+            entity.Ignore(e => e.IsActive);
+
+            entity.HasOne(e => e.Business)
+                .WithMany()
+                .HasForeignKey(e => e.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Store)
+                .WithMany()
+                .HasForeignKey(e => e.StoreId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
         });
 
         // UnitMeasure configuration

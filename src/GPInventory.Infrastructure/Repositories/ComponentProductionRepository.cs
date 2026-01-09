@@ -95,4 +95,61 @@ public class ComponentProductionRepository : IComponentProductionRepository
             .OrderByDescending(cp => cp.CreatedAt)
             .ToListAsync();
     }
+
+    public async Task<IEnumerable<ComponentProduction>> GetAvailableProductionsByComponentIdAsync(int componentId)
+    {
+        // Obtener producciones padre (lotes originales) con stock disponible
+        // Ordenadas por fecha de creación (FIFO - First In, First Out)
+        var sql = @"
+            SELECT 
+                parent.id,
+                parent.component_id,
+                parent.process_done_id,
+                parent.business_id,
+                parent.store_id,
+                parent.produced_amount,
+                parent.production_date,
+                parent.expiration_date,
+                parent.batch_number,
+                parent.cost,
+                parent.notes,
+                parent.component_production_id,
+                parent.is_active,
+                parent.created_at,
+                parent.updated_at,
+                COALESCE(
+                    parent.produced_amount + COALESCE(
+                        (SELECT SUM(child.produced_amount) 
+                         FROM component_production child 
+                         WHERE child.component_production_id = parent.id 
+                         AND child.is_active = 1), 
+                        0
+                    ), 0
+                ) as available_amount
+            FROM component_production parent
+            WHERE parent.component_id = {0}
+            AND parent.component_production_id IS NULL
+            AND parent.is_active = 1
+            AND parent.produced_amount > 0
+            HAVING available_amount > 0
+            ORDER BY parent.created_at ASC";
+
+        var productions = await _context.ComponentProductions
+            .FromSqlRaw(sql, componentId)
+            .ToListAsync();
+
+        return productions;
+    }
+
+    public async Task<ComponentProduction?> GetByIdAsync(int id)
+    {
+        return await _context.ComponentProductions
+            .FirstOrDefaultAsync(cp => cp.Id == id);
+    }
+
+    public async Task UpdateAsync(ComponentProduction componentProduction)
+    {
+        _context.ComponentProductions.Update(componentProduction);
+        await _context.SaveChangesAsync();
+    }
 }

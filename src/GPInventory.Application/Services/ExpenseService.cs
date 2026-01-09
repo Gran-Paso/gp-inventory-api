@@ -181,6 +181,113 @@ public class ExpenseService : IExpenseService
         }
     }
 
+    // Método optimizado para listados de items (sin cargar detalles pesados)
+    public async Task<IEnumerable<ExpenseListItemDto>> GetExpensesListAsync(ExpenseFiltersDto filters)
+    {
+        try
+        {
+            // Validar que se proporcionen business IDs
+            if ((filters.BusinessIds == null || filters.BusinessIds.Length == 0) && !filters.BusinessId.HasValue)
+            {
+                throw new ArgumentException("Se debe proporcionar al menos un ID de negocio");
+            }
+
+            // Si se proporciona BusinessId (singular), agregar al array
+            if (filters.BusinessId.HasValue && (filters.BusinessIds == null || filters.BusinessIds.Length == 0))
+            {
+                filters.BusinessIds = new[] { filters.BusinessId.Value };
+            }
+
+            var expenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: null,
+                businessIds: filters.BusinessIds,
+                storeId: filters.StoreId,
+                categoryId: filters.CategoryId,
+                subcategoryId: filters.SubcategoryId,
+                startDate: filters.StartDate,
+                endDate: filters.EndDate,
+                minAmount: filters.MinAmount,
+                maxAmount: filters.MaxAmount,
+                isFixed: filters.IsFixed,
+                expenseTypeId: filters.ExpenseTypeId,
+                page: filters.Page,
+                pageSize: filters.PageSize,
+                orderBy: filters.OrderBy ?? "Date",
+                orderDescending: filters.OrderDescending);
+
+            // Mapear a DTO ligero
+            var result = new List<ExpenseListItemDto>();
+            
+            foreach (var e in expenses)
+            {
+                var item = new ExpenseListItemDto
+                {
+                    Id = e.Id,
+                    Date = e.Date,
+                    Amount = e.Amount,
+                    Description = e.Description,
+                    IsFixed = e.IsFixed,
+                    BusinessId = e.BusinessId,
+                    ExpenseTypeId = e.ExpenseTypeId,
+                    CategoryName = e.ExpenseSubcategory?.ExpenseCategory?.Name,
+                    SubcategoryName = e.ExpenseSubcategory?.Name,
+                    HasProvider = e.ProviderId.HasValue,
+                    ProviderName = e.Provider?.Name
+                };
+
+                // Obtener información de cuotas si existe payment plan
+                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(e.Id);
+                var paymentPlan = paymentPlans.FirstOrDefault();
+                
+                if (paymentPlan != null)
+                {
+                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                    var installmentsList = installments.ToList();
+                    
+                    item.TotalInstallments = installmentsList.Count;
+                    item.PaidInstallments = installmentsList.Count(i => i.Status == "pagado" || i.Status == "paid");
+                }
+
+                result.Add(item);
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetExpensesListAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener lista de gastos: {ex.Message}", ex);
+        }
+    }
+
+    // Método optimizado para obtener detalles completos de un expense específico
+    public async Task<ExpenseWithDetailsDto> GetExpenseWithDetailsAsync(int id)
+    {
+        try
+        {
+            // Usar el nuevo método que carga directamente con todas las relaciones
+            var expense = await _expenseRepository.GetByIdWithDetailsAsync(id);
+            if (expense == null)
+                throw new KeyNotFoundException($"Gasto con ID {id} no encontrado");
+
+            var dto = _mapper.Map<ExpenseWithDetailsDto>(expense);
+            
+            // Cargar payment plan si existe
+            await LoadPaymentPlanAsync(dto);
+            
+            return dto;
+        }
+        catch (KeyNotFoundException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetExpenseWithDetailsAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener detalles del gasto: {ex.Message}", ex);
+        }
+    }
+
     public async Task<ExpenseDto> GetExpenseByIdAsync(int id)
     {
         try
@@ -215,6 +322,8 @@ public class ExpenseService : IExpenseService
             Console.WriteLine($"CreateExpenseAsync - createExpenseDto.IsFixed: {createExpenseDto.IsFixed}");
             Console.WriteLine($"CreateExpenseAsync - createExpenseDto.FixedExpenseId: {createExpenseDto.FixedExpenseId}");
             Console.WriteLine($"CreateExpenseAsync - createExpenseDto.ExpenseTypeId: {createExpenseDto.ExpenseTypeId}");
+            Console.WriteLine($"CreateExpenseAsync - createExpenseDto.PaymentTypeId: {createExpenseDto.PaymentTypeId}");
+            Console.WriteLine($"CreateExpenseAsync - createExpenseDto.InstallmentsCount: {createExpenseDto.InstallmentsCount}");
             Console.WriteLine($"CreateExpenseAsync - createExpenseDto JSON: {System.Text.Json.JsonSerializer.Serialize(createExpenseDto)}");
             
             var expense = _mapper.Map<Expense>(createExpenseDto);
@@ -229,6 +338,49 @@ public class ExpenseService : IExpenseService
             Console.WriteLine($"CreateExpenseAsync - After manual assignment, expense.IsFixed: {expense.IsFixed}");
             
             var createdExpense = await _expenseRepository.AddAsync(expense);
+            
+            // Si viene con datos de payment plan, crear el payment plan
+            if (createExpenseDto.PaymentTypeId.HasValue && 
+                createExpenseDto.PaymentTypeId.Value == 3 && // 3 = Financiamiento Bancario
+                createExpenseDto.InstallmentsCount.HasValue &&
+                createExpenseDto.InstallmentsCount.Value > 1)
+            {
+                Console.WriteLine($"Creating payment plan for expense {createdExpense.Id}");
+                
+                var paymentPlan = new PaymentPlan
+                {
+                    ExpenseId = createdExpense.Id,
+                    PaymentTypeId = createExpenseDto.PaymentTypeId.Value,
+                    InstallmentsCount = createExpenseDto.InstallmentsCount.Value,
+                    ExpressedInUf = createExpenseDto.ExpressedInUf ?? false,
+                    BankEntityId = createExpenseDto.BankEntityId,
+                    StartDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow
+                };
+                
+                var createdPaymentPlan = await _paymentPlanRepository.CreateAsync(paymentPlan);
+                Console.WriteLine($"Payment plan created with ID: {createdPaymentPlan.Id}");
+                
+                // Crear las cuotas
+                decimal installmentAmount = createdExpense.Amount / createExpenseDto.InstallmentsCount.Value;
+                var startDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow;
+                
+                for (int i = 1; i <= createExpenseDto.InstallmentsCount.Value; i++)
+                {
+                    var installment = new PaymentInstallment
+                    {
+                        PaymentPlanId = createdPaymentPlan.Id,
+                        InstallmentNumber = i,
+                        AmountClp = installmentAmount,
+                        DueDate = startDate.AddMonths(i - 1),
+                        Status = "pendiente"
+                    };
+                    
+                    await _paymentInstallmentRepository.CreateAsync(installment);
+                }
+                
+                Console.WriteLine($"Created {createExpenseDto.InstallmentsCount.Value} installments");
+            }
+            
             return _mapper.Map<ExpenseDto>(createdExpense);
         }
         catch (Exception ex)
@@ -311,6 +463,92 @@ public class ExpenseService : IExpenseService
     }
 
     // Gastos fijos
+    
+    // Método optimizado para obtener lista de gastos fijos (items ligeros)
+    public async Task<IEnumerable<FixedExpenseListItemDto>> GetFixedExpensesListAsync(int[]? businessIds = null, int? expenseTypeId = null)
+    {
+        try
+        {
+            Console.WriteLine($"ExpenseService.GetFixedExpensesListAsync called with businessIds: {(businessIds != null ? string.Join(",", businessIds) : "null")}, expenseTypeId: {expenseTypeId}");
+            
+            if (businessIds == null || businessIds.Length == 0)
+            {
+                throw new ArgumentException("Se debe proporcionar al menos un ID de negocio");
+            }
+            
+            var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(
+                businessIds: businessIds, expenseTypeId: expenseTypeId);
+                
+            var listItems = new List<FixedExpenseListItemDto>();
+            
+            foreach (var fe in fixedExpenses)
+            {
+                var item = new FixedExpenseListItemDto
+                {
+                    Id = fe.Id,
+                    Description = fe.AdditionalNote ?? "Sin descripción",
+                    Amount = fe.Amount,
+                    StartDate = fe.PaymentDate ?? fe.CreatedAt,
+                    EndDate = fe.EndDate,
+                    BusinessId = fe.BusinessId,
+                    ExpenseTypeId = fe.ExpenseTypeId,
+                    CategoryName = fe.Subcategory?.ExpenseCategory?.Name ?? "Sin categoría",
+                    SubcategoryName = fe.Subcategory?.Name ?? "Sin subcategoría",
+                    RecurrenceTypeName = fe.RecurrenceType?.Description ?? "No definido",
+                    AssociatedExpensesCount = fe.GeneratedExpenses?.Count ?? 0
+                };
+                
+                // Calcular estado de pago sin cargar todos los detalles
+                var (isUpToDate, nextDueDate) = CalculatePaymentStatus(fe);
+                item.IsUpToDate = isUpToDate;
+                item.NextDueDate = nextDueDate;
+                
+                listItems.Add(item);
+            }
+            
+            return listItems;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetFixedExpensesListAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener lista de gastos fijos: {ex.Message}", ex);
+        }
+    }
+    
+    // Método optimizado para obtener detalles completos de un gasto fijo específico
+    public async Task<FixedExpenseWithDetailsDto> GetFixedExpenseWithDetailsAsync(int id)
+    {
+        try
+        {
+            var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(id);
+            if (fixedExpense == null)
+                throw new KeyNotFoundException($"Gasto fijo con ID {id} no encontrado");
+
+            // Cargar con todas las relaciones usando el método que ya incluye providers
+            var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(
+                businessIds: new[] { fixedExpense.BusinessId },
+                expenseTypeId: fixedExpense.ExpenseTypeId);
+                
+            var fixedExpenseWithDetails = fixedExpenses.FirstOrDefault(fe => fe.Id == id);
+            if (fixedExpenseWithDetails == null)
+                throw new KeyNotFoundException($"Gasto fijo con ID {id} no encontrado");
+
+            var dto = _mapper.Map<FixedExpenseWithDetailsDto>(fixedExpenseWithDetails);
+            await PopulatePaymentStatusAsync(dto, fixedExpenseWithDetails);
+            
+            return dto;
+        }
+        catch (KeyNotFoundException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetFixedExpenseWithDetailsAsync Error: {ex.Message}");
+            throw new ApplicationException($"Error al obtener detalles del gasto fijo: {ex.Message}", ex);
+        }
+    }
+    
     public async Task<IEnumerable<FixedExpenseWithDetailsDto>> GetFixedExpensesAsync(int[]? businessIds = null, int? expenseTypeId = null)
     {
         try
@@ -916,6 +1154,44 @@ public class ExpenseService : IExpenseService
             dto.LastPaymentDate = null;
         }
     }
+    
+    // Método helper para calcular estado de pago sin cargar todas las relaciones
+    private (bool IsUpToDate, DateTime NextDueDate) CalculatePaymentStatus(FixedExpense fixedExpense)
+    {
+        try
+        {
+            var currentDate = DateTime.Now.Date;
+            var startDate = (fixedExpense.PaymentDate ?? fixedExpense.CreatedAt).Date;
+            
+            // Si no hay gastos generados
+            if (fixedExpense.GeneratedExpenses == null || !fixedExpense.GeneratedExpenses.Any())
+            {
+                var upToDate = startDate > currentDate;
+                var nextDue = RecurrenceHelper.CalculateNextDueDate(
+                    startDate, 
+                    fixedExpense.RecurrenceTypeId, 
+                    fixedExpense.PaymentDate ?? fixedExpense.CreatedAt
+                );
+                return (upToDate, nextDue);
+            }
+            
+            // Obtener fecha del último gasto
+            var lastExpenseDate = fixedExpense.GeneratedExpenses.Max(e => e.Date).Date;
+            var nextPayment = RecurrenceHelper.CalculateNextDueDate(
+                lastExpenseDate, 
+                fixedExpense.RecurrenceTypeId,
+                fixedExpense.PaymentDate ?? fixedExpense.CreatedAt
+            );
+            var paymentUpToDate = currentDate < nextPayment;
+            
+            return (paymentUpToDate, nextPayment);
+        }
+        catch (Exception)
+        {
+            // En caso de error, asumir que no está al día
+            return (false, DateTime.Now.AddDays(30));
+        }
+    }
 
     private async Task PopulatePaymentStatusAsync(FixedExpenseWithDetailsDto dto, FixedExpense fixedExpense)
     {
@@ -934,7 +1210,7 @@ public class ExpenseService : IExpenseService
             // Populate associated expenses
             if (fixedExpense.GeneratedExpenses != null && fixedExpense.GeneratedExpenses.Any())
             {
-                dto.AssociatedExpenses = _mapper.Map<List<ExpenseDto>>(fixedExpense.GeneratedExpenses);
+                dto.AssociatedExpenses = _mapper.Map<List<ExpenseWithDetailsDto>>(fixedExpense.GeneratedExpenses);
             }
             
             // Get the last expense date for this fixed expense
@@ -1039,7 +1315,7 @@ public class ExpenseService : IExpenseService
             dto.IsUpToDate = false;
             dto.NextDueDate = DateTime.Now.AddDays(30); // Default to 30 days
             dto.LastPaymentDate = null;
-            dto.AssociatedExpenses = new List<ExpenseDto>();
+            dto.AssociatedExpenses = new List<ExpenseWithDetailsDto>();
         }
     }
 
