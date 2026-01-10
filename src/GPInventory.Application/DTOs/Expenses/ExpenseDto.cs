@@ -10,7 +10,7 @@ public class ExpenseListItemDto
 {
     public int Id { get; set; }
     public DateTime Date { get; set; }
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public string Description { get; set; } = string.Empty;
     public bool? IsFixed { get; set; }
     public int BusinessId { get; set; }
@@ -21,6 +21,7 @@ public class ExpenseListItemDto
     public string? ProviderName { get; set; }
     public int? PaidInstallments { get; set; }
     public int? TotalInstallments { get; set; }
+    public bool? HasOverdueInstallments { get; set; }
 }
 
 public class CreateExpenseDto

@@ -15,7 +15,8 @@ public class Expense
     public int SubcategoryId { get; set; }
 
     [Required]
-    public int Amount { get; set; }
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal Amount { get; set; }
 
     [Required]
     [StringLength(500)]

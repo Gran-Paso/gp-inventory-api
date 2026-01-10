@@ -246,6 +246,13 @@ public class ExpenseService : IExpenseService
                     
                     item.TotalInstallments = installmentsList.Count;
                     item.PaidInstallments = installmentsList.Count(i => i.Status == "pagado" || i.Status == "paid");
+                    
+                    // Calcular si hay cuotas vencidas
+                    var today = DateTime.Today;
+                    item.HasOverdueInstallments = installmentsList.Any(i => 
+                        (i.Status != "pagado" && i.Status != "paid") && 
+                        i.DueDate.Date < today
+                    );
                 }
 
                 result.Add(item);
@@ -361,11 +368,25 @@ public class ExpenseService : IExpenseService
                 Console.WriteLine($"Payment plan created with ID: {createdPaymentPlan.Id}");
                 
                 // Crear las cuotas
-                decimal installmentAmount = createdExpense.Amount / createExpenseDto.InstallmentsCount.Value;
+                decimal baseInstallmentAmount = Math.Floor(createdExpense.Amount / createExpenseDto.InstallmentsCount.Value);
+                decimal totalAssigned = 0;
                 var startDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow;
                 
                 for (int i = 1; i <= createExpenseDto.InstallmentsCount.Value; i++)
                 {
+                    decimal installmentAmount;
+                    
+                    // La última cuota ajusta para absorber cualquier diferencia de redondeo
+                    if (i == createExpenseDto.InstallmentsCount.Value)
+                    {
+                        installmentAmount = createdExpense.Amount - totalAssigned;
+                    }
+                    else
+                    {
+                        installmentAmount = baseInstallmentAmount;
+                        totalAssigned += installmentAmount;
+                    }
+                    
                     var installment = new PaymentInstallment
                     {
                         PaymentPlanId = createdPaymentPlan.Id,
@@ -838,7 +859,7 @@ public class ExpenseService : IExpenseService
             var firstDayLastMonth = firstDayThisMonth.AddMonths(-1);
             var lastDayLastMonth = firstDayThisMonth.AddDays(-1);
 
-            // Get expenses for this month
+            // Get ALL expenses for this month (by creation date)
             var thisMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
                 businessId: businessId,
                 startDate: firstDayThisMonth,
@@ -846,7 +867,7 @@ public class ExpenseService : IExpenseService
                 page: 1,
                 pageSize: int.MaxValue);
 
-            // Get expenses for last month
+            // Get ALL expenses for last month (by creation date)
             var lastMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
                 businessId: businessId,
                 startDate: firstDayLastMonth,
@@ -854,26 +875,41 @@ public class ExpenseService : IExpenseService
                 page: 1,
                 pageSize: int.MaxValue);
 
-            // Calculate totals by type
-            var totalThisMonth = thisMonthExpenses.Sum(e => e.Amount);
-            var totalLastMonth = lastMonthExpenses.Sum(e => e.Amount);
-
             var expensesList = thisMonthExpenses.ToList();
-            Console.WriteLine($"📊 GetMonthlyKPIs - This month expenses count: {expensesList.Count}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - This month total: {totalThisMonth}");
             
-            var gastos = expensesList.Where(e => e.ExpenseTypeId == 1).Sum(e => e.Amount);
-            var costos = expensesList.Where(e => e.ExpenseTypeId == 2).Sum(e => e.Amount);
-            var inversiones = expensesList.Where(e => e.ExpenseTypeId == 3).Sum(e => e.Amount);
+            // Calculate totals using full expense amounts (not installments)
+            decimal totalThisMonth = 0;
+            decimal totalLastMonth = 0;
+            decimal gastos = 0;
+            decimal costos = 0;
+            decimal inversiones = 0;
+            
+            // Process this month expenses - usar el monto total del expense
+            foreach (var expense in expensesList)
+            {
+                totalThisMonth += expense.Amount;
+                
+                // Add to type-specific totals
+                if (expense.ExpenseTypeId == 1) gastos += expense.Amount;
+                else if (expense.ExpenseTypeId == 2) costos += expense.Amount;
+                else if (expense.ExpenseTypeId == 3) inversiones += expense.Amount;
+            }
+            
+            // Process last month expenses - usar el monto total del expense
+            foreach (var expense in lastMonthExpenses)
+            {
+                totalLastMonth += expense.Amount;
+            }
+
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month expenses count: {expensesList.Count}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month total (with payment plans): {totalThisMonth}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
 
             Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
             Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
             Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - Expenses by type:");
-            foreach (var exp in expensesList)
-            {
-                Console.WriteLine($"  - ID: {exp.Id}, Amount: {exp.Amount}, ExpenseTypeId: {exp.ExpenseTypeId}, Date: {exp.Date}");
-            }
 
             var totalDistribution = gastos + costos + inversiones;
 
@@ -980,81 +1016,70 @@ public class ExpenseService : IExpenseService
     {
         try
         {
-            var now = DateTime.Now;
-            var firstDayThisMonth = new DateTime(now.Year, now.Month, 1);
-            var lastDayThisMonth = firstDayThisMonth.AddMonths(1).AddDays(-1);
+            var today = DateTime.Today;
 
-            // Get expenses for this month filtered by type
-            var thisMonthExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+            // Get ALL expenses of this type (no date filter) to check all installments
+            var allExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
                 businessId: businessId,
-                startDate: firstDayThisMonth,
-                endDate: lastDayThisMonth,
+                expenseTypeId: expenseTypeId,
                 page: 1,
                 pageSize: int.MaxValue);
 
-            var expensesList = thisMonthExpenses.Where(e => e.ExpenseTypeId == expenseTypeId).ToList();
-            var totalPaid = expensesList.Sum(e => e.Amount);
-
-            // Get fixed expenses for this type
-            var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(new[] { businessId }, expenseTypeId);
+            var expensesList = allExpenses.ToList();
             
+            decimal totalPaid = 0;
             decimal pendingAmount = 0;
             int overdueCount = 0;
             int upcomingCount = 0;
             
-            foreach (var fixedExpense in fixedExpenses)
+            foreach (var expense in expensesList)
             {
-                // Get associated expenses (payments) for this fixed expense
-                var payments = expensesList.Where(e => e.FixedExpenseId == fixedExpense.Id).ToList();
+                // Get payment plans for this expense
+                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+                var paymentPlan = paymentPlans.FirstOrDefault();
                 
-                if (payments.Any())
+                if (paymentPlan != null)
                 {
-                    var lastPayment = payments.OrderByDescending(p => p.Date).First();
-                    var daysSinceLastPayment = (now - lastPayment.Date).Days;
+                    // Expense with payment plan - calculate based on installments
+                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                    var installmentsList = installments.ToList();
                     
-                    // Determine if payment is due based on recurrence
-                    bool isOverdue = false;
-                    bool isUpcoming = false;
+                    decimal paidForThisExpense = 0;
+                    int overdueForThisExpense = 0;
+                    int upcomingForThisExpense = 0;
                     
-                    switch (fixedExpense.RecurrenceTypeId)
+                    foreach (var installment in installmentsList)
                     {
-                        case 1: // mensual
-                            isOverdue = daysSinceLastPayment > 30;
-                            isUpcoming = daysSinceLastPayment >= 25 && daysSinceLastPayment <= 30;
-                            break;
-                        case 2: // bimestral
-                            isOverdue = daysSinceLastPayment > 60;
-                            isUpcoming = daysSinceLastPayment >= 55 && daysSinceLastPayment <= 60;
-                            break;
-                        case 3: // trimestral
-                            isOverdue = daysSinceLastPayment > 90;
-                            isUpcoming = daysSinceLastPayment >= 85 && daysSinceLastPayment <= 90;
-                            break;
-                        case 4: // semestral
-                            isOverdue = daysSinceLastPayment > 180;
-                            isUpcoming = daysSinceLastPayment >= 175 && daysSinceLastPayment <= 180;
-                            break;
-                        case 5: // anual
-                            isOverdue = daysSinceLastPayment > 365;
-                            isUpcoming = daysSinceLastPayment >= 360 && daysSinceLastPayment <= 365;
-                            break;
+                        bool isPaid = installment.Status == "pagado" || installment.Status == "paid";
+                        bool isOverdue = !isPaid && installment.DueDate.Date < today;
+                        bool isUpcoming = !isPaid && installment.DueDate.Date >= today && installment.DueDate.Date <= today.AddDays(7);
+                        
+                        if (isPaid)
+                        {
+                            paidForThisExpense += installment.AmountClp;
+                        }
+                        else if (isOverdue)
+                        {
+                            overdueForThisExpense++;
+                        }
+                        else if (isUpcoming)
+                        {
+                            upcomingForThisExpense++;
+                        }
                     }
                     
-                    if (isOverdue)
-                    {
-                        overdueCount++;
-                        pendingAmount += fixedExpense.Amount;
-                    }
-                    else if (isUpcoming)
-                    {
-                        upcomingCount++;
-                    }
+                    // Calcular pendiente basado en el monto original del expense para evitar errores de redondeo
+                    decimal pendingForThisExpense = expense.Amount - paidForThisExpense;
+                    
+                    totalPaid += paidForThisExpense;
+                    pendingAmount += pendingForThisExpense;
+                    overdueCount += overdueForThisExpense;
+                    upcomingCount += upcomingForThisExpense;
                 }
                 else
                 {
-                    // No payments yet - this is pending
-                    overdueCount++;
-                    pendingAmount += fixedExpense.Amount;
+                    // Expense without payment plan - consider as fully paid when created
+                    totalPaid += expense.Amount;
                 }
             }
 
