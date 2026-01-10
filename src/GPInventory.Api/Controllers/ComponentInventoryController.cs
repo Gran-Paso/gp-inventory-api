@@ -47,13 +47,14 @@ public class ComponentInventoryController : ControllerBase
                 return NotFound(new { message = "Componente no encontrado" });
             }
 
-            var currentStock = await _componentProductionRepository.GetCurrentStockAsync(componentId);
+            var (currentStock, totalValue) = await _componentProductionRepository.GetStockAndValueAsync(componentId);
             
             return Ok(new ComponentInventoryDto
             {
                 Id = componentId,
                 ComponentId = componentId,
                 CurrentStock = currentStock,
+                TotalValue = totalValue,
                 ComponentName = component.Name
             });
         }
@@ -95,6 +96,8 @@ public class ComponentInventoryController : ControllerBase
                 return NotFound(new { message = "Componente no encontrado" });
             }
 
+            decimal totalCost = 0m;
+
             // Crear la producción del componente (cantidad positiva)
             var production = new ComponentProduction
             {
@@ -106,7 +109,7 @@ public class ComponentInventoryController : ControllerBase
                 ProductionDate = dto.ProductionDate ?? DateTime.Now,
                 ExpirationDate = dto.ExpirationDate,
                 BatchNumber = dto.BatchNumber,
-                Cost = dto.Cost ?? 0,
+                Cost = 0, // Se calculará después de procesar los consumos
                 Notes = dto.Notes,
                 IsActive = true,
                 CreatedAt = DateTime.Now
@@ -123,25 +126,20 @@ public class ComponentInventoryController : ControllerBase
                     if (consumption.ItemType == "supply")
                     {
                         // Consumir insumo usando FIFO (entrada negativa con referencia al padre)
-                        await ConsumeSupplyWithFIFOAsync(consumption.ItemId, consumption.Quantity);
+                        var supplyCost = await ConsumeSupplyWithFIFOAsync(consumption.ItemId, consumption.Quantity);
+                        totalCost += supplyCost;
                     }
                     else if (consumption.ItemType == "component")
                     {
-                        // Consumir sub-componente (producción negativa)
-                        var subComponentConsumption = new ComponentProduction
-                        {
-                            ComponentId = consumption.ItemId,
-                            ProcessDoneId = null,
-                            BusinessId = dto.BusinessId,
-                            StoreId = dto.StoreId,
-                            ProducedAmount = -consumption.Quantity, // Cantidad negativa
-                            ProductionDate = DateTime.Now,
-                            Notes = $"Consumo por producción de componente: {component.Name}",
-                            IsActive = true,
-                            CreatedAt = DateTime.Now
-                        };
-
-                        await _componentProductionRepository.CreateAsync(subComponentConsumption);
+                        // ⭐ Consumir sub-componente usando FIFO (producción negativa con referencia al padre)
+                        var componentCost = await ConsumeComponentWithFIFOAsync(
+                            consumption.ItemId, 
+                            consumption.Quantity, 
+                            dto.BusinessId, 
+                            dto.StoreId,
+                            $"Consumo por producción de componente: {component.Name}"
+                        );
+                        totalCost += componentCost;
                     }
                 }
             }
@@ -155,28 +153,27 @@ public class ComponentInventoryController : ControllerBase
                     if (ingredient.ItemType == "supply" && ingredient.SupplyId.HasValue)
                     {
                         // Consumir insumo usando FIFO (entrada negativa con referencia al padre)
-                        await ConsumeSupplyWithFIFOAsync(ingredient.SupplyId.Value, quantityToConsume);
+                        var supplyCost = await ConsumeSupplyWithFIFOAsync(ingredient.SupplyId.Value, quantityToConsume);
+                        totalCost += supplyCost;
                     }
                     else if (ingredient.ItemType == "component" && ingredient.SubComponentId.HasValue)
                     {
-                        // Consumir sub-componente (producción negativa)
-                        var subComponentConsumption = new ComponentProduction
-                        {
-                            ComponentId = ingredient.SubComponentId.Value,
-                            ProcessDoneId = null,
-                            BusinessId = dto.BusinessId,
-                            StoreId = dto.StoreId,
-                            ProducedAmount = -quantityToConsume, // Cantidad negativa
-                            ProductionDate = DateTime.Now,
-                            Notes = $"Consumo por producción de componente: {component.Name}",
-                            IsActive = true,
-                            CreatedAt = DateTime.Now
-                        };
-
-                        await _componentProductionRepository.CreateAsync(subComponentConsumption);
+                        // ⭐ Consumir sub-componente usando FIFO (producción negativa con referencia al padre)
+                        var componentCost = await ConsumeComponentWithFIFOAsync(
+                            ingredient.SubComponentId.Value, 
+                            quantityToConsume, 
+                            dto.BusinessId, 
+                            dto.StoreId,
+                            $"Consumo por producción de componente: {component.Name}"
+                        );
+                        totalCost += componentCost;
                     }
                 }
             }
+            
+            // Actualizar el costo total de la producción
+            created.Cost = totalCost;
+            await _componentProductionRepository.UpdateAsync(created);
 
             return CreatedAtAction(nameof(GetComponentInventory), new { componentId = created.ComponentId }, created);
         }
@@ -205,12 +202,15 @@ public class ComponentInventoryController : ControllerBase
 
     /// <summary>
     /// Consume insumos usando algoritmo FIFO con autoreferencia
+    /// Retorna el costo total de los insumos consumidos
     /// </summary>
-    private async Task ConsumeSupplyWithFIFOAsync(int supplyId, decimal quantityToConsume)
+    private async Task<decimal> ConsumeSupplyWithFIFOAsync(int supplyId, decimal quantityToConsume)
     {
         var remainingQuantity = quantityToConsume;
+        decimal totalCost = 0m;
         
         // Obtener todos los supply_entry disponibles para este insumo (FIFO)
+        // ⭐ Este método ya devuelve la cantidad disponible real (restando consumos previos)
         var availableEntries = await _supplyEntryRepository.GetAvailableEntriesBySupplyIdAsync(supplyId);
         
         if (!availableEntries.Any())
@@ -222,8 +222,12 @@ public class ComponentInventoryController : ControllerBase
         {
             if (remainingQuantity <= 0) break;
             
+            // ⭐ availableEntry.Amount ya contiene la cantidad disponible real (original - consumos)
             // Determinar cuánto consumir de esta entrada
             var consumeFromThisEntry = Math.Min(remainingQuantity, availableEntry.Amount);
+            
+            // Calcular el costo de esta porción
+            totalCost += consumeFromThisEntry * availableEntry.UnitCost;
             
             // Crear supply_entry negativo con referencia al stock original usando el constructor correcto
             var supplyEntry = new SupplyEntry(
@@ -237,7 +241,7 @@ public class ComponentInventoryController : ControllerBase
             
             await _supplyEntryRepository.CreateAsync(supplyEntry);
             
-            // Si esta entrada se queda completamente vacía, marcarla para desactivar
+            // ⭐ VALIDACIÓN CRÍTICA: Si esta entrada se queda completamente vacía, marcarla como inactiva
             var remainingInEntry = availableEntry.Amount - consumeFromThisEntry;
             if (remainingInEntry == 0)
             {
@@ -245,7 +249,7 @@ public class ComponentInventoryController : ControllerBase
                 var originalEntry = await _supplyEntryRepository.GetByIdAsync(availableEntry.Id);
                 if (originalEntry != null)
                 {
-                    originalEntry.IsActive = false; // Marcar como inactiva
+                    originalEntry.IsActive = false; // ⭐ Marcar como inactiva cuando se agota
                     entriesToUpdate.Add(originalEntry);
                 }
             }
@@ -254,7 +258,7 @@ public class ComponentInventoryController : ControllerBase
             remainingQuantity -= consumeFromThisEntry;
         }
         
-        // Actualizar todas las entradas que se quedaron vacías
+        // ⭐ Actualizar todas las entradas que se quedaron vacías
         foreach (var entry in entriesToUpdate)
         {
             await _supplyEntryRepository.UpdateAsync(entry);
@@ -266,6 +270,95 @@ public class ComponentInventoryController : ControllerBase
                 $"Stock insuficiente para el insumo ID {supplyId}. " +
                 $"Faltan {remainingQuantity} unidades"
             );
+            
+        return totalCost;
+    }
+
+    /// <summary>
+    /// Consume componentes usando algoritmo FIFO con autoreferencia
+    /// Retorna el costo total de los componentes consumidos
+    /// </summary>
+    private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, int storeId, string? notes = null)
+    {
+        var remainingQuantity = quantityToConsume;
+        decimal totalCost = 0m;
+        
+        // Obtener todos los component_production disponibles para este componente (FIFO)
+        // ⭐ Este método ya devuelve la cantidad disponible real (restando consumos previos)
+        var availableProductions = await _componentProductionRepository.GetAvailableProductionsByComponentIdAsync(componentId);
+        
+        if (!availableProductions.Any())
+            throw new InvalidOperationException($"No hay stock disponible para el componente ID {componentId}");
+        
+        var productionsToUpdate = new List<ComponentProduction>(); // Producciones que necesitan actualización de active
+        
+        foreach (var availableProduction in availableProductions)
+        {
+            if (remainingQuantity <= 0) break;
+            
+            // ⭐ availableProduction.ProducedAmount ya contiene la cantidad disponible real
+            // Determinar cuánto consumir de esta producción
+            var consumeFromThisProduction = Math.Min(remainingQuantity, availableProduction.ProducedAmount);
+            
+            // Calcular costo proporcional del stock consumido
+            var costPerUnit = availableProduction.ProducedAmount > 0 
+                ? availableProduction.Cost / availableProduction.ProducedAmount 
+                : 0;
+            
+            // Calcular el costo de esta porción
+            var costFromThisProduction = costPerUnit * consumeFromThisProduction;
+            totalCost += costFromThisProduction;
+            
+            // Crear component_production negativo con referencia al lote original
+            var componentConsumption = new ComponentProduction
+            {
+                ComponentId = componentId,
+                ProcessDoneId = null,
+                BusinessId = businessId,
+                StoreId = storeId,
+                ProducedAmount = -consumeFromThisProduction, // Cantidad negativa
+                ProductionDate = DateTime.Now,
+                Cost = costFromThisProduction, // Costo proporcional
+                Notes = notes,
+                ComponentProductionId = availableProduction.Id, // ⭐ Referencia al lote original (FIFO)
+                IsActive = true,
+                CreatedAt = DateTime.Now,
+                UpdatedAt = DateTime.Now
+            };
+
+            await _componentProductionRepository.CreateAsync(componentConsumption);
+            
+            // ⭐ VALIDACIÓN CRÍTICA: Si esta producción se queda completamente vacía, marcarla como inactiva
+            var remainingInProduction = availableProduction.ProducedAmount - consumeFromThisProduction;
+            if (remainingInProduction == 0)
+            {
+                // Obtener la producción original para actualizar su estado
+                var originalProduction = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
+                if (originalProduction != null)
+                {
+                    originalProduction.IsActive = false; // ⭐ Marcar como inactiva cuando se agota
+                    productionsToUpdate.Add(originalProduction);
+                }
+            }
+            
+            // Reducir la cantidad pendiente
+            remainingQuantity -= consumeFromThisProduction;
+        }
+        
+        // ⭐ Actualizar todas las producciones que se quedaron vacías
+        foreach (var production in productionsToUpdate)
+        {
+            await _componentProductionRepository.UpdateAsync(production);
+        }
+        
+        // Verificar que se pudo consumir toda la cantidad necesaria
+        if (remainingQuantity > 0)
+            throw new InvalidOperationException(
+                $"Stock insuficiente para el componente ID {componentId}. " +
+                $"Faltan {remainingQuantity} unidades"
+            );
+            
+        return totalCost;
     }
 
     /// <summary>
@@ -463,6 +556,7 @@ public class ComponentInventoryDto
     public int Id { get; set; }
     public int ComponentId { get; set; }
     public decimal CurrentStock { get; set; }
+    public decimal TotalValue { get; set; }
     public string? ComponentName { get; set; }
 }
 

@@ -48,6 +48,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<ProcessDone> ProcessDones { get; set; }
     public DbSet<Component> Components { get; set; }
     public DbSet<ComponentSupply> ComponentSupplies { get; set; }
+    public DbSet<Manufacture> Manufactures { get; set; }
     public DbSet<ComponentProduction> ComponentProductions { get; set; }
     
     // Gran Paso entities

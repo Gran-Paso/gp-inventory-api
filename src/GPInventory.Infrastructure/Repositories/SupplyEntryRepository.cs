@@ -202,31 +202,53 @@ public class SupplyEntryRepository : ISupplyEntryRepository
 
     public async Task<decimal> GetCurrentStockAsync(int supplyId)
     {
-        using var connection = _context.Database.GetDbConnection();
-        await connection.OpenAsync();
+        var connection = _context.Database.GetDbConnection();
+        var shouldCloseConnection = connection.State == System.Data.ConnectionState.Closed;
+        
+        if (shouldCloseConnection)
+            await connection.OpenAsync();
 
-        using var command = connection.CreateCommand();
-        command.CommandText = @"
-            SELECT 
-                COALESCE(SUM(CASE WHEN process_done_id IS NULL THEN amount ELSE 0 END), 0) as total_incoming,
-                COALESCE(SUM(CASE WHEN process_done_id IS NOT NULL THEN amount ELSE 0 END), 0) as total_outgoing
-            FROM supply_entry 
-            WHERE supply_id = @supplyId";
-
-        var parameter = command.CreateParameter();
-        parameter.ParameterName = "@supplyId";
-        parameter.Value = supplyId;
-        command.Parameters.Add(parameter);
-
-        using var reader = await command.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
+        try
         {
-            var totalIncoming = reader.GetInt32(0); // total_incoming
-            var totalOutgoing = reader.GetInt32(1); // total_outgoing (ya incluye valores negativos)
-            return totalIncoming + totalOutgoing; // sumar porque totalOutgoing ya es negativo
-        }
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT 
+                    COALESCE(
+                        SUM(
+                            parent.amount + COALESCE(
+                                (SELECT SUM(child.amount) 
+                                 FROM supply_entry child 
+                                 WHERE child.supply_entry_id = parent.id), 
+                                0
+                            )
+                        ), 
+                        0
+                    ) as total_available
+                FROM supply_entry parent
+                WHERE parent.supply_id = @supplyId
+                  AND parent.process_done_id IS NULL 
+                  AND parent.amount > 0 
+                  AND parent.active = 1";
 
-        return 0;
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@supplyId";
+            parameter.Value = supplyId;
+            command.Parameters.Add(parameter);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var totalAvailable = reader.GetDecimal(0);
+                return totalAvailable;
+            }
+
+            return 0;
+        }
+        finally
+        {
+            if (shouldCloseConnection)
+                await connection.CloseAsync();
+        }
     }
 
     public async Task<SupplyEntry> CreateAsync(SupplyEntry supplyEntry)
@@ -517,29 +539,46 @@ public class SupplyEntryRepository : ISupplyEntryRepository
 
     public async Task<IEnumerable<SupplyEntry>> GetAvailableEntriesBySupplyIdAsync(int supplyId)
     {
-        // Consulta simplificada: solo obtener entradas activas con stock positivo
-        // ya que la lógica de negocio marca como active=false las entradas vacías
+        // Query que calcula la cantidad disponible de cada lote (padre)
+        // restando la suma de sus consumos (hijos con supply_entry_id = padre.id)
         var rawSql = @"
-            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, active
-            FROM supply_entry 
-            WHERE supply_id = {0}
-              AND process_done_id IS NULL 
-              AND amount > 0 
-              AND active = 1
-            ORDER BY created_at ASC";
+            SELECT 
+                parent.id, 
+                parent.amount,
+                parent.tag, 
+                parent.created_at, 
+                parent.process_done_id, 
+                parent.provider_id, 
+                parent.supply_id, 
+                parent.unit_cost, 
+                parent.updated_at, 
+                parent.active,
+                parent.amount + COALESCE(
+                    (SELECT SUM(child.amount) 
+                     FROM supply_entry child 
+                     WHERE child.supply_entry_id = parent.id), 
+                    0
+                ) as available_amount
+            FROM supply_entry parent
+            WHERE parent.supply_id = {0}
+              AND parent.process_done_id IS NULL 
+              AND parent.amount > 0 
+              AND parent.active = 1
+            HAVING available_amount > 0
+            ORDER BY parent.created_at ASC";
 
         try
         {
             // Usar FromSqlRaw con Entity Framework
             var stockEntries = await _context.Database
-                .SqlQueryRaw<SupplyEntryRawData>(rawSql, supplyId)
+                .SqlQueryRaw<SupplyEntryRawDataWithAvailable>(rawSql, supplyId)
                 .ToListAsync();
 
-            // Convertir a SupplyEntry
+            // Convertir a SupplyEntry con la cantidad disponible real
             var availableEntries = stockEntries.Select(se => new SupplyEntry
             {
                 Id = se.id,
-                Amount = se.amount,
+                Amount = se.available_amount, // ⭐ USAR LA CANTIDAD DISPONIBLE CALCULADA
                 Tag = se.tag,
                 UnitCost = se.unit_cost,
                 SupplyId = se.supply_id,
@@ -571,6 +610,22 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         public decimal unit_cost { get; set; }
         public DateTime updated_at { get; set; }
         public int active { get; set; }
+    }
+
+    // Clase helper para mapear resultado con cantidad disponible
+    private class SupplyEntryRawDataWithAvailable
+    {
+        public int id { get; set; }
+        public int amount { get; set; }
+        public string? tag { get; set; }
+        public DateTime created_at { get; set; }
+        public int? process_done_id { get; set; }
+        public int provider_id { get; set; }
+        public int supply_id { get; set; }
+        public decimal unit_cost { get; set; }
+        public DateTime updated_at { get; set; }
+        public int active { get; set; }
+        public int available_amount { get; set; } // ⭐ CANTIDAD DISPONIBLE REAL
     }
 
     // Clase helper para mapear resultado de suma consumida
