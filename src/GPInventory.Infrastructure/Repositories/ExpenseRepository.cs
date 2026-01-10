@@ -322,7 +322,7 @@ public class ExpenseRepository : IExpenseRepository
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
                     Date = reader.GetDateTime(reader.GetOrdinal("date")),
                     Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
-                    Description = reader.IsDBNull(reader.GetOrdinal("description")) ? null : reader.GetString(reader.GetOrdinal("description")),
+                    Description = reader.IsDBNull(reader.GetOrdinal("description")) ? string.Empty : (reader.GetString(reader.GetOrdinal("description")) ?? string.Empty),
                     IsFixed = reader.IsDBNull(reader.GetOrdinal("is_fixed")) ? null : reader.GetBoolean(reader.GetOrdinal("is_fixed")),
                     FixedExpenseId = reader.IsDBNull(reader.GetOrdinal("fixed_expense_id")) ? null : reader.GetInt32(reader.GetOrdinal("fixed_expense_id")),
                     BusinessId = reader.GetInt32(reader.GetOrdinal("business_id")),

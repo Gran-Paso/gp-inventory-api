@@ -83,32 +83,16 @@ public class PaymentInstallmentService : IPaymentInstallmentService
         if (!paymentPlan.ExpenseId.HasValue)
             throw new InvalidOperationException("El plan de pago no tiene un gasto asociado");
 
-        // Obtener el expense original para copiar algunos datos
+        // Verificar que el expense original existe
         var originalExpense = await _expenseRepository.GetByIdAsync(paymentPlan.ExpenseId.Value);
         if (originalExpense == null)
             throw new KeyNotFoundException("Gasto original no encontrado");
 
-        // Crear un nuevo expense para registrar el pago de la cuota
-        var paymentExpense = new Expense
-        {
-            Date = payDto.PaymentDate,
-            SubcategoryId = originalExpense.SubcategoryId,
-            Amount = (int)Math.Round(installment.AmountClp),
-            Description = $"Pago cuota {installment.InstallmentNumber} - {originalExpense.Description}",
-            BusinessId = originalExpense.BusinessId,
-            StoreId = originalExpense.StoreId,
-            ExpenseTypeId = originalExpense.ExpenseTypeId,
-            ProviderId = originalExpense.ProviderId,
-            IsFixed = false
-        };
-
-        var createdExpense = await _expenseRepository.AddAsync(paymentExpense);
-
-        // Actualizar la cuota
+        // Actualizar la cuota para asociarla con el expense original (no crear uno nuevo)
         installment.Status = "pagado";
         installment.PaidDate = payDto.PaymentDate;
         installment.PaymentMethodId = payDto.PaymentMethodId;
-        installment.ExpenseId = createdExpense.Id;
+        installment.ExpenseId = paymentPlan.ExpenseId.Value; // Usar el expense original del payment plan
         installment.UpdatedAt = DateTime.UtcNow;
 
         await _repository.UpdateAsync(installment);
@@ -123,17 +107,89 @@ public class PaymentInstallmentService : IPaymentInstallmentService
 
     public async Task<InstallmentsSummaryDto> GetInstallmentsSummaryAsync(List<int>? businessIds = null)
     {
-        var installments = await _repository.GetAllInstallmentsAsync(businessIds);
+        var allInstallments = await _repository.GetAllInstallmentsAsync(businessIds);
+        var installmentsList = allInstallments.ToList();
+        
+        var now = DateTime.Now;
+        
+        // Calcular conteos basados en el estado real de las cuotas
+        var paidInstallments = installmentsList.Where(i => i.Status == "paid" || i.Status == "pagado").ToList();
+        var overdueInstallments = installmentsList.Where(i => 
+            (i.Status == "pending" || i.Status == "overdue") && 
+            i.DueDate.Date < now.Date
+        ).ToList();
+        var pendingInstallments = installmentsList.Where(i => 
+            (i.Status == "pending") && 
+            i.DueDate.Date >= now.Date
+        ).ToList();
+        
+        // Obtener todos los expenses
+        var allExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+            businessId: null,
+            businessIds: businessIds?.ToArray(),
+            page: 1,
+            pageSize: int.MaxValue
+        );
+        
+        // Separar expenses con y sin payment plan
+        decimal totalPending = 0;
+        decimal totalPaid = 0;
+        decimal totalOverdue = 0;
+        decimal totalCommitted = 0;
+        int singlePaymentsCount = 0;
+        
+        foreach (var expense in allExpenses)
+        {
+            var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+            
+            if (!paymentPlans.Any())
+            {
+                // Pago único - contar como pagado
+                totalPaid += expense.Amount;
+                totalCommitted += expense.Amount;
+                singlePaymentsCount++;
+            }
+            else
+            {
+                // Tiene payment plan - usar monto original del expense para evitar errores de redondeo
+                var paymentPlan = paymentPlans.First();
+                var installments = await _repository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                var installmentsPlan = installments.ToList();
+                
+                // Verificar el estado del plan
+                var paidCount = installmentsPlan.Count(i => i.Status == "paid" || i.Status == "pagado");
+                var overdueCount = installmentsPlan.Count(i => 
+                    (i.Status == "pending" || i.Status == "overdue") && i.DueDate.Date < now.Date
+                );
+                var pendingCount = installmentsPlan.Count(i => 
+                    (i.Status == "pending") && i.DueDate.Date >= now.Date
+                );
+                
+                // Calcular proporciones basadas en el monto original del expense
+                if (installmentsPlan.Count > 0)
+                {
+                    decimal paidPortion = (decimal)paidCount / installmentsPlan.Count;
+                    decimal overduePortion = (decimal)overdueCount / installmentsPlan.Count;
+                    decimal pendingPortion = (decimal)pendingCount / installmentsPlan.Count;
+                    
+                    totalPaid += expense.Amount * paidPortion;
+                    totalOverdue += expense.Amount * overduePortion;
+                    totalPending += expense.Amount * pendingPortion;
+                }
+                
+                totalCommitted += expense.Amount;
+            }
+        }
         
         var summary = new InstallmentsSummaryDto
         {
-            TotalInstallments = installments.Count(),
-            PendingInstallments = installments.Count(i => i.Status == "pending"),
-            PaidInstallments = installments.Count(i => i.Status == "paid"),
-            OverdueInstallments = installments.Count(i => i.Status == "overdue" || (i.Status == "pending" && i.DueDate < DateTime.Now)),
-            TotalPending = installments.Where(i => i.Status == "pending").Sum(i => i.AmountClp),
-            TotalPaid = installments.Where(i => i.Status == "paid").Sum(i => i.AmountClp),
-            TotalOverdue = installments.Where(i => i.Status == "overdue" || (i.Status == "pending" && i.DueDate < DateTime.Now)).Sum(i => i.AmountClp)
+            TotalInstallments = installmentsList.Count + singlePaymentsCount,
+            PendingInstallments = pendingInstallments.Count,
+            PaidInstallments = paidInstallments.Count + singlePaymentsCount,
+            OverdueInstallments = overdueInstallments.Count,
+            TotalPending = totalPending,
+            TotalPaid = totalPaid,
+            TotalOverdue = totalOverdue
         };
 
         return summary;
