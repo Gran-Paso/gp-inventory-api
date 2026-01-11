@@ -300,8 +300,116 @@ public class SupplyRepository : ISupplyRepository
 
     public async Task<IEnumerable<Supply>> GetAllAsync()
     {
-        return await _context.Supplies
-            .ToListAsync();
+        var supplies = new List<Supply>();
+
+        await _context.Database.OpenConnectionAsync();
+        using var command = _context.Database.GetDbConnection().CreateCommand();
+
+        command.CommandText = @"
+            SELECT 
+                s.id,
+                s.name,
+                s.sku,
+                s.description,
+                s.business_id,
+                s.store_id,
+                s.unit_measure_id,
+                s.fixed_expense_id,
+                s.supply_category_id,
+                s.type,
+                s.active,
+                s.created_at,
+                s.updated_at,
+                s.minimum_stock,
+                s.preferred_provider_id,
+                um.id as um_id,
+                um.name as um_name,
+                um.symbol as um_symbol,
+                sc.id as sc_id,
+                sc.name as sc_name,
+                COALESCE(comp_count.component_usage, 0) as component_usage,
+                COALESCE(proc_count.process_usage, 0) as process_usage,
+                p.id as p_id,
+                p.name as p_name,
+                p.contact as p_contact
+            FROM supplies s
+            LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+            LEFT JOIN supply_categories sc ON s.supply_category_id = sc.id
+            LEFT JOIN provider p ON s.preferred_provider_id = p.id
+            LEFT JOIN (
+                SELECT supply_id, COUNT(DISTINCT component_id) as component_usage
+                FROM component_supplies
+                GROUP BY supply_id
+            ) comp_count ON s.id = comp_count.supply_id
+            LEFT JOIN (
+                SELECT supply_id, COUNT(DISTINCT process_id) as process_usage
+                FROM process_supplies
+                GROUP BY supply_id
+            ) proc_count ON s.id = proc_count.supply_id
+            ORDER BY s.name";
+
+        using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var supply = new Supply
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                Sku = reader.IsDBNull(2) ? null : reader.GetString(2),
+                Description = reader.IsDBNull(3) ? null : reader.GetString(3),
+                BusinessId = reader.GetInt32(4),
+                StoreId = reader.GetInt32(5),
+                UnitMeasureId = reader.GetInt32(6),
+                FixedExpenseId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                SupplyCategoryId = reader.IsDBNull(8) ? null : reader.GetInt32(8),
+                Type = reader.IsDBNull(9) ? Domain.Enums.SupplyType.Both : (Domain.Enums.SupplyType)reader.GetInt32(9),
+                Active = reader.GetBoolean(10),
+                CreatedAt = reader.IsDBNull(11) ? DateTime.UtcNow : reader.GetDateTime(11),
+                UpdatedAt = reader.IsDBNull(12) ? DateTime.UtcNow : reader.GetDateTime(12),
+                MinimumStock = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
+                PreferredProviderId = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+                ComponentUsageCount = reader.GetInt32(20),
+                ProcessUsageCount = reader.GetInt32(21)
+            };
+
+            // Populate UnitMeasure navigation property
+            if (!reader.IsDBNull(15))
+            {
+                supply.UnitMeasure = new UnitMeasure
+                {
+                    Id = reader.GetInt32(15),
+                    Name = reader.GetString(16),
+                    Symbol = reader.IsDBNull(17) ? null : reader.GetString(17)
+                };
+            }
+
+            // Populate SupplyCategory navigation property
+            if (!reader.IsDBNull(18))
+            {
+                supply.SupplyCategory = new SupplyCategory
+                {
+                    Id = reader.GetInt32(18),
+                    Name = reader.GetString(19)
+                };
+            }
+
+            // Populate PreferredProvider navigation property
+            if (!reader.IsDBNull(22))
+            {
+                supply.PreferredProvider = new Provider
+                {
+                    Id = reader.GetInt32(22),
+                    Name = reader.GetString(23),
+                    Contact = reader.IsDBNull(24) ? null : reader.GetInt32(24)
+                };
+            }
+
+            supplies.Add(supply);
+        }
+
+        await _context.Database.CloseConnectionAsync();
+
+        return supplies;
     }
 
     public async Task<IEnumerable<Supply>> GetByBusinessIdAsync(int businessId)
@@ -468,8 +576,59 @@ public class SupplyRepository : ISupplyRepository
         entity.CreatedAt = DateTime.UtcNow;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        _context.Supplies.Add(entity);
-        await _context.SaveChangesAsync();
+        await _context.Database.OpenConnectionAsync();
+
+        try
+        {
+            using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = @"
+                INSERT INTO supplies 
+                (name, sku, description, business_id, store_id, unit_measure_id, 
+                 fixed_expense_id, supply_category_id, type, active, created_at, 
+                 updated_at, minimum_stock, preferred_provider_id)
+                VALUES 
+                (@Name, @Sku, @Description, @BusinessId, @StoreId, @UnitMeasureId, 
+                 @FixedExpenseId, @SupplyCategoryId, @Type, @Active, @CreatedAt, 
+                 @UpdatedAt, @MinimumStock, @PreferredProviderId);
+                SELECT LAST_INSERT_ID();";
+
+            var parameters = new[]
+            {
+                CreateParameter(command, "@Name", entity.Name),
+                CreateParameter(command, "@Sku", (object?)entity.Sku ?? DBNull.Value),
+                CreateParameter(command, "@Description", (object?)entity.Description ?? DBNull.Value),
+                CreateParameter(command, "@BusinessId", entity.BusinessId),
+                CreateParameter(command, "@StoreId", entity.StoreId),
+                CreateParameter(command, "@UnitMeasureId", entity.UnitMeasureId),
+                CreateParameter(command, "@FixedExpenseId", (object?)entity.FixedExpenseId ?? DBNull.Value),
+                CreateParameter(command, "@SupplyCategoryId", (object?)entity.SupplyCategoryId ?? DBNull.Value),
+                CreateParameter(command, "@Type", (int)entity.Type),
+                CreateParameter(command, "@Active", entity.Active),
+                CreateParameter(command, "@CreatedAt", entity.CreatedAt),
+                CreateParameter(command, "@UpdatedAt", entity.UpdatedAt),
+                CreateParameter(command, "@MinimumStock", entity.MinimumStock),
+                CreateParameter(command, "@PreferredProviderId", (object?)entity.PreferredProviderId ?? DBNull.Value)
+            };
+
+            foreach (var param in parameters)
+            {
+                command.Parameters.Add(param);
+            }
+
+            var newId = await command.ExecuteScalarAsync();
+            typeof(Supply).GetProperty("Id")?.SetValue(entity, Convert.ToInt32(newId));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error adding supply: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw new Exception($"Failed to add supply: {ex.Message}", ex);
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
+        }
+
         return entity;
     }
 
