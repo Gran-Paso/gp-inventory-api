@@ -43,7 +43,7 @@ public class FixedExpense
     {
     }
 
-    public FixedExpense(int businessId, string additionalNote, int amount, 
+    public FixedExpense(int businessId, string additionalNote, decimal amount, 
                        int recurrenceTypeId, int? storeId = null, 
                        int? subcategoryId = null, DateTime? endDate = null, 
                        DateTime? paymentDate = null, int? expenseTypeId = null)

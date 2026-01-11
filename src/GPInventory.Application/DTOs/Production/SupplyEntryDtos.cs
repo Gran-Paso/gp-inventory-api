@@ -86,6 +86,8 @@ public class CreateProviderDto
     public string? Prefix { get; set; }
 
     public bool Active { get; set; } = true;
+
+    public bool IsSelf { get; set; } = false;
 }
 
 public class UpdateProviderDto
@@ -109,6 +111,8 @@ public class UpdateProviderDto
     public string? Prefix { get; set; }
 
     public bool Active { get; set; } = true;
+
+    public bool IsSelf { get; set; } = false;
 }
 
 public class ProviderDto
@@ -122,6 +126,7 @@ public class ProviderDto
     public string? Mail { get; set; }
     public string? Prefix { get; set; }
     public bool Active { get; set; }
+    public bool IsSelf { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

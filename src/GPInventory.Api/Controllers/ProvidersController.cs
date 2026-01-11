@@ -158,10 +158,12 @@ public class ProvidersController : ControllerBase
         try
         {
             _logger.LogInformation("Updating provider with ID: {id}", id);
+            _logger.LogInformation("[DEBUG] UpdateProviderDto IsSelf value: {isSelf}", updateProviderDto.IsSelf);
 
             var provider = await _providerService.UpdateProviderAsync(id, updateProviderDto);
 
             _logger.LogInformation("Provider updated successfully: {providerName} with ID: {id}", provider.Name, id);
+            _logger.LogInformation("[DEBUG] Updated provider IsSelf value: {isSelf}", provider.IsSelf);
             return Ok(provider);
         }
         catch (ArgumentException ex)

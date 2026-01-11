@@ -21,7 +21,7 @@ public class CreateSupplyDto
     
     // Datos para crear el gasto fijo automáticamente
     [Required]
-    public int FixedExpenseAmount { get; set; }
+    public decimal FixedExpenseAmount { get; set; }
     
     public int? SubcategoryId { get; set; }
     
@@ -101,7 +101,7 @@ public class UpdateSupplyDto
     
     // Datos para actualizar el gasto fijo
     [Required]
-    public int FixedExpenseAmount { get; set; }
+    public decimal FixedExpenseAmount { get; set; }
     
     public int? SubcategoryId { get; set; }
     

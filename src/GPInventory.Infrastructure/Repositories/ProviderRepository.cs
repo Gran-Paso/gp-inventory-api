@@ -34,6 +34,7 @@ public class ProviderRepository : IProviderRepository
                     p.mail,
                     p.prefix,
                     p.active,
+                    p.is_self,
                     p.created_at,
                     p.updated_at
                 FROM provider p
@@ -62,8 +63,9 @@ public class ProviderRepository : IProviderRepository
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
                 provider.Active = reader.GetBoolean(8);
-                provider.CreatedAt = reader.GetDateTime(9);
-                provider.UpdatedAt = reader.GetDateTime(10);
+                provider.IsSelf = reader.GetBoolean(9);
+                provider.CreatedAt = reader.GetDateTime(10);
+                provider.UpdatedAt = reader.GetDateTime(11);
             }
         }
         finally
@@ -94,6 +96,7 @@ public class ProviderRepository : IProviderRepository
                     p.mail,
                     p.prefix,
                     p.active,
+                    p.is_self,
                     p.created_at,
                     p.updated_at
                 FROM provider p
@@ -114,8 +117,9 @@ public class ProviderRepository : IProviderRepository
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
                 provider.Active = reader.GetBoolean(8);
-                provider.CreatedAt = reader.GetDateTime(9);
-                provider.UpdatedAt = reader.GetDateTime(10);
+                provider.IsSelf = reader.GetBoolean(9);
+                provider.CreatedAt = reader.GetDateTime(10);
+                provider.UpdatedAt = reader.GetDateTime(11);
 
                 providers.Add(provider);
             }
@@ -148,6 +152,7 @@ public class ProviderRepository : IProviderRepository
                     p.mail,
                     p.prefix,
                     p.active,
+                    p.is_self,
                     p.created_at,
                     p.updated_at
                 FROM provider p
@@ -174,8 +179,9 @@ public class ProviderRepository : IProviderRepository
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
                 provider.Active = reader.GetBoolean(8);
-                provider.CreatedAt = reader.GetDateTime(9);
-                provider.UpdatedAt = reader.GetDateTime(10);
+                provider.IsSelf = reader.GetBoolean(9);
+                provider.CreatedAt = reader.GetDateTime(10);
+                provider.UpdatedAt = reader.GetDateTime(11);
 
                 providers.Add(provider);
             }
@@ -208,6 +214,7 @@ public class ProviderRepository : IProviderRepository
                     p.mail,
                     p.prefix,
                     p.active,
+                    p.is_self,
                     p.created_at,
                     p.updated_at
                 FROM provider p
@@ -234,8 +241,9 @@ public class ProviderRepository : IProviderRepository
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
                 provider.Active = reader.GetBoolean(8);
-                provider.CreatedAt = reader.GetDateTime(9);
-                provider.UpdatedAt = reader.GetDateTime(10);
+                provider.IsSelf = reader.GetBoolean(9);
+                provider.CreatedAt = reader.GetDateTime(10);
+                provider.UpdatedAt = reader.GetDateTime(11);
 
                 providers.Add(provider);
             }
@@ -256,8 +264,8 @@ public class ProviderRepository : IProviderRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                INSERT INTO provider (name, id_store, id_business, contact, address, mail, prefix, active, created_at, updated_at)
-                VALUES (@name, @storeId, @businessId, @contact, @address, @mail, @prefix, @active, @createdAt, @updatedAt);
+                INSERT INTO provider (name, id_store, id_business, contact, address, mail, prefix, active, is_self, created_at, updated_at)
+                VALUES (@name, @storeId, @businessId, @contact, @address, @mail, @prefix, @active, @isSelf, @createdAt, @updatedAt);
                 SELECT LAST_INSERT_ID();";
 
             var nameParam = command.CreateParameter();
@@ -300,6 +308,11 @@ public class ProviderRepository : IProviderRepository
             activeParam.Value = entity.Active;
             command.Parameters.Add(activeParam);
 
+            var isSelfParam = command.CreateParameter();
+            isSelfParam.ParameterName = "@isSelf";
+            isSelfParam.Value = entity.IsSelf;
+            command.Parameters.Add(isSelfParam);
+
             var createdAtParam = command.CreateParameter();
             createdAtParam.ParameterName = "@createdAt";
             createdAtParam.Value = entity.CreatedAt;
@@ -338,6 +351,7 @@ public class ProviderRepository : IProviderRepository
                     mail = @mail,
                     prefix = @prefix,
                     active = @active,
+                    is_self = @isSelf,
                     updated_at = @updatedAt
                 WHERE id = @id";
 
@@ -380,6 +394,11 @@ public class ProviderRepository : IProviderRepository
             activeParam.ParameterName = "@active";
             activeParam.Value = entity.Active;
             command.Parameters.Add(activeParam);
+
+            var isSelfParam = command.CreateParameter();
+            isSelfParam.ParameterName = "@isSelf";
+            isSelfParam.Value = entity.IsSelf;
+            command.Parameters.Add(isSelfParam);
 
             var updatedAtParam = command.CreateParameter();
             updatedAtParam.ParameterName = "@updatedAt";

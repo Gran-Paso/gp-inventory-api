@@ -58,6 +58,7 @@ public class ProviderService : IProviderService
             Mail = createProviderDto.Mail,
             Prefix = createProviderDto.Prefix,
             Active = createProviderDto.Active,
+            IsSelf = createProviderDto.IsSelf,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -88,9 +89,17 @@ public class ProviderService : IProviderService
         provider.Mail = updateProviderDto.Mail;
         provider.Prefix = updateProviderDto.Prefix;
         provider.Active = updateProviderDto.Active;
+        provider.IsSelf = updateProviderDto.IsSelf;
         provider.UpdatedAt = DateTime.UtcNow;
 
+        Console.WriteLine($"[DEBUG] Updating provider {id}: IsSelf = {updateProviderDto.IsSelf} -> {provider.IsSelf}");
+
         await _providerRepository.UpdateAsync(provider);
+        
+        // Verify the update
+        var updatedProvider = await _providerRepository.GetByIdAsync(id);
+        Console.WriteLine($"[DEBUG] After update, provider {id}: IsSelf = {updatedProvider?.IsSelf}");
+        
         return MapToDto(provider);
     }
 
@@ -116,6 +125,7 @@ public class ProviderService : IProviderService
             Mail = provider.Mail,
             Prefix = provider.Prefix,
             Active = provider.Active,
+            IsSelf = provider.IsSelf,
             CreatedAt = provider.CreatedAt,
             UpdatedAt = provider.UpdatedAt
         };

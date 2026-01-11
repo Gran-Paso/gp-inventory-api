@@ -44,8 +44,8 @@ public class UpdateFixedExpenseDto
     [StringLength(255, ErrorMessage = "La descripción no puede exceder 255 caracteres")]
     public string? Description { get; set; }
 
-    [Range(1, int.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
-    public int? Amount { get; set; }
+    [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
+    public decimal? Amount { get; set; }
 
     public int? SubcategoryId { get; set; }
 

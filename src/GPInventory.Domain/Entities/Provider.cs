@@ -63,6 +63,12 @@ public class Provider : BaseEntity
     [Column("active")]
     public bool Active { get; set; } = true;
 
+    /// <summary>
+    /// Indica si este proveedor representa a la propia empresa (soy yo mismo)
+    /// </summary>
+    [Column("is_self")]
+    public bool IsSelf { get; set; } = false;
+
     // Propiedades de navegación
     /// <summary>
     /// Tienda a la que pertenece el proveedor
