@@ -22,6 +22,7 @@ public interface IUserRepository : IRepository<User>
     Task<User?> GetByEmailWithRolesAsync(string email);
     Task<bool> ExistsAsync(string email);
     Task<List<(int UserId, string UserName, string RoleName)>> GetBusinessUsersWithRolesAsync(int businessId, string[] targetRoles);
+    Task<Dictionary<int, string>> GetUserNamesByIdsAsync(IEnumerable<int> userIds);
 }
 
 public interface IBusinessRepository : IRepository<Business>

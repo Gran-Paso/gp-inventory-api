@@ -54,7 +54,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, created_by_user_id
             FROM supply_entry 
             ORDER BY created_at DESC";
 
@@ -75,7 +75,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProviderId = reader.GetInt32(5), // provider_id
                 SupplyId = reader.GetInt32(6), // supply_id
                 UnitCost = reader.GetInt32(7), // unit_cost
-                UpdatedAt = reader.GetDateTime(8) // updated_at
+                UpdatedAt = reader.GetDateTime(8), // updated_at
+                CreatedByUserId = reader.IsDBNull(9) ? null : reader.GetInt32(9) // created_by_user_id
             };
             results.Add(supplyEntry);
         }
@@ -88,7 +89,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, created_by_user_id
             FROM supply_entry 
             WHERE id = @id";
 
@@ -113,7 +114,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProviderId = reader.GetInt32(5), // provider_id
                 SupplyId = reader.GetInt32(6), // supply_id
                 UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
-                UpdatedAt = reader.GetDateTime(8) // updated_at
+                UpdatedAt = reader.GetDateTime(8), // updated_at
+                CreatedByUserId = reader.IsDBNull(9) ? null : reader.GetInt32(9) // created_by_user_id
             };
         }
 
@@ -125,7 +127,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, created_by_user_id
             FROM supply_entry 
             WHERE supply_id = @supplyId
             ORDER BY created_at DESC";
@@ -152,7 +154,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProviderId = reader.GetInt32(5), // provider_id
                 SupplyId = reader.GetInt32(6), // supply_id
                 UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
-                UpdatedAt = reader.GetDateTime(8) // updated_at
+                UpdatedAt = reader.GetDateTime(8), // updated_at
+                CreatedByUserId = reader.IsDBNull(9) ? null : reader.GetInt32(9) // created_by_user_id
             };
             results.Add(supplyEntry);
         }
@@ -165,7 +168,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at
+            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, created_by_user_id
             FROM supply_entry 
             WHERE process_done_id = @processDoneId
             ORDER BY created_at DESC";
@@ -192,7 +195,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProviderId = reader.GetInt32(5), // provider_id
                 SupplyId = reader.GetInt32(6), // supply_id
                 UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
-                UpdatedAt = reader.GetDateTime(8) // updated_at
+                UpdatedAt = reader.GetDateTime(8), // updated_at
+                CreatedByUserId = reader.IsDBNull(9) ? null : reader.GetInt32(9) // created_by_user_id
             };
             results.Add(supplyEntry);
         }
@@ -259,8 +263,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         await connection.OpenAsync();
 
         var query = @"
-            INSERT INTO supply_entry (unit_cost, amount, tag, provider_id, supply_id, process_done_id, supply_entry_id, active, created_at, updated_at)
-            VALUES (@unitCost, @amount, @tag, @providerId, @supplyId, @processDoneId, @supplyEntryId, @active, @createdAt, @updatedAt);
+            INSERT INTO supply_entry (unit_cost, amount, tag, provider_id, supply_id, process_done_id, supply_entry_id, created_by_user_id, active, created_at, updated_at)
+            VALUES (@unitCost, @amount, @tag, @providerId, @supplyId, @processDoneId, @supplyEntryId, @createdByUserId, @active, @createdAt, @updatedAt);
             SELECT LAST_INSERT_ID();";
 
         using var command = new MySqlCommand(query, connection);
@@ -273,6 +277,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         command.Parameters.AddWithValue("@supplyId", supplyEntry.SupplyId);
         command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@supplyEntryId", supplyEntry.ReferenceToSupplyEntry.HasValue ? supplyEntry.ReferenceToSupplyEntry.Value : DBNull.Value); // ⭐ AUTOREFERENCIA
+        command.Parameters.AddWithValue("@createdByUserId", supplyEntry.CreatedByUserId.HasValue ? supplyEntry.CreatedByUserId.Value : DBNull.Value);
         // Usar IsActive directamente de la entidad (ya configurado por el constructor)
         command.Parameters.AddWithValue("@active", supplyEntry.IsActive);
         command.Parameters.AddWithValue("@createdAt", now);
@@ -365,6 +370,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 se.updated_at,
                 se.supply_entry_id,
                 se.active,
+                se.created_by_user_id,
                 s.name as supply_name,
                 um.name as unit_measure_name,
                 p.name as provider_name,
@@ -394,6 +400,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 se.updated_at,
                 se.supply_entry_id,
                 se.active,
+                se.created_by_user_id,
                 s.name as supply_name,
                 um.name as unit_measure_name,
                 p.name as provider_name,
@@ -434,42 +441,43 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 CreatedAt = reader.GetDateTime(6), // created_at
                 UpdatedAt = reader.GetDateTime(7), // updated_at
                 ReferenceToSupplyEntry = reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8), // supply_entry_id
-                IsActive = !reader.IsDBNull(9) && reader.GetBoolean(9) // active
+                IsActive = !reader.IsDBNull(9) && reader.GetBoolean(9), // active
+                CreatedByUserId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10) // created_by_user_id
             };
 
             // Agregar información de Supply
-            if (!reader.IsDBNull(10))
+            if (!reader.IsDBNull(11))
             {
                 supplyEntry.Supply = new Supply
                 {
                     Id = supplyEntry.SupplyId,
-                    Name = reader.GetString(10), // supply_name
-                    UnitMeasure = !reader.IsDBNull(11) ? new UnitMeasure
+                    Name = reader.GetString(11), // supply_name
+                    UnitMeasure = !reader.IsDBNull(12) ? new UnitMeasure
                     {
-                        Name = reader.GetString(11) // unit_measure_name
+                        Name = reader.GetString(12) // unit_measure_name
                     } : null
                 };
             }
 
             // Agregar información de Provider
-            if (!reader.IsDBNull(12))
+            if (!reader.IsDBNull(13))
             {
                 supplyEntry.Provider = new Provider
                 {
                     Id = supplyEntry.ProviderId,
-                    Name = reader.GetString(12) // provider_name
+                    Name = reader.GetString(13) // provider_name
                 };
             }
 
             // Si hay un process_done_id, crear el ProcessDone con la información disponible
-            if (!reader.IsDBNull(13))
+            if (!reader.IsDBNull(14))
             {
                 supplyEntry.ProcessDone = new ProcessDone
                 {
-                    Id = reader.GetInt32(13), // process_done_id_full
-                    ProcessId = reader.IsDBNull(14) ? 0 : reader.GetInt32(14), // process_id
-                    Notes = reader.IsDBNull(15) ? null : reader.GetString(15), // process_notes
-                    CompletedAt = reader.IsDBNull(16) ? DateTime.MinValue : reader.GetDateTime(16) // process_completed_at
+                    Id = reader.GetInt32(14), // process_done_id_full
+                    ProcessId = reader.IsDBNull(15) ? 0 : reader.GetInt32(15), // process_id
+                    Notes = reader.IsDBNull(16) ? null : reader.GetString(16), // process_notes
+                    CompletedAt = reader.IsDBNull(17) ? DateTime.MinValue : reader.GetDateTime(17) // process_completed_at
                 };
             }
 

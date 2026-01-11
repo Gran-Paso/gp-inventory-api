@@ -25,6 +25,12 @@ public class SupplyEntry : BaseEntity
     /// Referencia al SupplyEntry original cuando esta es una entrada de consumo (negativa)
     /// </summary>
     public int? ReferenceToSupplyEntry { get; set; }
+    
+    /// <summary>
+    /// ID del usuario que registró esta entrada/salida
+    /// </summary>
+    [Column("created_by_user_id")]
+    public int? CreatedByUserId { get; set; }
 
     // Navigation properties
     public Provider Provider { get; set; } = null!;

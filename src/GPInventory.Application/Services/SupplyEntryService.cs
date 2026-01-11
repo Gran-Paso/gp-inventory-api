@@ -13,6 +13,7 @@ public class SupplyEntryService : ISupplyEntryService
     private readonly IExpenseService _expenseService;
     private readonly IExpenseSubcategoryRepository _subcategoryRepository;
     private readonly IFixedExpenseRepository _fixedExpenseRepository;
+    private readonly IUserRepository _userRepository;
 
     public SupplyEntryService(
         ISupplyEntryRepository repository,
@@ -20,7 +21,8 @@ public class SupplyEntryService : ISupplyEntryService
         IUnitMeasureRepository unitMeasureRepository,
         IExpenseService expenseService,
         IExpenseSubcategoryRepository subcategoryRepository,
-        IFixedExpenseRepository fixedExpenseRepository)
+        IFixedExpenseRepository fixedExpenseRepository,
+        IUserRepository userRepository)
     {
         _repository = repository;
         _supplyRepository = supplyRepository;
@@ -28,30 +30,73 @@ public class SupplyEntryService : ISupplyEntryService
         _expenseService = expenseService;
         _subcategoryRepository = subcategoryRepository;
         _fixedExpenseRepository = fixedExpenseRepository;
+        _userRepository = userRepository;
     }
 
     public async Task<IEnumerable<SupplyEntryDto>> GetAllAsync()
     {
-        var supplyEntries = await _repository.GetAllWithDetailsAsync();
-        return supplyEntries.Select(MapToDto);
+        var supplyEntries = (await _repository.GetAllWithDetailsAsync()).ToList();
+        
+        // Load all unique users in one batch to avoid disposed context issues
+        var userIds = supplyEntries
+            .Where(se => se.CreatedByUserId.HasValue)
+            .Select(se => se.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        
+        var users = await _userRepository.GetUserNamesByIdsAsync(userIds);
+        
+        return supplyEntries.Select(entry => MapToDtoWithUserCache(entry, users));
     }
 
     public async Task<SupplyEntryDto?> GetByIdAsync(int id)
     {
         var supplyEntry = await _repository.GetByIdAsync(id);
-        return supplyEntry != null ? MapToDto(supplyEntry) : null;
+        if (supplyEntry == null) return null;
+        
+        string? createdByUserName = null;
+        if (supplyEntry.CreatedByUserId.HasValue)
+        {
+            var user = await _userRepository.GetByIdAsync(supplyEntry.CreatedByUserId.Value);
+            if (user != null)
+            {
+                createdByUserName = $"{user.Name} {user.LastName}".Trim();
+            }
+        }
+        
+        return MapToDtoWithUserCache(supplyEntry, supplyEntry.CreatedByUserId.HasValue && createdByUserName != null 
+            ? new Dictionary<int, string> { { supplyEntry.CreatedByUserId.Value, createdByUserName } }
+            : new Dictionary<int, string>());
     }
 
     public async Task<IEnumerable<SupplyEntryDto>> GetBySupplyIdAsync(int supplyId)
     {
-        var supplyEntries = await _repository.GetBySupplyIdAsync(supplyId);
-        return supplyEntries.Select(MapToDto);
+        var supplyEntries = (await _repository.GetBySupplyIdAsync(supplyId)).ToList();
+        
+        var userIds = supplyEntries
+            .Where(se => se.CreatedByUserId.HasValue)
+            .Select(se => se.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        
+        var users = await _userRepository.GetUserNamesByIdsAsync(userIds);
+        
+        return supplyEntries.Select(entry => MapToDtoWithUserCache(entry, users));
     }
 
     public async Task<IEnumerable<SupplyEntryDto>> GetByProcessDoneIdAsync(int processDoneId)
     {
-        var supplyEntries = await _repository.GetByProcessDoneIdAsync(processDoneId);
-        return supplyEntries.Select(MapToDto);
+        var supplyEntries = (await _repository.GetByProcessDoneIdAsync(processDoneId)).ToList();
+        
+        var userIds = supplyEntries
+            .Where(se => se.CreatedByUserId.HasValue)
+            .Select(se => se.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        
+        var users = await _userRepository.GetUserNamesByIdsAsync(userIds);
+        
+        return supplyEntries.Select(entry => MapToDtoWithUserCache(entry, users));
     }
 
     public async Task<SupplyStockDto?> GetSupplyStockAsync(int supplyId)
@@ -129,6 +174,12 @@ public class SupplyEntryService : ISupplyEntryService
         if (!string.IsNullOrEmpty(createDto.Tag))
         {
             supplyEntry.Tag = createDto.Tag;
+        }
+        
+        // Asignar usuario responsable si está presente
+        if (createDto.CreatedByUserId.HasValue)
+        {
+            supplyEntry.CreatedByUserId = createDto.CreatedByUserId.Value;
         }
         
         // Si se especifica una referencia, asignarla después de la creación
@@ -268,7 +319,20 @@ public class SupplyEntryService : ISupplyEntryService
         }
 
         var updated = await _repository.UpdateAsync(supplyEntry);
-        return MapToDto(updated);
+        
+        string? createdByUserName = null;
+        if (updated.CreatedByUserId.HasValue)
+        {
+            var user = await _userRepository.GetByIdAsync(updated.CreatedByUserId.Value);
+            if (user != null)
+            {
+                createdByUserName = $"{user.Name} {user.LastName}".Trim();
+            }
+        }
+        
+        return MapToDtoWithUserCache(updated, updated.CreatedByUserId.HasValue && createdByUserName != null 
+            ? new Dictionary<int, string> { { updated.CreatedByUserId.Value, createdByUserName } }
+            : new Dictionary<int, string>());
     }
 
     public async Task DeleteAsync(int id)
@@ -278,8 +342,17 @@ public class SupplyEntryService : ISupplyEntryService
 
     public async Task<IEnumerable<SupplyEntryDto>> GetSupplyHistoryAsync(int supplyEntryId, int supplyId)
     {
-        var supplyEntries = await _repository.GetSupplyHistoryAsync(supplyEntryId,supplyId);
-        return supplyEntries.Select(MapToDto);
+        var supplyEntries = (await _repository.GetSupplyHistoryAsync(supplyEntryId,supplyId)).ToList();
+        
+        var userIds = supplyEntries
+            .Where(se => se.CreatedByUserId.HasValue)
+            .Select(se => se.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        
+        var users = await _userRepository.GetUserNamesByIdsAsync(userIds);
+        
+        return supplyEntries.Select(entry => MapToDtoWithUserCache(entry, users));
     }
 
     public async Task<SupplyEntry?> GetFirstEntryBySupplyIdAsync(int supplyId)
@@ -287,8 +360,14 @@ public class SupplyEntryService : ISupplyEntryService
         return await _repository.GetFirstEntryBySupplyIdAsync(supplyId);
     }
 
-    private static SupplyEntryDto MapToDto(SupplyEntry supplyEntry)
+    private static SupplyEntryDto MapToDtoWithUserCache(SupplyEntry supplyEntry, Dictionary<int, string> userCache)
     {
+        string? createdByUserName = null;
+        if (supplyEntry.CreatedByUserId.HasValue && userCache.TryGetValue(supplyEntry.CreatedByUserId.Value, out var userName))
+        {
+            createdByUserName = userName;
+        }
+
         return new SupplyEntryDto
         {
             Id = supplyEntry.Id,
@@ -299,6 +378,8 @@ public class SupplyEntryService : ISupplyEntryService
             SupplyId = supplyEntry.SupplyId,
             ProcessDoneId = supplyEntry.ProcessDoneId,
             ReferenceToSupplyEntry = supplyEntry.ReferenceToSupplyEntry,
+            CreatedByUserId = supplyEntry.CreatedByUserId,
+            CreatedByUserName = createdByUserName,
             IsActive = supplyEntry.IsActive,
             CreatedAt = supplyEntry.CreatedAt,
             UpdatedAt = supplyEntry.UpdatedAt,
