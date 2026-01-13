@@ -105,6 +105,8 @@ public class ComponentProductionDto
     public string? BatchNumber { get; set; }
     public decimal? Cost { get; set; }
     public string? Notes { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public string? CreatedByUserName { get; set; }
     public bool Active { get; set; }
     public DateTime CreatedAt { get; set; }
 }
@@ -118,6 +120,7 @@ public class CreateComponentProductionDto
     public string? BatchNumber { get; set; }
     public decimal? Cost { get; set; }
     public string? Notes { get; set; }
+    public int? CreatedByUserId { get; set; }
 }
 
 public class UpdateComponentProductionDto

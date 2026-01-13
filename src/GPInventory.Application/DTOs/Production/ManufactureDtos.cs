@@ -8,7 +8,7 @@ public class ManufactureDto
     public int ProductId { get; set; }
     public DateTime Date { get; set; }
     public int Amount { get; set; }
-    public int? Cost { get; set; }
+    public decimal? Cost { get; set; }
     public string? Notes { get; set; }
     public int? StoreId { get; set; }
     public int? StockId { get; set; }
@@ -18,6 +18,8 @@ public class ManufactureDto
     public string Status { get; set; } = "pending";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public string? CreatedByUserName { get; set; }
     
     // Navigation properties
     public ProductDto? Product { get; set; }
@@ -40,7 +42,7 @@ public class CreateManufactureDto
     [Range(1, int.MaxValue, ErrorMessage = "La cantidad debe ser mayor a 0")]
     public int Amount { get; set; }
     
-    public int? Cost { get; set; }
+    public decimal? Cost { get; set; }
     
     [StringLength(500)]
     public string? Notes { get; set; }
@@ -53,7 +55,7 @@ public class UpdateManufactureDto
     [Range(1, int.MaxValue, ErrorMessage = "La cantidad debe ser mayor a 0")]
     public int? Amount { get; set; }
     
-    public int? Cost { get; set; }
+    public decimal? Cost { get; set; }
     
     [StringLength(500)]
     public string? Notes { get; set; }

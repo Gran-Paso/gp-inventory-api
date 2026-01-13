@@ -10,15 +10,18 @@ public class ManufactureService : IManufactureService
     private readonly IManufactureRepository _manufactureRepository;
     private readonly IProcessDoneRepository _processDoneRepository;
     private readonly IProductRepository _productRepository;
+    private readonly IUserRepository _userRepository;
 
     public ManufactureService(
         IManufactureRepository manufactureRepository,
         IProcessDoneRepository processDoneRepository,
-        IProductRepository productRepository)
+        IProductRepository productRepository,
+        IUserRepository userRepository)
     {
         _manufactureRepository = manufactureRepository;
         _processDoneRepository = processDoneRepository;
         _productRepository = productRepository;
+        _userRepository = userRepository;
     }
 
     public async Task<ManufactureDto> GetByIdAsync(int id)
@@ -39,7 +42,12 @@ public class ManufactureService : IManufactureService
     public async Task<IEnumerable<ManufactureDto>> GetByBusinessIdAsync(int businessId)
     {
         var manufactures = await _manufactureRepository.GetByBusinessIdAsync(businessId);
-        return manufactures.Select(MapToDto);
+        var dtos = manufactures.Select(MapToDto).ToList();
+        
+        // Cargar nombres de usuarios
+        await EnrichWithUserNamesAsync(dtos);
+        
+        return dtos;
     }
 
     public async Task<IEnumerable<ManufactureDto>> GetByProcessDoneIdAsync(int processDoneId)
@@ -58,9 +66,13 @@ public class ManufactureService : IManufactureService
     {
         // Obtener todos los manufactures del negocio
         var manufactures = await _manufactureRepository.GetByBusinessIdAsync(businessId);
+        var allDtos = manufactures.Select(MapToDto).ToList();
+        
+        // Cargar nombres de usuarios para TODOS los manufactures
+        await EnrichWithUserNamesAsync(allDtos);
         
         // Agrupar por ProcessDoneId
-        var grouped = manufactures
+        var grouped = allDtos
             .GroupBy(m => m.ProcessDoneId)
             .Select(g => new ProcessDoneSummaryDto
             {
@@ -71,7 +83,7 @@ public class ManufactureService : IManufactureService
                 Notes = g.First().ProcessDone?.Notes,
                 TotalBatches = g.Count(),
                 TotalAmount = g.Sum(m => m.Amount),
-                Batches = g.Select(MapToDto).ToList()
+                Batches = g.ToList()
             })
             .OrderByDescending(s => s.CompletedAt)
             .ToList();
@@ -283,6 +295,36 @@ public class ManufactureService : IManufactureService
         await _manufactureRepository.DeleteAsync(id);
     }
 
+    private async Task EnrichWithUserNamesAsync(List<ManufactureDto> dtos)
+    {
+        var userIds = dtos
+            .Where(d => d.CreatedByUserId.HasValue)
+            .Select(d => d.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        
+        Console.WriteLine($"🔍 ManufactureService: Found {userIds.Count} unique user IDs to load: {string.Join(", ", userIds)}");
+        
+        if (!userIds.Any()) return;
+        
+        var userNames = await _userRepository.GetUserNamesByIdsAsync(userIds);
+        
+        Console.WriteLine($"🔍 ManufactureService: Received {userNames.Count} user names from repository");
+        
+        foreach (var dto in dtos)
+        {
+            if (dto.CreatedByUserId.HasValue && userNames.TryGetValue(dto.CreatedByUserId.Value, out var userName))
+            {
+                dto.CreatedByUserName = userName;
+                Console.WriteLine($"✅ Set user name for manufacture {dto.Id}: {userName}");
+            }
+            else if (dto.CreatedByUserId.HasValue)
+            {
+                Console.WriteLine($"⚠️ No user name found for manufacture {dto.Id} with userId {dto.CreatedByUserId.Value}");
+            }
+        }
+    }
+
     private static ManufactureDto MapToDto(Manufacture manufacture)
     {
         return new ManufactureDto
@@ -301,6 +343,7 @@ public class ManufactureService : IManufactureService
             Status = manufacture.Status,
             CreatedAt = manufacture.CreatedAt,
             UpdatedAt = manufacture.UpdatedAt,
+            CreatedByUserId = manufacture.CreatedByUserId,
             Product = manufacture.Product != null ? new ProductDto
             {
                 Id = manufacture.Product.Id,
@@ -322,7 +365,11 @@ public class ManufactureService : IManufactureService
                 CreatedAt = manufacture.ProcessDone.CompletedAt,
                 UpdatedAt = manufacture.ProcessDone.CompletedAt,
                 IsActive = true,
-                Process = null
+                Process = manufacture.ProcessDone.Process != null ? new ProcessDto
+                {
+                    Id = manufacture.ProcessDone.Process.Id,
+                    Name = manufacture.ProcessDone.Process.Name,
+                } : null
             } : null,
             Store = manufacture.Store != null ? new StoreDto
             {

@@ -75,6 +75,29 @@ public class ProcessDonesController : ControllerBase
     {
         try
         {
+            // Extraer userId del token JWT si no viene en el DTO
+            if (!createProcessDoneDto.CreatedByUserId.HasValue)
+            {
+                // Intentar múltiples claim types comunes
+                var userIdClaim = User.FindFirst("sub") 
+                    ?? User.FindFirst("user_id") 
+                    ?? User.FindFirst("userId") 
+                    ?? User.FindFirst("id")
+                    ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+                {
+                    createProcessDoneDto.CreatedByUserId = userId;
+                    _logger.LogInformation("UserId extracted from token: {UserId}", userId);
+                }
+                else
+                {
+                    // Log todos los claims disponibles para debug
+                    _logger.LogWarning("Could not extract userId from token. Available claims: {Claims}", 
+                        string.Join(", ", User.Claims.Select(c => $"{c.Type}={c.Value}")));
+                }
+            }
+            
             var processDone = await _processDoneService.CreateProcessDoneAsync(createProcessDoneDto);
             return CreatedAtAction(nameof(GetProcessDone), new { id = processDone.Id }, processDone);
         }

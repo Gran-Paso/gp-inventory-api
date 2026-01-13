@@ -13,6 +13,7 @@ public class SupplyEntryDto
     public int SupplyId { get; set; }
     public int? ProcessDoneId { get; set; }
     public int? ReferenceToSupplyEntry { get; set; }
+    public int? CreatedByUserId { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -21,6 +22,7 @@ public class SupplyEntryDto
     public ProviderDto? Provider { get; set; }
     public SupplyDto? Supply { get; set; }
     public ProcessDoneDto? ProcessDone { get; set; }
+    public string? CreatedByUserName { get; set; }
 }
 
 public class CreateSupplyEntryDto
@@ -32,6 +34,7 @@ public class CreateSupplyEntryDto
     public int SupplyId { get; set; }
     public int? ProcessDoneId { get; set; }
     public int? ReferenceToSupplyEntry { get; set; }
+    public int? CreatedByUserId { get; set; }
     
     // Payment Plan fields (optional - for financing)
     public int? PaymentTypeId { get; set; }

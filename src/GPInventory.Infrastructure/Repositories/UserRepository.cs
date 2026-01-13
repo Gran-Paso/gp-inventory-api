@@ -2,6 +2,7 @@ using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
 using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 
 namespace GPInventory.Infrastructure.Repositories;
 
@@ -45,6 +46,49 @@ public class UserRepository : Repository<User>, IUserRepository
             .ToListAsync();
 
         return result.Select(x => (x.UserId, x.UserName, x.RoleName)).ToList();
+    }
+
+    public async Task<Dictionary<int, string>> GetUserNamesByIdsAsync(IEnumerable<int> userIds)
+    {
+        var result = new Dictionary<int, string>();
+        
+        var idsList = userIds.ToList();
+        if (!idsList.Any())
+            return result;
+
+        try
+        {
+            var idList = string.Join(",", idsList);
+            var connectionString = _context.Database.GetConnectionString();
+            
+            using var connection = new MySqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = $@"
+                SELECT id, name, lastname 
+                FROM user
+                WHERE id IN ({idList})";
+
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var id = reader.GetInt32(0);
+                var name = reader.GetString(1);
+                var lastName = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                result[id] = $"{name} {lastName}".Trim();
+            }
+            
+            Console.WriteLine($"✅ Loaded {result.Count} user names for IDs: {string.Join(", ", idsList)}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Error loading user names: {ex.Message}");
+            Console.WriteLine($"⚠️ Stack trace: {ex.StackTrace}");
+            // Return empty dictionary on error, don't fail the entire operation
+        }
+
+        return result;
     }
 }
 

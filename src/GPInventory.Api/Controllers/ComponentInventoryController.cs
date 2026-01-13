@@ -1,3 +1,4 @@
+using GPInventory.Application.DTOs.Components;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
 using GPInventory.Infrastructure.Data;
@@ -15,6 +16,7 @@ public class ComponentInventoryController : ControllerBase
     private readonly IComponentProductionRepository _componentProductionRepository;
     private readonly IComponentRepository _componentRepository;
     private readonly ISupplyEntryRepository _supplyEntryRepository;
+    private readonly IUserRepository _userRepository;
     private readonly ApplicationDbContext _context;
     private readonly ILogger<ComponentInventoryController> _logger;
 
@@ -22,12 +24,14 @@ public class ComponentInventoryController : ControllerBase
         IComponentProductionRepository componentProductionRepository,
         IComponentRepository componentRepository,
         ISupplyEntryRepository supplyEntryRepository,
+        IUserRepository userRepository,
         ApplicationDbContext context,
         ILogger<ComponentInventoryController> logger)
     {
         _componentProductionRepository = componentProductionRepository;
         _componentRepository = componentRepository;
         _supplyEntryRepository = supplyEntryRepository;
+        _userRepository = userRepository;
         _context = context;
         _logger = logger;
     }
@@ -68,12 +72,39 @@ public class ComponentInventoryController : ControllerBase
     /// Obtener todas las producciones de un componente
     /// </summary>
     [HttpGet("{componentId}/productions")]
-    public async Task<ActionResult<IEnumerable<ComponentProduction>>> GetComponentProductions(int componentId)
+    public async Task<ActionResult<IEnumerable<ComponentProductionDto>>> GetComponentProductions(int componentId)
     {
         try
         {
-            var productions = await _componentProductionRepository.GetByComponentIdAsync(componentId);
-            return Ok(productions);
+            var productions = (await _componentProductionRepository.GetByComponentIdAsync(componentId)).ToList();
+            
+            // Load user names for all productions
+            var userIds = productions
+                .Where(p => p.CreatedByUserId.HasValue)
+                .Select(p => p.CreatedByUserId!.Value)
+                .Distinct()
+                .ToList();
+            
+            var users = await _userRepository.GetUserNamesByIdsAsync(userIds);
+            
+            // Map to DTOs with user names
+            var dtos = productions.Select(p => new ComponentProductionDto
+            {
+                Id = p.Id,
+                ComponentId = p.ComponentId,
+                ProducedAmount = p.ProducedAmount,
+                ProductionDate = p.ProductionDate ?? DateTime.MinValue,
+                ExpirationDate = p.ExpirationDate,
+                BatchNumber = p.BatchNumber,
+                Cost = p.Cost,
+                Notes = p.Notes,
+                CreatedByUserId = p.CreatedByUserId,
+                CreatedByUserName = p.CreatedByUserId.HasValue && users.TryGetValue(p.CreatedByUserId.Value, out var userName) ? userName : null,
+                Active = p.IsActive,
+                CreatedAt = p.CreatedAt
+            }).ToList();
+            
+            return Ok(dtos);
         }
         catch (Exception ex)
         {
@@ -111,6 +142,7 @@ public class ComponentInventoryController : ControllerBase
                 BatchNumber = dto.BatchNumber,
                 Cost = 0, // Se calculará después de procesar los consumos
                 Notes = dto.Notes,
+                CreatedByUserId = dto.CreatedByUserId,
                 IsActive = true,
                 CreatedAt = DateTime.Now
             };
@@ -407,7 +439,7 @@ public class ComponentInventoryController : ControllerBase
                     return BadRequest(new { message = "Producción no encontrada o sin stock disponible" });
                 }
 
-                var originalAmount = reader.GetInt32(1);
+                var originalAmount = reader.GetDecimal(1);
                 var componentId = reader.GetInt32(2);
                 var businessId = reader.GetInt32(3);
                 var storeId = reader.GetInt32(4);
@@ -429,7 +461,7 @@ public class ComponentInventoryController : ControllerBase
                 removalProductionIdParam.Value = productionId;
                 removalCmd.Parameters.Add(removalProductionIdParam);
 
-                var removedAmount = Convert.ToInt32(await removalCmd.ExecuteScalarAsync());
+                var removedAmount = Convert.ToDecimal(await removalCmd.ExecuteScalarAsync());
 
                 // Calcular el stock disponible real
                 var availableInProduction = originalAmount - removedAmount;
@@ -572,6 +604,7 @@ public class CreateComponentProductionDto
     public string? BatchNumber { get; set; }
     public decimal? Cost { get; set; }
     public string? Notes { get; set; }
+    public int? CreatedByUserId { get; set; }
     public List<IngredientConsumptionDto>? IngredientConsumptions { get; set; }
 }
 
@@ -584,6 +617,6 @@ public class IngredientConsumptionDto
 
 public class RemoveComponentStockRequest
 {
-    public int Amount { get; set; }
+    public decimal Amount { get; set; }
     public string? Notes { get; set; }
 }
