@@ -28,6 +28,11 @@ public class ProcessDone : BaseEntity
     [StringLength(500)]
     public string? Notes { get; set; }
 
+    /// <summary>
+    /// ID del usuario que creó el proceso completado
+    /// </summary>
+    public int? CreatedByUserId { get; set; }
+
     // Navigation properties
     public Process Process { get; set; } = null!;
     public Stock? Stock { get; set; }
@@ -42,7 +47,7 @@ public class ProcessDone : BaseEntity
 
     public ProcessDone(int processId, int amount, int stage = 0, 
                       DateTime? startDate = null, DateTime? endDate = null,
-                      DateTime? completedAt = null, string? notes = null)
+                      DateTime? completedAt = null, string? notes = null, int? createdByUserId = null)
     {
         ProcessId = processId;
         Amount = amount;
@@ -51,5 +56,6 @@ public class ProcessDone : BaseEntity
         EndDate = endDate;
         CompletedAt = completedAt ?? DateTime.UtcNow;
         Notes = notes;
+        CreatedByUserId = createdByUserId;
     }
 }

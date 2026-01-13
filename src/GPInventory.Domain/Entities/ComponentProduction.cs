@@ -13,6 +13,7 @@ public class ComponentProduction
     public string? BatchNumber { get; set; }
     public decimal Cost { get; set; }
     public string? Notes { get; set; }
+    public int? CreatedByUserId { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

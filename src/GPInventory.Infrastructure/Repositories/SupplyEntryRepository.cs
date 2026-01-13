@@ -564,14 +564,14 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 parent.amount + COALESCE(
                     (SELECT SUM(child.amount) 
                      FROM supply_entry child 
-                     WHERE child.supply_entry_id = parent.id), 
+                     WHERE child.supply_entry_id = parent.id
+                     AND child.active = 1), 
                     0
                 ) as available_amount
             FROM supply_entry parent
             WHERE parent.supply_id = {0}
               AND parent.process_done_id IS NULL 
-              AND parent.amount > 0 
-              AND parent.active = 1
+              AND parent.amount > 0
             HAVING available_amount > 0
             ORDER BY parent.created_at ASC";
 

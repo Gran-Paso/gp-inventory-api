@@ -35,7 +35,7 @@ public class Manufacture
     /// Costo de producción
     /// </summary>
     [Column("cost")]
-    public int? Cost { get; set; }
+    public decimal? Cost { get; set; }
 
     /// <summary>
     /// Notas adicionales
@@ -82,6 +82,12 @@ public class Manufacture
     [Column("status")]
     [StringLength(50)]
     public string Status { get; set; } = "pending";
+
+    /// <summary>
+    /// ID del usuario que creó el registro
+    /// </summary>
+    [Column("created_by_user_id")]
+    public int? CreatedByUserId { get; set; }
 
     [Column("is_active")]
     public bool IsActive { get; set; } = true;
@@ -130,7 +136,7 @@ public class Manufacture
         IsActive = true;
     }
 
-    public Manufacture(int productId, int processDoneId, int businessId, int amount, int? cost = null, string? notes = null, DateTime? expirationDate = null)
+    public Manufacture(int productId, int processDoneId, int businessId, int amount, decimal? cost = null, string? notes = null, DateTime? expirationDate = null)
     {
         ProductId = productId;
         ProcessDoneId = processDoneId;

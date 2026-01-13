@@ -141,6 +141,11 @@ public class CreateProcessDoneDto
     public List<CreateComponentUsageDto> ComponentUsages { get; set; } = new();
     
     /// <summary>
+    /// ID del usuario que crea el proceso completado
+    /// </summary>
+    public int? CreatedByUserId { get; set; }
+    
+    /// <summary>
     /// ID de la tienda destino para el stock manufacturado (opcional)
     /// Si se proporciona, se creará automáticamente el stock en la tienda
     /// </summary>

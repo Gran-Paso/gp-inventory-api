@@ -52,47 +52,57 @@ public class ProcessDoneService : IProcessDoneService
 
     public async Task<ProcessDoneDto> CreateProcessDoneAsync(CreateProcessDoneDto createProcessDoneDto)
     {
-        // Verificar que el proceso existe
-        var process = await _processRepository.GetByIdAsync(createProcessDoneDto.ProcessId);
-        if (process == null)
-            throw new InvalidOperationException($"Process with ID {createProcessDoneDto.ProcessId} not found");
-
-        // Crear el ProcessDone
-        var processDone = new ProcessDone(
-            createProcessDoneDto.ProcessId,
-            createProcessDoneDto.Amount,
-            createProcessDoneDto.Stage,
-            createProcessDoneDto.StartDate,
-            createProcessDoneDto.EndDate,
-            DateTime.UtcNow,
-            createProcessDoneDto.Notes
-        );
-
-        var createdProcessDone = await _processDoneRepository.CreateAsync(processDone);
-
-        // ⭐ ORDEN CORRECTO: 
-        // 1. Procesar consumo de insumos (supplies)
-        foreach (var supplyUsage in createProcessDoneDto.SupplyUsages)
+        try
         {
-            await ProcessSupplyConsumptionAsync(supplyUsage, createdProcessDone.Id);
+            // Verificar que el proceso existe
+            var process = await _processRepository.GetByIdAsync(createProcessDoneDto.ProcessId);
+            if (process == null)
+                throw new InvalidOperationException($"Process with ID {createProcessDoneDto.ProcessId} not found");
+
+            // Crear el ProcessDone
+            var processDone = new ProcessDone(
+                createProcessDoneDto.ProcessId,
+                createProcessDoneDto.Amount,
+                createProcessDoneDto.Stage,
+                createProcessDoneDto.StartDate,
+                createProcessDoneDto.EndDate,
+                DateTime.UtcNow,
+                createProcessDoneDto.Notes,
+                createProcessDoneDto.CreatedByUserId
+            );
+
+            var createdProcessDone = await _processDoneRepository.CreateAsync(processDone);
+
+            // ⭐ ORDEN CORRECTO: 
+            // 1. Procesar consumo de insumos (supplies)
+            foreach (var supplyUsage in createProcessDoneDto.SupplyUsages)
+            {
+                await ProcessSupplyConsumptionAsync(supplyUsage, createdProcessDone.Id);
+            }
+
+            // 2. Procesar consumo de componentes
+            await ProcessAllComponentConsumptionAsync(createProcessDoneDto.ComponentUsages, createdProcessDone.Id, process);
+
+            // 3. DESPUÉS de consumir todo, calcular el costo TOTAL (supplies + componentes) y crear Manufacture
+            await CalculateAndUpdateTotalCostAsync(createdProcessDone.Id);
+            await CreateManufactureFromProcessDoneAsync(createdProcessDone.Id, createProcessDoneDto.StoreId, createProcessDoneDto.CreatedByUserId);
+
+            // Recargar con detalles
+            var processWithDetails = await _processDoneRepository.GetByIdWithDetailsAsync(createdProcessDone.Id);
+            return MapToDtoWithDetails(processWithDetails!); // ⭐ Usar mapeo con detalles
         }
-
-        // 2. Procesar consumo de componentes
-        await ProcessAllComponentConsumptionAsync(createProcessDoneDto.ComponentUsages, createdProcessDone.Id, process);
-
-        // 3. DESPUÉS de consumir todo, calcular el costo TOTAL (supplies + componentes) y crear Manufacture
-        await CalculateAndUpdateTotalCostAsync(createdProcessDone.Id);
-        await CreateManufactureFromProcessDoneAsync(createdProcessDone.Id, createProcessDoneDto.StoreId);
-
-        // Recargar con detalles
-        var processWithDetails = await _processDoneRepository.GetByIdWithDetailsAsync(createdProcessDone.Id);
-        return MapToDtoWithDetails(processWithDetails!); // ⭐ Usar mapeo con detalles
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error creating process done: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw;
+        }
     }
 
     /// <summary>
     /// Completa todo el proceso de una vez, procesando todos los insumos automáticamente
     /// </summary>
-    public async Task<ProcessDoneDto> CompleteFullProcessAsync(int processId, int amountProduced, string? notes = null)
+    public async Task<ProcessDoneDto> CompleteFullProcessAsync(int processId, int amountProduced, string? notes = null, int? createdByUserId = null)
     {
         // Obtener el proceso con sus insumos
         var process = await _processRepository.GetByIdWithDetailsAsync(processId);
@@ -150,7 +160,8 @@ public class ProcessDoneService : IProcessDoneService
             EndDate = DateTime.UtcNow, // Completado inmediatamente
             Notes = notes ?? "Proceso completado automáticamente",
             SupplyUsages = supplyUsages,
-            ComponentUsages = componentUsages
+            ComponentUsages = componentUsages,
+            CreatedByUserId = createdByUserId
         };
 
         var processDoneDto = await CreateProcessDoneAsync(createProcessDoneDto);
@@ -230,7 +241,7 @@ public class ProcessDoneService : IProcessDoneService
     /// Crea un registro de Manufacture después de completar un proceso
     /// Si se proporciona storeId, también crea el stock en la tienda con el proveedor por defecto
     /// </summary>
-    private async Task CreateManufactureFromProcessDoneAsync(int processDoneId, int? storeId = null)
+    private async Task CreateManufactureFromProcessDoneAsync(int processDoneId, int? storeId = null, int? createdByUserId = null)
     {
         // Obtener el ProcessDone y el Process asociado
         var processDone = await _processDoneRepository.GetByIdAsync(processDoneId);
@@ -282,6 +293,7 @@ public class ProcessDoneService : IProcessDoneService
             Notes = $"Producción del proceso: {process.Name}. Insumos: {totalSupplyCost:C}, Componentes: {totalComponentCost:C}, Total: {totalCost:C}",
             Status = storeId.HasValue ? "sent" : "pending", // Si tiene tienda, marcarlo como "sent"
             IsActive = !storeId.HasValue, // Si se envía directamente, IsActive = false; si queda en fábrica, IsActive = true
+            CreatedByUserId = createdByUserId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

@@ -75,13 +75,16 @@ public class UserRepository : Repository<User>, IUserRepository
             {
                 var id = reader.GetInt32(0);
                 var name = reader.GetString(1);
-                var lastName = reader.GetString(2);
+                var lastName = reader.IsDBNull(2) ? "" : reader.GetString(2);
                 result[id] = $"{name} {lastName}".Trim();
             }
+            
+            Console.WriteLine($"✅ Loaded {result.Count} user names for IDs: {string.Join(", ", idsList)}");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"⚠️ Error loading user names: {ex.Message}");
+            Console.WriteLine($"⚠️ Stack trace: {ex.StackTrace}");
             // Return empty dictionary on error, don't fail the entire operation
         }
 

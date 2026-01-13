@@ -196,7 +196,12 @@ public class SupplyEntriesController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("🔄 Removiendo {amount} unidades del supply entry {entryId}", request.Amount, entryId);
+            if (string.IsNullOrWhiteSpace(request.Notes))
+            {
+                return BadRequest(new { message = "El motivo de la salida es obligatorio" });
+            }
+
+            _logger.LogInformation("🔄 Removiendo {amount} unidades del supply entry {entryId}. Motivo: {notes}", request.Amount, entryId, request.Notes);
 
             await _context.Database.OpenConnectionAsync();
             
@@ -272,8 +277,8 @@ public class SupplyEntriesController : ControllerBase
 
                 // Crear registro negativo vinculado al entry original
                 var removeStockQuery = @"
-                    INSERT INTO supply_entry (amount, unit_cost, supply_id, provider_id, supply_entry_id, active, created_at, updated_at)
-                    VALUES (@amount, @unitCost, @supplyId, @providerId, @supplyEntryId, 1, NOW(), NOW())";
+                    INSERT INTO supply_entry (amount, unit_cost, supply_id, provider_id, supply_entry_id, tag, active, created_at, updated_at)
+                    VALUES (@amount, @unitCost, @supplyId, @providerId, @supplyEntryId, @tag, 1, NOW(), NOW())";
 
                 using var insertCmd = connection.CreateCommand();
                 insertCmd.CommandText = removeStockQuery;
@@ -302,6 +307,11 @@ public class SupplyEntriesController : ControllerBase
                 supplyEntryIdParam.ParameterName = "@supplyEntryId";
                 supplyEntryIdParam.Value = entryId;
                 insertCmd.Parameters.Add(supplyEntryIdParam);
+
+                var tagParam = insertCmd.CreateParameter();
+                tagParam.ParameterName = "@tag";
+                tagParam.Value = request.Notes;
+                insertCmd.Parameters.Add(tagParam);
 
                 await insertCmd.ExecuteNonQueryAsync();
 
@@ -349,4 +359,5 @@ public class SupplyEntriesController : ControllerBase
 public class RemoveSupplyStockRequest
 {
     public decimal Amount { get; set; }
+    public string Notes { get; set; } = string.Empty;
 }

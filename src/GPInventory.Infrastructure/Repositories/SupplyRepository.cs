@@ -204,6 +204,10 @@ public class SupplyRepository : ISupplyRepository
                 }
             }
         }
+        catch (Exception ex) {
+            Console.WriteLine($"Error in GetByIdWithDetailsAsync: {ex.Message}");
+            throw;
+        }
         finally
         {
             await _context.Database.CloseConnectionAsync();
@@ -242,7 +246,8 @@ public class SupplyRepository : ISupplyRepository
                 WHERE se.supply_id = @supplyId
                   AND (
                     (se.active = 1 AND se.amount > 0) OR  
-                    (se.amount < 0 AND se.supply_entry_id IS NOT NULL AND sep.active = 1)
+                    (se.amount < 0 AND se.supply_entry_id IS NOT NULL) OR
+                    (se.amount > 0 AND EXISTS (SELECT 1 FROM supply_entry child WHERE child.supply_entry_id = se.id AND child.active = 1))
                   )"; ;
 
             var parameter = command.CreateParameter();
@@ -669,8 +674,16 @@ public class SupplyRepository : ISupplyRepository
                     um.name as unit_measure_name,
                     um.symbol as unit_measure_symbol,
                     s.minimum_stock,
-                    COALESCE(SUM(CASE WHEN se.process_done_id IS NULL THEN se.amount ELSE 0 END), 0) as total_incoming,
-                    COALESCE(SUM(CASE WHEN se.process_done_id IS NOT NULL THEN se.amount ELSE 0 END), 0) as total_outgoing
+                    COALESCE(SUM(CASE WHEN se.amount > 0 AND se.active = 1 THEN se.amount ELSE 0 END), 0) as total_incoming,
+                    COALESCE(SUM(CASE 
+                        WHEN se.amount < 0 AND se.active = 1 THEN 
+                            CASE 
+                                WHEN se.supply_entry_id IS NULL THEN se.amount
+                                WHEN EXISTS (SELECT 1 FROM supply_entry parent WHERE parent.id = se.supply_entry_id AND parent.active = 1) THEN se.amount
+                                ELSE 0
+                            END
+                        ELSE 0 
+                    END), 0) as total_outgoing
                 FROM supplies s
                 LEFT JOIN supply_entry se ON s.id = se.supply_id
                 LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
