@@ -175,3 +175,33 @@ public class CreateComponentUsageDto
     public decimal QuantityUsed { get; set; }
     public decimal UnitCost { get; set; } = 0;
 }
+
+// DTOs para historial de proceso
+public class ProcessHistoryDto
+{
+    public int ProcessId { get; set; }
+    public string ProcessName { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public decimal TotalDurationMinutes { get; set; }
+    public int TotalExecutions { get; set; }
+    public int TotalIncidents { get; set; }
+    public string LastResponsible { get; set; } = string.Empty;
+    public string LastProductGenerated { get; set; } = string.Empty;
+    public List<ProcessExecutionDto> Executions { get; set; } = new();
+}
+
+public class ProcessExecutionDto
+{
+    public int Id { get; set; }
+    public DateTime CompletedAt { get; set; }
+    public decimal DurationMinutes { get; set; }
+    public int Quantity { get; set; }
+    public string ResponsibleUser { get; set; } = string.Empty;
+    public string ProductGenerated { get; set; } = string.Empty;
+    public bool HasNotes { get; set; }
+    public string? Notes { get; set; }
+    public decimal TotalCost { get; set; }
+    public string ManufactureStatus { get; set; } = "pending"; // pending, sent, received
+    public int? ManufactureId { get; set; }
+}

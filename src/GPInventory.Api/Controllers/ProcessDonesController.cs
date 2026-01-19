@@ -1,7 +1,9 @@
 using GPInventory.Application.DTOs.Production;
 using GPInventory.Application.Interfaces;
+using GPInventory.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
 namespace GPInventory.Api.Controllers;
@@ -12,11 +14,16 @@ namespace GPInventory.Api.Controllers;
 public class ProcessDonesController : ControllerBase
 {
     private readonly IProcessDoneService _processDoneService;
+    private readonly ApplicationDbContext _context;
     private readonly ILogger<ProcessDonesController> _logger;
 
-    public ProcessDonesController(IProcessDoneService processDoneService, ILogger<ProcessDonesController> logger)
+    public ProcessDonesController(
+        IProcessDoneService processDoneService,
+        ApplicationDbContext context,
+        ILogger<ProcessDonesController> logger)
     {
         _processDoneService = processDoneService;
+        _context = context;
         _logger = logger;
     }
 
@@ -224,6 +231,403 @@ public class ProcessDonesController : ControllerBase
         {
             _logger.LogError(ex, "Error adding supply entry to process done");
             return StatusCode(500, "Internal server error");
+        }
+    }
+
+    /// <summary>
+    /// Obtiene el historial completo de ejecuciones de un proceso específico con métricas agregadas
+    /// </summary>
+    [HttpGet("process/{processId}/history")]
+    public async Task<ActionResult<ProcessHistoryDto>> GetProcessHistory(
+        int processId, 
+        [FromQuery] DateTime? startDate = null, 
+        [FromQuery] DateTime? endDate = null)
+    {
+        try
+        {
+            // Si no se especifican fechas, usar últimos 7 días por defecto
+            var start = startDate ?? DateTime.UtcNow.AddDays(-7);
+            var end = endDate ?? DateTime.UtcNow;
+
+            _logger.LogInformation("📊 Obteniendo historial del proceso {processId} desde {start} hasta {end}", processId, start, end);
+
+            using var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+            
+            try
+            {
+                // Query para obtener el nombre del proceso
+                var processNameQuery = @"
+                    SELECT name 
+                    FROM processes 
+                    WHERE id = @processId";
+
+                using var nameCmd = connection.CreateCommand();
+                nameCmd.CommandText = processNameQuery;
+                var processIdParam = nameCmd.CreateParameter();
+                processIdParam.ParameterName = "@processId";
+                processIdParam.Value = processId;
+                nameCmd.Parameters.Add(processIdParam);
+
+                var processName = (await nameCmd.ExecuteScalarAsync())?.ToString() ?? "Proceso";
+
+                // Query principal para obtener las ejecuciones del proceso
+                var historyQuery = @"
+                    SELECT 
+                        pd.id,
+                        pd.completed_at,
+                        pd.start_date,
+                        pd.end_date,
+                        pd.amount as quantity,
+                        pd.notes,
+                        pd.cost,
+                        u.name as responsible_user,
+                        c.name as product_name,
+                        COALESCE(m.status, 'pending') as manufacture_status,
+                        m.id as manufacture_id
+                    FROM process_done pd
+                    LEFT JOIN user u ON pd.created_by_user_id = u.id
+                    LEFT JOIN component_production cp ON pd.id = cp.process_done_id
+                    LEFT JOIN components c ON cp.component_id = c.id
+                    LEFT JOIN manufacture m ON pd.id = m.process_done_id
+                    WHERE pd.process_id = @processId
+                    AND pd.completed_at >= @startDate
+                    AND pd.completed_at <= @endDate
+                    ORDER BY pd.completed_at DESC";
+
+                using var historyCmd = connection.CreateCommand();
+                historyCmd.CommandText = historyQuery;
+                
+                var pidParam = historyCmd.CreateParameter();
+                pidParam.ParameterName = "@processId";
+                pidParam.Value = processId;
+                historyCmd.Parameters.Add(pidParam);
+
+                var startParam = historyCmd.CreateParameter();
+                startParam.ParameterName = "@startDate";
+                startParam.Value = start;
+                historyCmd.Parameters.Add(startParam);
+
+                var endParam = historyCmd.CreateParameter();
+                endParam.ParameterName = "@endDate";
+                endParam.Value = end;
+                historyCmd.Parameters.Add(endParam);
+
+                var executions = new List<ProcessExecutionDto>();
+                decimal totalDuration = 0;
+                int totalExecutions = 0;
+                int totalIncidents = 0;
+                string? lastResponsible = null;
+                string? lastProduct = null;
+
+                using var reader = await historyCmd.ExecuteReaderAsync();
+                
+                while (await reader.ReadAsync())
+                {
+                    totalExecutions++;
+
+                    var id = reader.GetInt32(0);
+                    var completedAt = reader.GetDateTime(1);
+                    var startDateVal = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
+                    var endDateVal = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
+                    var quantity = reader.GetInt32(4);
+                    var notes = reader.IsDBNull(5) ? null : reader.GetString(5);
+                    var cost = reader.GetDecimal(6);
+                    var responsibleUser = reader.IsDBNull(7) ? "Desconocido" : reader.GetString(7);
+                    var productName = reader.IsDBNull(8) ? "N/A" : reader.GetString(8);
+                    var manufactureStatus = reader.IsDBNull(9) ? "pending" : reader.GetString(9);
+                    var manufactureId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
+
+                    // Calcular duración si hay fechas
+                    decimal? durationMinutes = null;
+                    if (startDateVal.HasValue && endDateVal.HasValue)
+                    {
+                        durationMinutes = (decimal)(endDateVal.Value - startDateVal.Value).TotalMinutes;
+                        totalDuration += durationMinutes.Value;
+                    }
+
+                    // Contar incidentes (ejecuciones con notas)
+                    if (!string.IsNullOrWhiteSpace(notes))
+                    {
+                        totalIncidents++;
+                    }
+
+                    // Guardar datos de la última ejecución
+                    if (lastResponsible == null)
+                    {
+                        lastResponsible = responsibleUser;
+                        lastProduct = productName;
+                    }
+
+                    executions.Add(new ProcessExecutionDto
+                    {
+                        Id = id,
+                        CompletedAt = completedAt,
+                        DurationMinutes = durationMinutes ?? 0,
+                        Quantity = quantity,
+                        ResponsibleUser = responsibleUser,
+                        ProductGenerated = productName,
+                        HasNotes = !string.IsNullOrWhiteSpace(notes),
+                        Notes = notes,
+                        TotalCost = cost,
+                        ManufactureStatus = manufactureStatus,
+                        ManufactureId = manufactureId
+                    });
+                }
+
+                await reader.CloseAsync();
+
+                var history = new ProcessHistoryDto
+                {
+                    ProcessId = processId,
+                    ProcessName = processName,
+                    StartDate = start,
+                    EndDate = end,
+                    TotalDurationMinutes = totalDuration,
+                    TotalExecutions = totalExecutions,
+                    TotalIncidents = totalIncidents,
+                    LastResponsible = lastResponsible ?? "N/A",
+                    LastProductGenerated = lastProduct ?? "N/A",
+                    Executions = executions
+                };
+
+                _logger.LogInformation("✅ Historial obtenido: {executions} ejecuciones encontradas", totalExecutions);
+
+                return Ok(history);
+            }
+            finally
+            {
+                await connection.CloseAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error obteniendo historial del proceso {ProcessId}", processId);
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene el estado situacional del dashboard con KPIs y microcopy contextual
+    /// </summary>
+    [HttpGet("dashboard/situational/{businessId}")]
+    public async Task<ActionResult<object>> GetDashboardSituational(int businessId)
+    {
+        try
+        {
+            _logger.LogInformation("📊 Obteniendo estado situacional del dashboard para business {businessId}", businessId);
+
+            using var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+            
+            try
+            {
+                // Query para obtener procesos con su estado
+                var processesQuery = @"
+                    SELECT 
+                        p.id,
+                        p.name,
+                        p.production_time,
+                        p.active as is_active,
+                        COUNT(DISTINCT pd.id) as total_completions,
+                        MAX(pd.completed_at) as last_completed_at
+                    FROM processes p
+                    INNER JOIN product pr ON p.product_id = pr.Id
+                    LEFT JOIN process_done pd ON p.id = pd.process_id AND pd.completed_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                    WHERE pr.business = @businessId
+                    GROUP BY p.id, p.name, p.production_time, p.active";
+
+                using var processCmd = connection.CreateCommand();
+                processCmd.CommandText = processesQuery;
+                var businessIdParam = processCmd.CreateParameter();
+                businessIdParam.ParameterName = "@businessId";
+                businessIdParam.Value = businessId;
+                processCmd.Parameters.Add(businessIdParam);
+
+                var processes = new List<object>();
+                int activeProcesses = 0;
+                int inactiveProcesses = 0;
+                int completedToday = 0;
+                double totalProductionTime = 0;
+                DateTime? lastCompletedAt = null;
+                string? lastCompletedProcess = null;
+
+                using var reader = await processCmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var isActive = reader.GetBoolean(3);
+                    var totalCompletions = reader.GetInt32(4);
+                    var lastCompletion = reader.IsDBNull(5) ? (DateTime?)null : reader.GetDateTime(5);
+
+                    if (isActive) activeProcesses++;
+                    else inactiveProcesses++;
+
+                    completedToday += totalCompletions;
+                    totalProductionTime += reader.GetInt32(2);
+
+                    if (lastCompletion.HasValue && (!lastCompletedAt.HasValue || lastCompletion > lastCompletedAt))
+                    {
+                        lastCompletedAt = lastCompletion;
+                        lastCompletedProcess = reader.GetString(1);
+                    }
+
+                    processes.Add(new
+                    {
+                        id = reader.GetInt32(0),
+                        name = reader.GetString(1),
+                        productionTime = reader.GetInt32(2),
+                        isActive = isActive,
+                        completionsToday = totalCompletions
+                    });
+                }
+                await reader.CloseAsync();
+
+                int totalProcesses = processes.Count;
+                int avgProductionTime = totalProcesses > 0 ? (int)(totalProductionTime / totalProcesses) : 0;
+
+                // Calcular tiempo promedio ENTRE procesos (tiempo entre el fin de uno y el inicio del siguiente) - SOLO HOY
+                var avgTimeBetweenQuery = @"
+                    WITH ordered_processes AS (
+                        SELECT 
+                            pd.end_date,
+                            LEAD(pd.start_date) OVER (ORDER BY pd.end_date) as next_start_date
+                        FROM process_done pd
+                        INNER JOIN processes p ON pd.process_id = p.id
+                        INNER JOIN product pr ON p.product_id = pr.Id
+                        WHERE pr.business = @businessId
+                        AND pd.end_date IS NOT NULL
+                        AND pd.start_date IS NOT NULL
+                        AND DATE(pd.completed_at) = CURDATE()
+                    )
+                    SELECT AVG(TIMESTAMPDIFF(MINUTE, end_date, next_start_date)) as avg_time_between,
+                           COUNT(*) as count_intervals
+                    FROM ordered_processes
+                    WHERE next_start_date IS NOT NULL
+                    AND TIMESTAMPDIFF(MINUTE, end_date, next_start_date) >= 0";
+
+                using var avgTimeCmd = connection.CreateCommand();
+                avgTimeCmd.CommandText = avgTimeBetweenQuery;
+                var businessIdParamAvg = avgTimeCmd.CreateParameter();
+                businessIdParamAvg.ParameterName = "@businessId";
+                businessIdParamAvg.Value = businessId;
+                avgTimeCmd.Parameters.Add(businessIdParamAvg);
+
+                int avgTimeBetween = avgProductionTime; // Por defecto usar el tiempo configurado
+                int countIntervals = 0;
+
+                using var avgReader = await avgTimeCmd.ExecuteReaderAsync();
+                if (await avgReader.ReadAsync())
+                {
+                    var avgResult = avgReader.IsDBNull(0) ? (decimal?)null : avgReader.GetDecimal(0);
+                    countIntervals = avgReader.IsDBNull(1) ? 0 : avgReader.GetInt32(1);
+                    
+                    if (avgResult.HasValue && avgResult.Value >= 0)
+                    {
+                        avgTimeBetween = (int)Math.Round(avgResult.Value);
+                    }
+                }
+                await avgReader.CloseAsync();
+
+                _logger.LogInformation("📊 Tiempo promedio entre procesos HOY: {avgTimeBetween} min (basado en {count} intervalos). Tiempo configurado: {avgProductionTime} min", 
+                    avgTimeBetween, countIntervals, avgProductionTime);
+
+                // Calcular procesos en riesgo (aquellos que exceden el tiempo promedio)
+                // Para esto necesitamos los process_done activos
+                var atRiskQuery = @"
+                    SELECT COUNT(DISTINCT pd.id)
+                    FROM process_done pd
+                    INNER JOIN processes p ON pd.process_id = p.id
+                    INNER JOIN product pr ON p.product_id = pr.Id
+                    WHERE pr.business = @businessId
+                    AND pd.start_date IS NOT NULL
+                    AND pd.end_date IS NULL
+                    AND TIMESTAMPDIFF(MINUTE, pd.start_date, NOW()) > p.production_time";
+
+                using var atRiskCmd = connection.CreateCommand();
+                atRiskCmd.CommandText = atRiskQuery;
+                var businessIdParam2 = atRiskCmd.CreateParameter();
+                businessIdParam2.ParameterName = "@businessId";
+                businessIdParam2.Value = businessId;
+                atRiskCmd.Parameters.Add(businessIdParam2);
+
+                var atRiskCount = Convert.ToInt32(await atRiskCmd.ExecuteScalarAsync() ?? 0);
+
+                // Calcular procesos afectados por stock crítico
+                // Stock crítico: cuando el stock disponible es menor al necesario
+                var criticalStockQuery = @"
+                    SELECT COUNT(DISTINCT p.id)
+                    FROM processes p
+                    INNER JOIN product pr ON p.product_id = pr.Id
+                    INNER JOIN process_supplies ps ON p.id = ps.process_id
+                    INNER JOIN supplies s ON ps.supply_id = s.Id
+                    LEFT JOIN (
+                        SELECT supply_id, SUM(amount) as total_stock
+                        FROM supply_entry
+                        WHERE active = 1
+                        GROUP BY supply_id
+                    ) se ON s.Id = se.supply_id
+                    WHERE pr.business = @businessId
+                    AND p.active = 1
+                    AND (se.total_stock IS NULL OR se.total_stock < 10)";
+
+                using var criticalCmd = connection.CreateCommand();
+                criticalCmd.CommandText = criticalStockQuery;
+                var businessIdParam3 = criticalCmd.CreateParameter();
+                businessIdParam3.ParameterName = "@businessId";
+                businessIdParam3.Value = businessId;
+                criticalCmd.Parameters.Add(businessIdParam3);
+
+                var criticalStockCount = Convert.ToInt32(await criticalCmd.ExecuteScalarAsync() ?? 0);
+
+                // Generar microcopy contextual
+                string microcopy;
+                if (activeProcesses > 0)
+                {
+                    microcopy = $"Tu fábrica está en marcha con {activeProcesses} proceso{(activeProcesses > 1 ? "s" : "")} activo{(activeProcesses > 1 ? "s" : "")} y un tiempo promedio entre procesos de {avgTimeBetween} min.";
+                }
+                else if (lastCompletedAt.HasValue && lastCompletedProcess != null)
+                {
+                    var hoursSince = (DateTime.UtcNow - lastCompletedAt.Value).TotalHours;
+                    var timeText = hoursSince < 1 
+                        ? "hace menos de 1 hora" 
+                        : $"hace {(int)hoursSince} hora{((int)hoursSince > 1 ? "s" : "")}";
+                    microcopy = $"No hay procesos en marcha. Último completado: {lastCompletedProcess} {timeText}.";
+                }
+                else
+                {
+                    microcopy = "No hay procesos registrados. Comienza creando tu primer proceso de producción.";
+                }
+
+                var result = new
+                {
+                    microcopy,
+                    kpis = new
+                    {
+                        completed = new { count = completedToday, label = "Completados Hoy", color = "green" },
+                        atRisk = new { count = atRiskCount, label = "En Riesgo", color = "orange" },
+                        criticalStock = new { count = criticalStockCount, label = "Stock Crítico", color = "red" },
+                        active = new { count = activeProcesses, label = "Activos", color = "blue" },
+                        inactive = new { count = inactiveProcesses, label = "Inactivos", color = "gray" }
+                    },
+                    processes,
+                    averageProductionTime = avgProductionTime,
+                    averageTimeBetweenProcesses = avgTimeBetween,
+                    lastUpdate = DateTime.UtcNow
+                };
+
+                _logger.LogInformation("✅ Estado situacional obtenido: {activeProcesses} activos, {atRiskCount} en riesgo, tiempo entre procesos: {avgTimeBetween} min", activeProcesses, atRiskCount, avgTimeBetween);
+
+                return Ok(result);
+            }
+            finally
+            {
+                await connection.CloseAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error obteniendo estado situacional del dashboard");
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
         }
     }
 

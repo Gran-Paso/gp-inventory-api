@@ -61,7 +61,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
                     StockId = reader.IsDBNull(reader.GetOrdinal("stock_id")) ? null : reader.GetInt32(reader.GetOrdinal("stock_id")),
                     Cost = reader.GetDecimal(reader.GetOrdinal("cost")),
-                    IsActive = reader.GetBoolean(reader.GetOrdinal("active")),
+                    IsActive = reader.IsDBNull(reader.GetOrdinal("active")) ? true : reader.GetBoolean(reader.GetOrdinal("active")),
                     UpdatedAt = reader.GetDateTime(reader.GetOrdinal("updated_at"))
                 };
             }
@@ -229,7 +229,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
                     StockId = reader.IsDBNull(reader.GetOrdinal("stock_id")) ? null : reader.GetInt32(reader.GetOrdinal("stock_id")),
                     Cost = reader.GetDecimal(reader.GetOrdinal("cost")),
-                    IsActive = reader.GetBoolean(reader.GetOrdinal("active")),
+                    IsActive = reader.IsDBNull(reader.GetOrdinal("active")) ? true : reader.GetBoolean(reader.GetOrdinal("active")),
                     UpdatedAt = reader.GetDateTime(reader.GetOrdinal("updated_at"))
                 };
                 
@@ -294,7 +294,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
                     StockId = reader.IsDBNull(reader.GetOrdinal("stock_id")) ? null : reader.GetInt32(reader.GetOrdinal("stock_id")),
                     Cost = reader.GetDecimal(reader.GetOrdinal("cost")),
-                    IsActive = reader.GetBoolean(reader.GetOrdinal("active")),
+                    IsActive = reader.IsDBNull(reader.GetOrdinal("active")) ? true : reader.GetBoolean(reader.GetOrdinal("active")),
                     UpdatedAt = reader.GetDateTime(reader.GetOrdinal("updated_at"))
                 };
                 
