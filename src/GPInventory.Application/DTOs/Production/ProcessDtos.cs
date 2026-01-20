@@ -204,4 +204,22 @@ public class ProcessExecutionDto
     public decimal TotalCost { get; set; }
     public string ManufactureStatus { get; set; } = "pending"; // pending, sent, received
     public int? ManufactureId { get; set; }
+    public List<SupplyUsageDetailDto>? SupplyUsages { get; set; }
+    public List<ComponentUsageDetailDto>? ComponentUsages { get; set; }
+}
+
+public class SupplyUsageDetailDto
+{
+    public int SupplyId { get; set; }
+    public string SupplyName { get; set; } = string.Empty;
+    public int QuantityUsed { get; set; }
+    public decimal UnitCost { get; set; }
+}
+
+public class ComponentUsageDetailDto
+{
+    public int ComponentId { get; set; }
+    public string ComponentName { get; set; } = string.Empty;
+    public int QuantityUsed { get; set; }
+    public decimal Cost { get; set; }
 }

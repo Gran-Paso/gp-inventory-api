@@ -377,6 +377,84 @@ public class ProcessDonesController : ControllerBase
 
                 await reader.CloseAsync();
 
+                // Obtener supply usages y component usages para cada ejecución
+                foreach (var execution in executions)
+                {
+                    // Supply usages
+                    var supplyQuery = @"
+                        SELECT 
+                            se.supply_id,
+                            s.name as supply_name,
+                            ABS(se.amount) as quantity_used,
+                            se.unit_cost
+                        FROM supply_entry se
+                        INNER JOIN supplies s ON se.supply_id = s.Id
+                        WHERE se.process_done_id = @processDoneId
+                        AND se.amount < 0
+                        ORDER BY se.id";
+
+                    using var supplyCmd = connection.CreateCommand();
+                    supplyCmd.CommandText = supplyQuery;
+                    var pdIdParam = supplyCmd.CreateParameter();
+                    pdIdParam.ParameterName = "@processDoneId";
+                    pdIdParam.Value = execution.Id;
+                    supplyCmd.Parameters.Add(pdIdParam);
+
+                    var supplyUsages = new List<SupplyUsageDetailDto>();
+                    using var supplyReader = await supplyCmd.ExecuteReaderAsync();
+                    
+                    while (await supplyReader.ReadAsync())
+                    {
+                        supplyUsages.Add(new SupplyUsageDetailDto
+                        {
+                            SupplyId = supplyReader.GetInt32(0),
+                            SupplyName = supplyReader.GetString(1),
+                            QuantityUsed = supplyReader.GetInt32(2),
+                            UnitCost = supplyReader.GetDecimal(3)
+                        });
+                    }
+                    
+                    await supplyReader.CloseAsync();
+                    execution.SupplyUsages = supplyUsages;
+
+                    // Component usages
+                    var componentQuery = @"
+                        SELECT 
+                            cp.component_id,
+                            c.name as component_name,
+                            ABS(cp.produced_amount) as quantity_used,
+                            cp.cost
+                        FROM component_production cp
+                        INNER JOIN components c ON cp.component_id = c.id
+                        WHERE cp.process_done_id = @processDoneId
+                        AND cp.produced_amount < 0
+                        ORDER BY cp.id";
+
+                    using var componentCmd = connection.CreateCommand();
+                    componentCmd.CommandText = componentQuery;
+                    var pdIdParam2 = componentCmd.CreateParameter();
+                    pdIdParam2.ParameterName = "@processDoneId";
+                    pdIdParam2.Value = execution.Id;
+                    componentCmd.Parameters.Add(pdIdParam2);
+
+                    var componentUsages = new List<ComponentUsageDetailDto>();
+                    using var componentReader = await componentCmd.ExecuteReaderAsync();
+                    
+                    while (await componentReader.ReadAsync())
+                    {
+                        componentUsages.Add(new ComponentUsageDetailDto
+                        {
+                            ComponentId = componentReader.GetInt32(0),
+                            ComponentName = componentReader.GetString(1),
+                            QuantityUsed = componentReader.GetInt32(2),
+                            Cost = componentReader.GetDecimal(3)
+                        });
+                    }
+                    
+                    await componentReader.CloseAsync();
+                    execution.ComponentUsages = componentUsages;
+                }
+
                 var history = new ProcessHistoryDto
                 {
                     ProcessId = processId,
