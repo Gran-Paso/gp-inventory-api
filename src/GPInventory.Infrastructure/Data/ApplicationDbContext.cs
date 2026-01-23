@@ -416,10 +416,10 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.TimeUnitId).HasColumnName("time_unit_id");
             entity.Property(e => e.StoreId).HasColumnName("store_id");
             
-            // BaseEntity properties - ignore since they don't exist in the database
+            // BaseEntity properties
             entity.Ignore(e => e.CreatedAt);
             entity.Ignore(e => e.UpdatedAt);
-            entity.Ignore(e => e.IsActive);
+            entity.Property(e => e.IsActive).HasColumnName("active"); // Mapear IsActive a la columna 'active'
             
             // Explicitly ignore Notes property if EF Core tries to map it
             entity.Ignore("Notes");
@@ -450,10 +450,10 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.SupplyId).HasColumnName("supply_id");
             entity.Property(e => e.Order).HasColumnName("order");
             
-            // BaseEntity properties - ignore since they don't exist in the database
+            // BaseEntity properties
             entity.Ignore(e => e.CreatedAt);
             entity.Ignore(e => e.UpdatedAt);
-            entity.Ignore(e => e.IsActive);
+            entity.Property(e => e.IsActive).HasColumnName("active");
 
             entity.HasOne(e => e.Process)
                 .WithMany(p => p.ProcessSupplies)
@@ -476,10 +476,10 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.Order).HasColumnName("order");
             
-            // BaseEntity properties - ignore since they don't exist in the database
+            // BaseEntity properties
             entity.Ignore(e => e.CreatedAt);
             entity.Ignore(e => e.UpdatedAt);
-            entity.Ignore(e => e.IsActive);
+            entity.Property(e => e.IsActive).HasColumnName("is_active");
 
             entity.HasOne(e => e.Process)
                 .WithMany(p => p.ProcessComponents)

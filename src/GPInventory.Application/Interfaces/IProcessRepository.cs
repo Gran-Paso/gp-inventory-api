@@ -15,4 +15,10 @@ public interface IProcessRepository
     Task DeleteAsync(int id);
     Task<bool> ExistsAsync(int id);
     Task<IEnumerable<Process>> GetProcessesWithDetailsAsync(int[]? storeIds = null, int? businessId = null);
+    
+    // Statistics
+    Task<decimal?> GetAverageCostAsync(int processId);
+    Task<(DateTime? date, string? userName, decimal? amount)?> GetLastExecutionAsync(int processId);
+    Task<int> GetProcessSuppliesStockStatusAsync(int processId);
+    Task<int> GetExecutionCountAsync(int processId);
 }

@@ -376,6 +376,8 @@ public class SupplyEntryService : ISupplyEntryService
             Tag = supplyEntry.Tag,
             ProviderId = supplyEntry.ProviderId,
             SupplyId = supplyEntry.SupplyId,
+            SupplyName = supplyEntry.Supply?.Name,
+            SupplyUnitMeasureSymbol = supplyEntry.Supply?.UnitMeasure?.Symbol,
             ProcessDoneId = supplyEntry.ProcessDoneId,
             ReferenceToSupplyEntry = supplyEntry.ReferenceToSupplyEntry,
             CreatedByUserId = supplyEntry.CreatedByUserId,

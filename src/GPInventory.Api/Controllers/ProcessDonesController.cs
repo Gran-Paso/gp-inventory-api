@@ -27,6 +27,21 @@ public class ProcessDonesController : ControllerBase
         _logger = logger;
     }
 
+    private int? GetUserIdFromClaims()
+    {
+        var userIdClaim = User.FindFirst("sub") 
+            ?? User.FindFirst("user_id") 
+            ?? User.FindFirst("userId") 
+            ?? User.FindFirst("id")
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+        {
+            return userId;
+        }
+        return null;
+    }
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ProcessDoneDto>>> GetProcessDones()
     {
@@ -219,7 +234,8 @@ public class ProcessDonesController : ControllerBase
     {
         try
         {
-            var processDone = await _processDoneService.AddSupplyEntryAsync(id, supplyUsage);
+            var userId = GetUserIdFromClaims();
+            var processDone = await _processDoneService.AddSupplyEntryAsync(id, supplyUsage, userId);
             return Ok(processDone);
         }
         catch (KeyNotFoundException ex)

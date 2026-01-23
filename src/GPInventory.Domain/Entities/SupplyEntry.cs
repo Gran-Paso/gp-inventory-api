@@ -42,13 +42,14 @@ public class SupplyEntry : BaseEntity
     }
 
     public SupplyEntry(decimal unitCost, decimal amount, 
-                      int providerId, int supplyId, int? processDoneId = null)
+                      int providerId, int supplyId, int? processDoneId = null, int? createdByUserId = null)
     {
         UnitCost = unitCost;
         Amount = (int)amount; // Cast decimal to int
         ProviderId = providerId;
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;
+        CreatedByUserId = createdByUserId;
         // Para entradas originales (positivas), IsActive = true por defecto desde BaseEntity
         IsActive = amount > 0;
     }
@@ -56,7 +57,7 @@ public class SupplyEntry : BaseEntity
     // Constructor para autoreferencing (consumo con referencia a supply entry original)
     public SupplyEntry(decimal unitCost, decimal amount, 
                       int providerId, int supplyId, int? processDoneId, 
-                      int referencedSupplyEntryId)
+                      int referencedSupplyEntryId, int? createdByUserId = null)
     {
         UnitCost = unitCost;
         Amount = (int)amount;
@@ -64,6 +65,7 @@ public class SupplyEntry : BaseEntity
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;
         ReferenceToSupplyEntry = referencedSupplyEntryId; // ⭐ Guardar la referencia
+        CreatedByUserId = createdByUserId;
         // Las entradas hijas (consumos) también deben estar activas por defecto
         IsActive = true;
     }

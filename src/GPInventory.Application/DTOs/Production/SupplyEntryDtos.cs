@@ -11,6 +11,8 @@ public class SupplyEntryDto
     public string? Tag { get; set; }
     public int ProviderId { get; set; }
     public int SupplyId { get; set; }
+    public string? SupplyName { get; set; }
+    public string? SupplyUnitMeasureSymbol { get; set; }
     public int? ProcessDoneId { get; set; }
     public int? ReferenceToSupplyEntry { get; set; }
     public int? CreatedByUserId { get; set; }

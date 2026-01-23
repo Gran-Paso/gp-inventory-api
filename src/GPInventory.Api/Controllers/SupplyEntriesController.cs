@@ -26,6 +26,21 @@ public class SupplyEntriesController : ControllerBase
         _logger = logger;
     }
 
+    private int? GetUserIdFromClaims()
+    {
+        var userIdClaim = User.FindFirst("sub") 
+            ?? User.FindFirst("user_id") 
+            ?? User.FindFirst("userId") 
+            ?? User.FindFirst("id")
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+        {
+            return userId;
+        }
+        return null;
+    }
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<SupplyEntryDto>>> GetAllSupplyEntries()
     {
@@ -142,6 +157,12 @@ public class SupplyEntriesController : ControllerBase
                 return BadRequest(ModelState);
             }
 
+            // ⭐ Asignar usuario responsable
+            if (!createSupplyEntryDto.CreatedByUserId.HasValue)
+            {
+                createSupplyEntryDto.CreatedByUserId = GetUserIdFromClaims();
+            }
+
             var supplyEntry = await _supplyEntryService.CreateAsync(createSupplyEntryDto);
             return CreatedAtAction(nameof(GetSupplyEntry), new { id = supplyEntry.Id }, supplyEntry);
         }
@@ -200,6 +221,9 @@ public class SupplyEntriesController : ControllerBase
             {
                 return BadRequest(new { message = "El motivo de la salida es obligatorio" });
             }
+
+            // ⭐ Obtener usuario responsable
+            var userId = GetUserIdFromClaims();
 
             _logger.LogInformation("🔄 Removiendo {amount} unidades del supply entry {entryId}. Motivo: {notes}", request.Amount, entryId, request.Notes);
 
@@ -277,8 +301,8 @@ public class SupplyEntriesController : ControllerBase
 
                 // Crear registro negativo vinculado al entry original
                 var removeStockQuery = @"
-                    INSERT INTO supply_entry (amount, unit_cost, supply_id, provider_id, supply_entry_id, tag, active, created_at, updated_at)
-                    VALUES (@amount, @unitCost, @supplyId, @providerId, @supplyEntryId, @tag, 1, NOW(), NOW())";
+                    INSERT INTO supply_entry (amount, unit_cost, supply_id, provider_id, supply_entry_id, tag, active, created_at, updated_at, created_by_user_id)
+                    VALUES (@amount, @unitCost, @supplyId, @providerId, @supplyEntryId, @tag, 1, NOW(), NOW(), @createdByUserId)";
 
                 using var insertCmd = connection.CreateCommand();
                 insertCmd.CommandText = removeStockQuery;
@@ -312,6 +336,11 @@ public class SupplyEntriesController : ControllerBase
                 tagParam.ParameterName = "@tag";
                 tagParam.Value = request.Notes;
                 insertCmd.Parameters.Add(tagParam);
+
+                var createdByUserIdParam = insertCmd.CreateParameter();
+                createdByUserIdParam.ParameterName = "@createdByUserId";
+                createdByUserIdParam.Value = (object)userId ?? DBNull.Value;
+                insertCmd.Parameters.Add(createdByUserIdParam);
 
                 await insertCmd.ExecuteNonQueryAsync();
 

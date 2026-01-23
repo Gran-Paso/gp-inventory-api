@@ -77,11 +77,11 @@ public class ProcessDoneService : IProcessDoneService
             // 1. Procesar consumo de insumos (supplies)
             foreach (var supplyUsage in createProcessDoneDto.SupplyUsages)
             {
-                await ProcessSupplyConsumptionAsync(supplyUsage, createdProcessDone.Id);
+                await ProcessSupplyConsumptionAsync(supplyUsage, createdProcessDone.Id, createProcessDoneDto.CreatedByUserId);
             }
 
             // 2. Procesar consumo de componentes
-            await ProcessAllComponentConsumptionAsync(createProcessDoneDto.ComponentUsages, createdProcessDone.Id, process);
+            await ProcessAllComponentConsumptionAsync(createProcessDoneDto.ComponentUsages, createdProcessDone.Id, process, createProcessDoneDto.CreatedByUserId);
 
             // 3. DESPUÉS de consumir todo, calcular el costo TOTAL (supplies + componentes) y crear Manufacture
             await CalculateAndUpdateTotalCostAsync(createdProcessDone.Id);
@@ -184,6 +184,7 @@ public class ProcessDoneService : IProcessDoneService
                 ProductionDate = DateTime.UtcNow,
                 Cost = totalCost, // Usar el costo TOTAL de la manufactura (insumos + componentes)
                 Notes = notes ?? $"Producción completada del proceso {process.Name}",
+                CreatedByUserId = createdByUserId, // ⭐ Usuario responsable
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
@@ -463,7 +464,7 @@ public class ProcessDoneService : IProcessDoneService
     /// <summary>
     /// Procesa el consumo de un insumo usando algoritmo FIFO con autoreferencia
     /// </summary>
-    private async Task ProcessSupplyConsumptionAsync(CreateSupplyUsageDto supplyUsage, int processDoneId)
+    private async Task ProcessSupplyConsumptionAsync(CreateSupplyUsageDto supplyUsage, int processDoneId, int? createdByUserId = null)
     {
         var remainingQuantity = supplyUsage.QuantityUsed;
         
@@ -489,7 +490,8 @@ public class ProcessDoneService : IProcessDoneService
                 1,                                 // ProviderId por defecto
                 supplyUsage.SupplyId,
                 processDoneId,
-                availableEntry.Id                  // ⭐ Referencia al stock original
+                availableEntry.Id,                 // ⭐ Referencia al stock original
+                createdByUserId                    // ⭐ Usuario responsable
             );
             
             await _supplyEntryRepository.CreateAsync(supplyEntry);
@@ -603,14 +605,14 @@ public class ProcessDoneService : IProcessDoneService
         return MapToDto(updatedProcessDone!);
     }
 
-    public async Task<ProcessDoneDto> AddSupplyEntryAsync(int processDoneId, CreateSupplyUsageDto supplyUsage)
+    public async Task<ProcessDoneDto> AddSupplyEntryAsync(int processDoneId, CreateSupplyUsageDto supplyUsage, int? createdByUserId = null)
     {
         var processDone = await _processDoneRepository.GetByIdAsync(processDoneId);
         if (processDone == null)
             throw new KeyNotFoundException($"ProcessDone with ID {processDoneId} not found");
 
         // Procesar el consumo con algoritmo FIFO
-        await ProcessSupplyConsumptionAsync(supplyUsage, processDoneId);
+        await ProcessSupplyConsumptionAsync(supplyUsage, processDoneId, createdByUserId);
 
         // Recargar con detalles
         var processWithDetails = await _processDoneRepository.GetByIdWithDetailsAsync(processDoneId);
@@ -705,21 +707,21 @@ public class ProcessDoneService : IProcessDoneService
     /// <summary>
     /// Procesa el consumo de todos los componentes (registra entradas negativas de producción)
     /// </summary>
-    private async Task ProcessAllComponentConsumptionAsync(List<CreateComponentUsageDto> componentUsages, int processDoneId, Process process)
+    private async Task ProcessAllComponentConsumptionAsync(List<CreateComponentUsageDto> componentUsages, int processDoneId, Process process, int? createdByUserId = null)
     {
         if (componentUsages == null || !componentUsages.Any())
             return;
 
         foreach (var componentUsage in componentUsages)
         {
-            await ProcessComponentConsumptionAsync(componentUsage, processDoneId, process);
+            await ProcessComponentConsumptionAsync(componentUsage, processDoneId, process, createdByUserId);
         }
     }
 
     /// <summary>
     /// Procesa el consumo de un componente usando algoritmo FIFO con autoreferencia
     /// </summary>
-    private async Task ProcessComponentConsumptionAsync(CreateComponentUsageDto componentUsage, int processDoneId, Process process)
+    private async Task ProcessComponentConsumptionAsync(CreateComponentUsageDto componentUsage, int processDoneId, Process process, int? createdByUserId = null)
     {
         var remainingQuantity = componentUsage.QuantityUsed;
         
@@ -755,6 +757,7 @@ public class ProcessDoneService : IProcessDoneService
                 Cost = costPerUnit * consumeFromThisProduction, // Costo proporcional
                 Notes = $"Consumido en proceso {process.Name}",
                 ComponentProductionId = availableProduction.Id, // ⭐ Referencia al lote original (FIFO)
+                CreatedByUserId = createdByUserId, // ⭐ Usuario responsable
                 IsActive = true,
                 CreatedAt = DateTime.Now
             };

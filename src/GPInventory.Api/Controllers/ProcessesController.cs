@@ -34,6 +34,21 @@ public class ProcessesController : ControllerBase
         }
     }
 
+    [HttpPost("filter")]
+    public async Task<ActionResult<IEnumerable<ProcessDto>>> GetProcessesWithFilters([FromBody] ProcessFilterDto filter)
+    {
+        try
+        {
+            var processes = await _processService.GetProcessesWithFiltersAsync(filter);
+            return Ok(processes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving filtered processes");
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
     [HttpGet("{id}")]
     public async Task<ActionResult<ProcessDto>> GetProcess(int id)
     {
@@ -185,6 +200,26 @@ public class ProcessesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deactivating process {ProcessId}", id);
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
+    [HttpPatch("{id}/activate")]
+    public async Task<ActionResult<ProcessDto>> ActivateProcess(int id)
+    {
+        try
+        {
+            var process = await _processService.ActivateProcessAsync(id);
+            return Ok(process);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Process not found for activation: {ProcessId}", id);
+            return NotFound(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error activating process {ProcessId}", id);
             return StatusCode(500, "Internal server error");
         }
     }

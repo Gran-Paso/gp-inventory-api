@@ -371,8 +371,10 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 se.supply_entry_id,
                 se.active,
                 se.created_by_user_id,
+                se.tag,
                 s.name as supply_name,
                 um.name as unit_measure_name,
+                um.symbol as unit_measure_symbol,
                 p.name as provider_name,
                 pd.id as process_done_id_full,
                 pd.process_id as process_id,
@@ -401,8 +403,10 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 se.supply_entry_id,
                 se.active,
                 se.created_by_user_id,
+                se.tag,
                 s.name as supply_name,
                 um.name as unit_measure_name,
+                um.symbol as unit_measure_symbol,
                 p.name as provider_name,
                 pd.id as process_done_id_full,
                 pd.process_id as process_id,
@@ -442,42 +446,44 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 UpdatedAt = reader.GetDateTime(7), // updated_at
                 ReferenceToSupplyEntry = reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8), // supply_entry_id
                 IsActive = !reader.IsDBNull(9) && reader.GetBoolean(9), // active
-                CreatedByUserId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10) // created_by_user_id
+                CreatedByUserId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10), // created_by_user_id
+                Tag = reader.IsDBNull(11) ? null : reader.GetString(11) // tag
             };
 
             // Agregar información de Supply
-            if (!reader.IsDBNull(11))
+            if (!reader.IsDBNull(12))
             {
                 supplyEntry.Supply = new Supply
                 {
                     Id = supplyEntry.SupplyId,
-                    Name = reader.GetString(11), // supply_name
-                    UnitMeasure = !reader.IsDBNull(12) ? new UnitMeasure
+                    Name = reader.GetString(12), // supply_name
+                    UnitMeasure = !reader.IsDBNull(13) ? new UnitMeasure
                     {
-                        Name = reader.GetString(12) // unit_measure_name
+                        Name = reader.GetString(13), // unit_measure_name
+                        Symbol = reader.IsDBNull(14) ? null : reader.GetString(14) // unit_measure_symbol
                     } : null
                 };
             }
 
             // Agregar información de Provider
-            if (!reader.IsDBNull(13))
+            if (!reader.IsDBNull(15))
             {
                 supplyEntry.Provider = new Provider
                 {
                     Id = supplyEntry.ProviderId,
-                    Name = reader.GetString(13) // provider_name
+                    Name = reader.GetString(15) // provider_name
                 };
             }
 
             // Si hay un process_done_id, crear el ProcessDone con la información disponible
-            if (!reader.IsDBNull(14))
+            if (!reader.IsDBNull(16))
             {
                 supplyEntry.ProcessDone = new ProcessDone
                 {
-                    Id = reader.GetInt32(14), // process_done_id_full
-                    ProcessId = reader.IsDBNull(15) ? 0 : reader.GetInt32(15), // process_id
-                    Notes = reader.IsDBNull(16) ? null : reader.GetString(16), // process_notes
-                    CompletedAt = reader.IsDBNull(17) ? DateTime.MinValue : reader.GetDateTime(17) // process_completed_at
+                    Id = reader.GetInt32(16), // process_done_id_full
+                    ProcessId = reader.IsDBNull(17) ? 0 : reader.GetInt32(17), // process_id
+                    Notes = reader.IsDBNull(18) ? null : reader.GetString(18), // process_notes
+                    CompletedAt = reader.IsDBNull(19) ? DateTime.MinValue : reader.GetDateTime(19) // process_completed_at
                 };
             }
 

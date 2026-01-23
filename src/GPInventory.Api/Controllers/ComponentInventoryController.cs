@@ -36,6 +36,21 @@ public class ComponentInventoryController : ControllerBase
         _logger = logger;
     }
 
+    private int? GetUserIdFromClaims()
+    {
+        var userIdClaim = User.FindFirst("sub") 
+            ?? User.FindFirst("user_id") 
+            ?? User.FindFirst("userId") 
+            ?? User.FindFirst("id")
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+        {
+            return userId;
+        }
+        return null;
+    }
+
     /// <summary>
     /// Obtener el stock actual de un componente
     /// </summary>
@@ -76,6 +91,13 @@ public class ComponentInventoryController : ControllerBase
     {
         try
         {
+            // Obtener el componente para tener la unidad de medida
+            var component = await _componentRepository.GetByIdAsync(componentId);
+            if (component == null)
+            {
+                return NotFound(new { message = "Componente no encontrado" });
+            }
+            
             var productions = (await _componentProductionRepository.GetByComponentIdAsync(componentId)).ToList();
             
             // Load user names for all productions
@@ -87,11 +109,13 @@ public class ComponentInventoryController : ControllerBase
             
             var users = await _userRepository.GetUserNamesByIdsAsync(userIds);
             
-            // Map to DTOs with user names
+            // Map to DTOs with user names and component info
             var dtos = productions.Select(p => new ComponentProductionDto
             {
                 Id = p.Id,
                 ComponentId = p.ComponentId,
+                ComponentName = component.Name,
+                ComponentUnitMeasureSymbol = component.UnitMeasureSymbol,
                 ProducedAmount = p.ProducedAmount,
                 ProductionDate = p.ProductionDate ?? DateTime.MinValue,
                 ExpirationDate = p.ExpirationDate,
@@ -158,18 +182,19 @@ public class ComponentInventoryController : ControllerBase
                     if (consumption.ItemType == "supply")
                     {
                         // Consumir insumo usando FIFO (entrada negativa con referencia al padre)
-                        var supplyCost = await ConsumeSupplyWithFIFOAsync(consumption.ItemId, consumption.Quantity);
+                        var supplyCost = await ConsumeSupplyWithFIFOAsync(consumption.ItemId, consumption.Quantity, dto.CreatedByUserId);
                         totalCost += supplyCost;
                     }
                     else if (consumption.ItemType == "component")
                     {
-                        // ⭐ Consumir sub-componente usando FIFO (producción negativa con referencia al padre)
+                        // Consumir componente usando FIFO (producción negativa con referencia al padre)
                         var componentCost = await ConsumeComponentWithFIFOAsync(
                             consumption.ItemId, 
                             consumption.Quantity, 
                             dto.BusinessId, 
                             dto.StoreId,
-                            $"Consumo por producción de componente: {component.Name}"
+                            $"Consumo por producción de componente: {component.Name}",
+                            dto.CreatedByUserId
                         );
                         totalCost += componentCost;
                     }
@@ -184,8 +209,8 @@ public class ComponentInventoryController : ControllerBase
 
                     if (ingredient.ItemType == "supply" && ingredient.SupplyId.HasValue)
                     {
-                        // Consumir insumo usando FIFO (entrada negativa con referencia al padre)
-                        var supplyCost = await ConsumeSupplyWithFIFOAsync(ingredient.SupplyId.Value, quantityToConsume);
+                        // ⭐ Consumir insumo usando FIFO (entrada negativa con referencia al padre)
+                        var supplyCost = await ConsumeSupplyWithFIFOAsync(ingredient.SupplyId.Value, quantityToConsume, dto.CreatedByUserId);
                         totalCost += supplyCost;
                     }
                     else if (ingredient.ItemType == "component" && ingredient.SubComponentId.HasValue)
@@ -196,7 +221,8 @@ public class ComponentInventoryController : ControllerBase
                             quantityToConsume, 
                             dto.BusinessId, 
                             dto.StoreId,
-                            $"Consumo por producción de componente: {component.Name}"
+                            $"Consumo por producción de componente: {component.Name}",
+                            dto.CreatedByUserId
                         );
                         totalCost += componentCost;
                     }
@@ -236,7 +262,7 @@ public class ComponentInventoryController : ControllerBase
     /// Consume insumos usando algoritmo FIFO con autoreferencia
     /// Retorna el costo total de los insumos consumidos
     /// </summary>
-    private async Task<decimal> ConsumeSupplyWithFIFOAsync(int supplyId, decimal quantityToConsume)
+    private async Task<decimal> ConsumeSupplyWithFIFOAsync(int supplyId, decimal quantityToConsume, int? createdByUserId = null)
     {
         var remainingQuantity = quantityToConsume;
         decimal totalCost = 0m;
@@ -268,7 +294,8 @@ public class ComponentInventoryController : ControllerBase
                 availableEntry.ProviderId,         // Usar el mismo proveedor
                 supplyId,                          // SupplyId
                 null,                              // ProcessDoneId (null para producción de componentes)
-                availableEntry.Id                  // ⭐ Referencia al stock original (supply_entry_id)
+                availableEntry.Id,                 // ⭐ Referencia al stock original (supply_entry_id)
+                createdByUserId                    // ⭐ Usuario responsable
             );
             
             await _supplyEntryRepository.CreateAsync(supplyEntry);
@@ -310,7 +337,7 @@ public class ComponentInventoryController : ControllerBase
     /// Consume componentes usando algoritmo FIFO con autoreferencia
     /// Retorna el costo total de los componentes consumidos
     /// </summary>
-    private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, int storeId, string? notes = null)
+    private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, int storeId, string? notes = null, int? createdByUserId = null)
     {
         var remainingQuantity = quantityToConsume;
         decimal totalCost = 0m;
@@ -353,6 +380,7 @@ public class ComponentInventoryController : ControllerBase
                 Cost = costFromThisProduction, // Costo proporcional
                 Notes = notes,
                 ComponentProductionId = availableProduction.Id, // ⭐ Referencia al lote original (FIFO)
+                CreatedByUserId = createdByUserId, // ⭐ Usuario responsable
                 IsActive = true,
                 CreatedAt = DateTime.Now,
                 UpdatedAt = DateTime.Now
@@ -401,6 +429,9 @@ public class ComponentInventoryController : ControllerBase
     {
         try
         {
+            // ⭐ Obtener usuario responsable
+            var userId = GetUserIdFromClaims();
+            
             _logger.LogInformation("🔄 Removiendo {amount} unidades de la producción de componente {productionId}", request.Amount, productionId);
 
             await _context.Database.OpenConnectionAsync();
@@ -486,7 +517,8 @@ public class ComponentInventoryController : ControllerBase
                         production_date, 
                         created_at, 
                         updated_at,
-                        notes
+                        notes,
+                        created_by_user_id
                     )
                     VALUES (
                         @componentId, 
@@ -498,7 +530,8 @@ public class ComponentInventoryController : ControllerBase
                         NOW(), 
                         NOW(), 
                         NOW(),
-                        @notes
+                        @notes,
+                        @createdByUserId
                     )";
 
                 using var insertCmd = connection.CreateCommand();
@@ -533,6 +566,11 @@ public class ComponentInventoryController : ControllerBase
                 notesParam.ParameterName = "@notes";
                 notesParam.Value = request.Notes ?? "Stock removido manualmente";
                 insertCmd.Parameters.Add(notesParam);
+
+                var createdByUserIdParam = insertCmd.CreateParameter();
+                createdByUserIdParam.ParameterName = "@createdByUserId";
+                createdByUserIdParam.Value = (object?)userId ?? DBNull.Value;
+                insertCmd.Parameters.Add(createdByUserIdParam);
 
                 await insertCmd.ExecuteNonQueryAsync();
 

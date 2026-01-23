@@ -2,6 +2,13 @@ using GPInventory.Application.DTOs.Components;
 
 namespace GPInventory.Application.DTOs.Production;
 
+public enum ProcessStockStatus
+{
+    OK = 0,          // Todos los insumos tienen stock suficiente
+    Warning = 1,     // Algún insumo está en stock crítico (bajo pero disponible)
+    Critical = 2     // Algún insumo sin stock (proceso bloqueado)
+}
+
 public class ProcessDto
 {
     public int Id { get; set; }
@@ -14,6 +21,14 @@ public class ProcessDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsActive { get; set; }
+    
+    // Statistics
+    public decimal? AverageCost { get; set; }
+    public DateTime? LastExecutionDate { get; set; }
+    public string? LastExecutionUser { get; set; }
+    public decimal? LastExecutionAmount { get; set; }
+    public ProcessStockStatus StockStatus { get; set; } = ProcessStockStatus.OK;
+    public int ExecutionCount { get; set; } = 0;
     
     // Navigation properties
     public ProductDto? Product { get; set; }
@@ -222,4 +237,24 @@ public class ComponentUsageDetailDto
     public string ComponentName { get; set; } = string.Empty;
     public int QuantityUsed { get; set; }
     public decimal Cost { get; set; }
+}
+
+public enum ProcessSortBy
+{
+    Name,
+    ExecutionFrequency,
+    LastExecutionDate,
+    ProductionTime,
+    CriticalStock
+}
+
+public class ProcessFilterDto
+{
+    public int[]? StoreIds { get; set; }
+    public int? BusinessId { get; set; }
+    public string? Search { get; set; }
+    public bool? IsActive { get; set; }
+    public ProcessStockStatus? StockStatus { get; set; }
+    public ProcessSortBy SortBy { get; set; } = ProcessSortBy.Name;
+    public bool SortDescending { get; set; } = false;
 }

@@ -99,6 +99,7 @@ public class ComponentProductionDto
     public int Id { get; set; }
     public int ComponentId { get; set; }
     public string? ComponentName { get; set; }
+    public string? ComponentUnitMeasureSymbol { get; set; }
     public decimal ProducedAmount { get; set; }
     public DateTime ProductionDate { get; set; }
     public DateTime? ExpirationDate { get; set; }

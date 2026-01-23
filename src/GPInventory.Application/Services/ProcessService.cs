@@ -178,10 +178,116 @@ public class ProcessService : IProcessService
         return MapToDto(process);
     }
 
+    public async Task<ProcessDto> ActivateProcessAsync(int id)
+    {
+        var process = await _processRepository.GetByIdAsync(id);
+        if (process == null)
+        {
+            throw new InvalidOperationException($"Process with id {id} not found");
+        }
+
+        // Activar el proceso estableciendo IsActive a true
+        process.IsActive = true;
+        await _processRepository.UpdateAsync(process);
+        
+        return MapToDto(process);
+    }
+
     public async Task<IEnumerable<ProcessDto>> GetProcessesWithDetailsAsync(int[]? storeIds = null, int? businessId = null)
     {
         var processes = await _processRepository.GetProcessesWithDetailsAsync(storeIds, businessId);
-        return processes.Select(MapToDto);
+        var processDtos = new List<ProcessDto>();
+
+        foreach (var process in processes)
+        {
+            var dto = MapToDto(process);
+
+            // Populate statistics
+            try
+            {
+                dto.AverageCost = await _processRepository.GetAverageCostAsync(process.Id);
+                
+                var lastExecution = await _processRepository.GetLastExecutionAsync(process.Id);
+                if (lastExecution.HasValue)
+                {
+                    dto.LastExecutionDate = lastExecution.Value.date;
+                    dto.LastExecutionUser = lastExecution.Value.userName;
+                    dto.LastExecutionAmount = lastExecution.Value.amount;
+                }
+
+                var stockStatus = await _processRepository.GetProcessSuppliesStockStatusAsync(process.Id);
+                dto.StockStatus = (ProcessStockStatus)stockStatus;
+
+                dto.ExecutionCount = await _processRepository.GetExecutionCountAsync(process.Id);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading statistics for process {process.Id}: {ex.Message}");
+                // Continue with default values
+            }
+
+            processDtos.Add(dto);
+        }
+
+        return processDtos;
+    }
+
+    public async Task<IEnumerable<ProcessDto>> GetProcessesWithFiltersAsync(ProcessFilterDto filter)
+    {
+        // Get all processes with details
+        var processes = await GetProcessesWithDetailsAsync(filter.StoreIds, filter.BusinessId);
+
+        // Apply filters
+        var query = processes.AsEnumerable();
+
+        // Search filter
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var searchLower = filter.Search.ToLower();
+            query = query.Where(p =>
+                p.Name.ToLower().Contains(searchLower) ||
+                (p.Description != null && p.Description.ToLower().Contains(searchLower)) ||
+                (p.Product != null && p.Product.Name.ToLower().Contains(searchLower))
+            );
+        }
+
+        // IsActive filter
+        if (filter.IsActive.HasValue)
+        {
+            query = query.Where(p => p.IsActive == filter.IsActive.Value);
+        }
+
+        // Stock status filter
+        if (filter.StockStatus.HasValue)
+        {
+            query = query.Where(p => p.StockStatus == filter.StockStatus.Value);
+        }
+
+        // Apply sorting
+        query = filter.SortBy switch
+        {
+            ProcessSortBy.ExecutionFrequency => filter.SortDescending
+                ? query.OrderByDescending(p => p.ExecutionCount)
+                : query.OrderBy(p => p.ExecutionCount),
+
+            ProcessSortBy.LastExecutionDate => filter.SortDescending
+                ? query.OrderByDescending(p => p.LastExecutionDate ?? DateTime.MinValue)
+                : query.OrderBy(p => p.LastExecutionDate ?? DateTime.MinValue),
+
+            ProcessSortBy.ProductionTime => filter.SortDescending
+                ? query.OrderByDescending(p => p.ProductionTime)
+                : query.OrderBy(p => p.ProductionTime),
+
+            ProcessSortBy.CriticalStock => filter.SortDescending
+                ? query.OrderByDescending(p => (int)p.StockStatus)
+                : query.OrderBy(p => (int)p.StockStatus),
+
+            _ => filter.SortDescending
+                ? query.OrderByDescending(p => p.Name)
+                : query.OrderBy(p => p.Name),
+        };
+
+        return query.ToList();
     }
 
     private static ProcessDto MapToDto(Process process)
