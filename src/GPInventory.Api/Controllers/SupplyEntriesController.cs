@@ -339,7 +339,7 @@ public class SupplyEntriesController : ControllerBase
 
                 var createdByUserIdParam = insertCmd.CreateParameter();
                 createdByUserIdParam.ParameterName = "@createdByUserId";
-                createdByUserIdParam.Value = (object)userId ?? DBNull.Value;
+                createdByUserIdParam.Value = (object)userId! ?? DBNull.Value;
                 insertCmd.Parameters.Add(createdByUserIdParam);
 
                 await insertCmd.ExecuteNonQueryAsync();
