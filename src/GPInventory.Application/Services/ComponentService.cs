@@ -64,6 +64,19 @@ public class ComponentService : IComponentService
         
         // Calculate stock status
         dto.StockStatus = StockHelper.CalculateStockStatus(currentStock, dto.MinimumStock);
+        
+        // Get unit cost from last production, or calculate if no production exists
+        var lastProduction = await _productionRepository.GetLastProductionByComponentIdAsync(dto.Id);
+        if (lastProduction != null && lastProduction.ProducedAmount > 0)
+        {
+            // Use unit cost from last production: total cost / produced amount
+            dto.UnitCost = lastProduction.Cost / lastProduction.ProducedAmount;
+        }
+        else
+        {
+            // Fallback: calculate cost from recipe (sum of component supplies)
+            dto.UnitCost = await CalculateTotalCostAsync(dto.Id);
+        }
     }
 
     public async Task<ComponentDto> CreateAsync(CreateComponentDto dto)
@@ -300,9 +313,13 @@ public class ComponentService : IComponentService
         {
             if (supply.ItemType == "supply" && supply.Supply != null)
             {
-                // TODO: Calcular costo promedio del supply desde supply_entries
-                // Por ahora usamos 0 como placeholder
-                decimal supplyCost = 0;
+                // Get cost from last supply entry
+                var lastEntry = supply.Supply.SupplyEntries
+                    ?.Where(se => se.Amount > 0)
+                    .OrderByDescending(se => se.CreatedAt)
+                    .FirstOrDefault();
+
+                decimal supplyCost = lastEntry?.UnitCost ?? supply.Supply.FixedExpense?.Amount ?? 0;
                 totalCost += supplyCost * supply.Quantity;
             }
             else if (supply.ItemType == "component" && supply.SubComponentId.HasValue)
@@ -310,7 +327,21 @@ public class ComponentService : IComponentService
                 var subComponent = await _repository.GetByIdWithSuppliesAsync(supply.SubComponentId.Value);
                 if (subComponent != null)
                 {
-                    var subCost = await CalculateCostRecursive(subComponent);
+                    // Get cost from last component production
+                    var lastProduction = await _productionRepository.GetLastProductionByComponentIdAsync(supply.SubComponentId.Value);
+                    
+                    decimal subCost;
+                    if (lastProduction != null && lastProduction.ProducedAmount > 0)
+                    {
+                        // Calculate unit cost: total cost / produced amount
+                        subCost = lastProduction.Cost / lastProduction.ProducedAmount;
+                    }
+                    else
+                    {
+                        // Fallback to recursive calculation if no production exists
+                        subCost = await CalculateCostRecursive(subComponent);
+                    }
+                    
                     totalCost += subCost * supply.Quantity;
                 }
             }

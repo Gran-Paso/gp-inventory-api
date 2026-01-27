@@ -652,6 +652,88 @@ public class ComponentProductionRepository : IComponentProductionRepository
         }
     }
 
+    public async Task<ComponentProduction?> GetLastProductionByComponentIdAsync(int componentId)
+    {
+        var sql = @"
+            SELECT 
+                id,
+                component_id,
+                process_done_id,
+                business_id,
+                store_id,
+                produced_amount,
+                production_date,
+                expiration_date,
+                batch_number,
+                cost,
+                notes,
+                component_production_id,
+                created_by_user_id,
+                is_active,
+                created_at,
+                updated_at
+            FROM component_production
+            WHERE component_id = @p0
+            AND component_production_id IS NULL
+            AND is_active = 1
+            ORDER BY created_at DESC
+            LIMIT 1";
+
+        var connection = _context.Database.GetDbConnection();
+        var shouldCloseConnection = connection.State == System.Data.ConnectionState.Closed;
+        
+        if (shouldCloseConnection)
+            await connection.OpenAsync();
+        
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@p0";
+            parameter.Value = componentId;
+            command.Parameters.Add(parameter);
+            
+            using var reader = await command.ExecuteReaderAsync();
+            
+            if (await reader.ReadAsync())
+            {
+                return new ComponentProduction
+                {
+                    Id = reader.GetInt32(0),
+                    ComponentId = reader.GetInt32(1),
+                    ProcessDoneId = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                    BusinessId = reader.GetInt32(3),
+                    StoreId = reader.GetInt32(4),
+                    ProducedAmount = reader.GetDecimal(5),
+                    ProductionDate = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                    ExpirationDate = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
+                    BatchNumber = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    Cost = reader.GetDecimal(9),
+                    Notes = reader.IsDBNull(10) ? null : reader.GetString(10),
+                    ComponentProductionId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
+                    CreatedByUserId = reader.IsDBNull(12) ? null : reader.GetInt32(12),
+                    IsActive = reader.GetBoolean(13),
+                    CreatedAt = reader.GetDateTime(14),
+                    UpdatedAt = reader.GetDateTime(15)
+                };
+            }
+            
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in GetLastProductionByComponentIdAsync: {ex.Message}");
+            throw;
+        }
+        finally
+        {
+            if (shouldCloseConnection)
+                await connection.CloseAsync();
+        }
+    }
+
     public async Task<(decimal stock, decimal totalValue)> GetStockAndValueAsync(int componentId)
     {
         // Calcular el stock disponible y el valor total usando FIFO
