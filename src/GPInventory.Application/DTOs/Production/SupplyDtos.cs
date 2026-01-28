@@ -70,6 +70,9 @@ public class SupplyDto
     public int CurrentStock { get; set; } = 0;
     public StockStatus StockStatus { get; set; } = StockStatus.OutOfStock;
     
+    // Cost information
+    public decimal UnitCost { get; set; } = 0;
+    
     // Navigation properties
     public UnitMeasureDto? UnitMeasure { get; set; }
     public FixedExpenseDto? FixedExpense { get; set; }

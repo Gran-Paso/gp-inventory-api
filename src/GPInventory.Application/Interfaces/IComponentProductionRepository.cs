@@ -12,5 +12,6 @@ public interface IComponentProductionRepository
     Task<IEnumerable<ComponentProduction>> GetAllAsync();
     Task<IEnumerable<ComponentProduction>> GetAvailableProductionsByComponentIdAsync(int componentId);
     Task<ComponentProduction?> GetByIdAsync(int id);
+    Task<ComponentProduction?> GetLastProductionByComponentIdAsync(int componentId);
     Task UpdateAsync(ComponentProduction componentProduction);
 }
