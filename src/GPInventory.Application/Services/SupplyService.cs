@@ -203,6 +203,11 @@ public class SupplyService : ISupplyService
             // Calculate stock status based on current stock and minimum threshold
             StockStatus = StockHelper.CalculateStockStatus(currentStock, supply.MinimumStock),
             
+            // Set unit cost from last supply entry if available, otherwise from FixedExpense
+            UnitCost = GetLastUnitCost(supply),
+            
+            // Navigation properties - only include if loaded
+            
             // Navigation properties - only include if loaded
             UnitMeasure = supply.UnitMeasure != null ? new UnitMeasureDto
             {
@@ -268,5 +273,22 @@ public class SupplyService : ISupplyService
                 } : null
             }).ToList() ?? new List<SupplyEntryDto>()
         };
+    }
+
+    private static decimal GetLastUnitCost(Supply supply)
+    {
+        // Get the last supply entry with a positive amount (purchase)
+        var lastEntry = supply.SupplyEntries
+            ?.Where(se => se.Amount > 0)
+            .OrderByDescending(se => se.CreatedAt)
+            .FirstOrDefault();
+
+        if (lastEntry != null && lastEntry.UnitCost > 0)
+        {
+            return lastEntry.UnitCost;
+        }
+
+        // Fallback to FixedExpense if no supply entry found
+        return supply.FixedExpense?.Amount ?? 0;
     }
 }

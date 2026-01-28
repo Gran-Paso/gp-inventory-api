@@ -30,6 +30,9 @@ public class ComponentDto
     // Stock information (not persisted, calculated at runtime)
     public decimal CurrentStock { get; set; } = 0;
     public StockStatus StockStatus { get; set; } = StockStatus.OutOfStock;
+    
+    // Cost information (not persisted, calculated at runtime)
+    public decimal UnitCost { get; set; } = 0;
 }
 
 public class ComponentSupplyDto
