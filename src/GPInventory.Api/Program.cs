@@ -81,12 +81,23 @@ builder.Services.AddCors(options =>
                 "http://localhost:5000",
                 "http://127.0.0.1:5173",  // Local IP variant
                 "http://127.0.0.1:5000",  // Local IP variant
+                // Producción
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
                 "https://factory.granpasochile.cl",    // GP Factory producción
                 "https://auth.granpasochile.cl",       // GP Auth producción
                 "https://granpasochile.cl",            // Gran Paso website producción
-                "https://www.granpasochile.cl"         // Gran Paso website producción con www
+                "https://www.granpasochile.cl",        // Gran Paso website producción con www
+                // QA
+                "https://qa.inventory.granpasochile.cl",  // GP Inventory QA
+                "https://qa.expenses.granpasochile.cl",   // GP Expenses QA
+                "https://qa.factory.granpasochile.cl",    // GP Factory QA
+                "https://qa.auth.granpasochile.cl",       // GP Auth QA
+                // Dev
+                "https://dev.inventory.granpasochile.cl",  // GP Inventory Dev
+                "https://dev.expenses.granpasochile.cl",   // GP Expenses Dev
+                "https://dev.factory.granpasochile.cl",    // GP Factory Dev
+                "https://dev.auth.granpasochile.cl"        // GP Auth Dev
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
