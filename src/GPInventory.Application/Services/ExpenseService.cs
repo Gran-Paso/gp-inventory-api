@@ -347,12 +347,13 @@ public class ExpenseService : IExpenseService
             var createdExpense = await _expenseRepository.AddAsync(expense);
             
             // Si viene con datos de payment plan, crear el payment plan
+            // Aplica tanto para Crédito (2) como Financiamiento Bancario (3)
             if (createExpenseDto.PaymentTypeId.HasValue && 
-                createExpenseDto.PaymentTypeId.Value == 3 && // 3 = Financiamiento Bancario
+                (createExpenseDto.PaymentTypeId.Value == 2 || createExpenseDto.PaymentTypeId.Value == 3) &&
                 createExpenseDto.InstallmentsCount.HasValue &&
                 createExpenseDto.InstallmentsCount.Value > 1)
             {
-                Console.WriteLine($"Creating payment plan for expense {createdExpense.Id}");
+                Console.WriteLine($"Creating payment plan for expense {createdExpense.Id} with payment type {createExpenseDto.PaymentTypeId.Value}");
                 
                 var paymentPlan = new PaymentPlan
                 {
@@ -360,7 +361,7 @@ public class ExpenseService : IExpenseService
                     PaymentTypeId = createExpenseDto.PaymentTypeId.Value,
                     InstallmentsCount = createExpenseDto.InstallmentsCount.Value,
                     ExpressedInUf = createExpenseDto.ExpressedInUf ?? false,
-                    BankEntityId = createExpenseDto.BankEntityId,
+                    BankEntityId = createExpenseDto.BankEntityId, // Null para crédito, requerido para financiamiento
                     StartDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow
                 };
                 
@@ -399,7 +400,7 @@ public class ExpenseService : IExpenseService
                     await _paymentInstallmentRepository.CreateAsync(installment);
                 }
                 
-                Console.WriteLine($"Created {createExpenseDto.InstallmentsCount.Value} installments");
+                Console.WriteLine($"Created {createExpenseDto.InstallmentsCount.Value} installments for payment type {createExpenseDto.PaymentTypeId.Value}");
             }
             
             return _mapper.Map<ExpenseDto>(createdExpense);

@@ -12,6 +12,7 @@ public class ProcessDoneService : IProcessDoneService
     private readonly IStockRepository _stockRepository;
     private readonly IComponentProductionRepository _componentProductionRepository;
     private readonly IManufactureRepository _manufactureRepository;
+    private readonly IUserRepository _userRepository;
 
     public ProcessDoneService(
         IProcessDoneRepository processDoneRepository, 
@@ -19,7 +20,8 @@ public class ProcessDoneService : IProcessDoneService
         ISupplyEntryRepository supplyEntryRepository, 
         IStockRepository stockRepository, 
         IComponentProductionRepository componentProductionRepository,
-        IManufactureRepository manufactureRepository)
+        IManufactureRepository manufactureRepository,
+        IUserRepository userRepository)
     {
         _processDoneRepository = processDoneRepository;
         _processRepository = processRepository;
@@ -27,6 +29,7 @@ public class ProcessDoneService : IProcessDoneService
         _stockRepository = stockRepository;
         _componentProductionRepository = componentProductionRepository;
         _manufactureRepository = manufactureRepository;
+        _userRepository = userRepository;
     }
 
     public async Task<ProcessDoneDto> GetProcessDoneByIdAsync(int id)
@@ -47,7 +50,12 @@ public class ProcessDoneService : IProcessDoneService
     public async Task<IEnumerable<ProcessDoneDto>> GetProcessDonesByProcessIdAsync(int processId)
     {
         var processDones = await _processDoneRepository.GetByProcessIdAsync(processId);
-        return processDones.Select(MapToDto);
+        var dtos = processDones.Select(MapToDto).ToList();
+        
+        // Enriquecer con nombres de usuarios
+        await EnrichWithUserNamesAsync(dtos);
+        
+        return dtos;
     }
 
     public async Task<ProcessDoneDto> CreateProcessDoneAsync(CreateProcessDoneDto createProcessDoneDto)
@@ -645,6 +653,7 @@ public class ProcessDoneService : IProcessDoneService
             CreatedAt = processDone.CreatedAt,
             UpdatedAt = processDone.UpdatedAt,
             IsActive = processDone.IsActive,
+            CreatedByUserId = processDone.CreatedByUserId,
             Process = processDone.Process != null ? new ProcessDto
             {
                 Id = processDone.Process.Id,
@@ -679,6 +688,7 @@ public class ProcessDoneService : IProcessDoneService
             CreatedAt = processDone.CreatedAt,
             UpdatedAt = processDone.UpdatedAt,
             IsActive = processDone.IsActive,
+            CreatedByUserId = processDone.CreatedByUserId,
             Process = processDone.Process != null ? new ProcessDto
             {
                 Id = processDone.Process.Id,
@@ -789,5 +799,26 @@ public class ProcessDoneService : IProcessDoneService
         
         if (remainingQuantity > 0)
             throw new InvalidOperationException($"Insufficient stock for Component ID {componentUsage.ComponentId}. Missing: {remainingQuantity}");
+    }
+    
+    private async Task EnrichWithUserNamesAsync(List<ProcessDoneDto> dtos)
+    {
+        var userIds = dtos
+            .Where(d => d.CreatedByUserId.HasValue)
+            .Select(d => d.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        
+        if (!userIds.Any()) return;
+        
+        var userNames = await _userRepository.GetUserNamesByIdsAsync(userIds);
+        
+        foreach (var dto in dtos)
+        {
+            if (dto.CreatedByUserId.HasValue && userNames.TryGetValue(dto.CreatedByUserId.Value, out var userName))
+            {
+                dto.CreatedByUserName = userName;
+            }
+        }
     }
 }

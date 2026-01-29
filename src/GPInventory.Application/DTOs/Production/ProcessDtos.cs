@@ -138,10 +138,12 @@ public class ProcessDoneDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsActive { get; set; }
+    public int? CreatedByUserId { get; set; }
     
     // Navigation properties
     public ProcessDto? Process { get; set; }
     public List<SupplyUsageDto> SupplyUsages { get; set; } = new();
+    public string? CreatedByUserName { get; set; }
 }
 
 public class CreateProcessDoneDto
