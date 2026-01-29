@@ -191,13 +191,13 @@ public class SupplyEntryService : ISupplyEntryService
         var created = await _repository.CreateAsync(supplyEntry);
 
         // Si es una entrada de stock (no tiene ProcessDoneId), crear un expense automáticamente
-        if (createDto.ProcessDoneId == null && supply.FixedExpenseId.HasValue)
+        if (createDto.ProcessDoneId == null)
         {
             try
             {
                 // Para el expense, usar el costo real de la compra
                 decimal totalAmount;
-                if (supply.UnitMeasureId == 2) // Grams
+                if (supply.UnitMeasureId == 2 || supply.UnitMeasureId == 4) // Grams or Milliliters
                 {
                     // Si está en gramos, el costo unitario está en kilos y la cantidad en gramos
                     // Convertir gramos a kilos para calcular el costo total real
@@ -212,13 +212,23 @@ public class SupplyEntryService : ISupplyEntryService
                 
                 // Usar la subcategoría del FixedExpense del supply, o buscar una por defecto
                 int subcategoryId;
-                var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
-                if (fixedExpense?.SubcategoryId.HasValue == true)
+                int? fixedExpenseId = supply.FixedExpenseId;
+                
+                if (supply.FixedExpenseId.HasValue)
                 {
-                    subcategoryId = fixedExpense.SubcategoryId.Value;
+                    var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
+                    if (fixedExpense?.SubcategoryId.HasValue == true)
+                    {
+                        subcategoryId = fixedExpense.SubcategoryId.Value;
+                    }
+                    else
+                    {
+                        subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
+                    }
                 }
                 else
                 {
+                    // Si no tiene FixedExpenseId, usar subcategoría por defecto
                     subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
                 }
                 
@@ -230,12 +240,12 @@ public class SupplyEntryService : ISupplyEntryService
                     Date = DateTime.UtcNow,
                     BusinessId = supply.BusinessId,
                     StoreId = supply.StoreId,
-                    IsFixed = true,
-                    FixedExpenseId = supply.FixedExpenseId.Value,
+                    IsFixed = fixedExpenseId.HasValue, // Solo true si tiene FixedExpenseId
+                    FixedExpenseId = fixedExpenseId,
                     ProviderId = createDto.ProviderId,
                     ExpenseTypeId = 2, // Costos - compra de insumos
                     
-                    // Payment Plan data (if financing)
+                    // Payment Plan data (if financing or credit)
                     PaymentTypeId = createDto.PaymentTypeId,
                     InstallmentsCount = createDto.InstallmentsCount,
                     ExpressedInUf = createDto.ExpressedInUf ?? false,
@@ -244,11 +254,12 @@ public class SupplyEntryService : ISupplyEntryService
                 };
 
                 await _expenseService.CreateExpenseAsync(expenseDto);
-                Console.WriteLine($"✅ Expense created automatically for supply entry {created.Id}");
+                Console.WriteLine($"✅ Expense created automatically for supply entry {created.Id} (FixedExpenseId: {fixedExpenseId})");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"⚠️ Warning: Could not create expense for supply entry {created.Id}: {ex.Message}");
+                Console.WriteLine($"⚠️ Stack trace: {ex.StackTrace}");
                 // No lanzamos excepción para no fallar la creación del supply entry
             }
         }
