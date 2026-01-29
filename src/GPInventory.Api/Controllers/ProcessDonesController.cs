@@ -524,7 +524,22 @@ public class ProcessDonesController : ControllerBase
                         p.production_time,
                         p.active as is_active,
                         COUNT(DISTINCT pd.id) as total_completions,
-                        MAX(pd.completed_at) as last_completed_at
+                        MAX(pd.completed_at) as last_completed_at,
+                        CASE 
+                            WHEN EXISTS (
+                                SELECT 1 FROM process_supplies ps
+                                INNER JOIN supplies s ON ps.supply_id = s.Id
+                                LEFT JOIN (
+                                    SELECT supply_id, SUM(amount) as total_stock
+                                    FROM supply_entry
+                                    WHERE active = 1
+                                    GROUP BY supply_id
+                                ) se ON s.Id = se.supply_id
+                                WHERE ps.process_id = p.id
+                                AND (se.total_stock IS NULL OR se.total_stock < 10)
+                            ) THEN 1
+                            ELSE 0
+                        END as has_critical_stock
                     FROM processes p
                     INNER JOIN product pr ON p.product_id = pr.Id
                     LEFT JOIN process_done pd ON p.id = pd.process_id AND pd.completed_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
@@ -552,6 +567,7 @@ public class ProcessDonesController : ControllerBase
                     var isActive = reader.GetBoolean(3);
                     var totalCompletions = reader.GetInt32(4);
                     var lastCompletion = reader.IsDBNull(5) ? (DateTime?)null : reader.GetDateTime(5);
+                    var hasCriticalStock = reader.GetBoolean(6);
 
                     if (isActive) activeProcesses++;
                     else inactiveProcesses++;
@@ -571,7 +587,8 @@ public class ProcessDonesController : ControllerBase
                         name = reader.GetString(1),
                         productionTime = reader.GetInt32(2),
                         isActive = isActive,
-                        completionsToday = totalCompletions
+                        completionsToday = totalCompletions,
+                        hasCriticalStock = hasCriticalStock
                     });
                 }
                 await reader.CloseAsync();
@@ -625,27 +642,6 @@ public class ProcessDonesController : ControllerBase
                 _logger.LogInformation("📊 Tiempo promedio entre procesos HOY: {avgTimeBetween} min (basado en {count} intervalos). Tiempo configurado: {avgProductionTime} min", 
                     avgTimeBetween, countIntervals, avgProductionTime);
 
-                // Calcular procesos en riesgo (aquellos que exceden el tiempo promedio)
-                // Para esto necesitamos los process_done activos
-                var atRiskQuery = @"
-                    SELECT COUNT(DISTINCT pd.id)
-                    FROM process_done pd
-                    INNER JOIN processes p ON pd.process_id = p.id
-                    INNER JOIN product pr ON p.product_id = pr.Id
-                    WHERE pr.business = @businessId
-                    AND pd.start_date IS NOT NULL
-                    AND pd.end_date IS NULL
-                    AND TIMESTAMPDIFF(MINUTE, pd.start_date, NOW()) > p.production_time";
-
-                using var atRiskCmd = connection.CreateCommand();
-                atRiskCmd.CommandText = atRiskQuery;
-                var businessIdParam2 = atRiskCmd.CreateParameter();
-                businessIdParam2.ParameterName = "@businessId";
-                businessIdParam2.Value = businessId;
-                atRiskCmd.Parameters.Add(businessIdParam2);
-
-                var atRiskCount = Convert.ToInt32(await atRiskCmd.ExecuteScalarAsync() ?? 0);
-
                 // Calcular procesos afectados por stock crítico
                 // Stock crítico: cuando el stock disponible es menor al necesario
                 var criticalStockQuery = @"
@@ -666,10 +662,10 @@ public class ProcessDonesController : ControllerBase
 
                 using var criticalCmd = connection.CreateCommand();
                 criticalCmd.CommandText = criticalStockQuery;
-                var businessIdParam3 = criticalCmd.CreateParameter();
-                businessIdParam3.ParameterName = "@businessId";
-                businessIdParam3.Value = businessId;
-                criticalCmd.Parameters.Add(businessIdParam3);
+                var businessIdParam2 = criticalCmd.CreateParameter();
+                businessIdParam2.ParameterName = "@businessId";
+                businessIdParam2.Value = businessId;
+                criticalCmd.Parameters.Add(businessIdParam2);
 
                 var criticalStockCount = Convert.ToInt32(await criticalCmd.ExecuteScalarAsync() ?? 0);
 
@@ -698,7 +694,6 @@ public class ProcessDonesController : ControllerBase
                     kpis = new
                     {
                         completed = new { count = completedToday, label = "Completados Hoy", color = "green" },
-                        atRisk = new { count = atRiskCount, label = "En Riesgo", color = "orange" },
                         criticalStock = new { count = criticalStockCount, label = "Stock Crítico", color = "red" },
                         active = new { count = activeProcesses, label = "Activos", color = "blue" },
                         inactive = new { count = inactiveProcesses, label = "Inactivos", color = "gray" }
@@ -709,7 +704,7 @@ public class ProcessDonesController : ControllerBase
                     lastUpdate = DateTime.UtcNow
                 };
 
-                _logger.LogInformation("✅ Estado situacional obtenido: {activeProcesses} activos, {atRiskCount} en riesgo, tiempo entre procesos: {avgTimeBetween} min", activeProcesses, atRiskCount, avgTimeBetween);
+                _logger.LogInformation("✅ Estado situacional obtenido: {activeProcesses} activos, tiempo entre procesos: {avgTimeBetween} min", activeProcesses, avgTimeBetween);
 
                 return Ok(result);
             }
