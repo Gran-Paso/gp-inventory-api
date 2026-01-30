@@ -114,7 +114,100 @@ public class AuthService : IAuthService
     public async Task<UserDto?> GetUserByEmailAsync(string email)
     {
         var user = await _userRepository.GetByEmailWithRolesAsync(email);
-        return user != null ? _mapper.Map<UserDto>(user) : null;
+        if (user == null) return null;
+        
+        var userDto = _mapper.Map<UserDto>(user);
+        userDto.AppPermissions = CalculateAppPermissions(userDto);
+        return userDto;
+    }
+
+    private Dictionary<string, bool> CalculateAppPermissions(UserDto user)
+    {
+        // Super Admin tiene acceso a todo
+        if (user.SystemRole == "super_admin")
+        {
+            return new Dictionary<string, bool>
+            {
+                { "gp-expenses", true },
+                { "gp-inventory", true },
+                { "gp-factory", true },
+                { "gp-auth", true }
+            };
+        }
+
+        // Admin tiene acceso a todo excepto puede tener restricciones específicas si se necesitan
+        if (user.SystemRole == "admin")
+        {
+            return new Dictionary<string, bool>
+            {
+                { "gp-expenses", true },
+                { "gp-inventory", true },
+                { "gp-factory", true },
+                { "gp-auth", true }
+            };
+        }
+
+        // Get all unique role IDs from user's roles across all businesses
+        var userRoleIds = user.Roles.Select(r => r.Id).Distinct().ToList();
+        
+        // Define role IDs
+        // 1: Cofundador, 2: Dueño, 3: Administrador, 4: Vendedor, 5: Staff, 6: Contador, 7: RRHH, 8: Bodeguero
+        
+        // Role-based access rules:
+        // - Cofundador, Dueño, Administrador: Access to ALL apps
+        // - Contador: Only gp-expenses
+        // - Bodeguero: Only gp-factory and gp-inventory
+        // - Vendedor, Staff, RRHH: gp-factory and gp-inventory (for now)
+        
+        var adminRoles = new[] { 1, 2, 3 }; // Full access
+        var isAdmin = userRoleIds.Any(roleId => adminRoles.Contains(roleId));
+        var isContador = userRoleIds.Contains(6);
+        var isBodeguero = userRoleIds.Contains(8);
+        
+        // Admin roles have access to everything
+        if (isAdmin)
+        {
+            return new Dictionary<string, bool>
+            {
+                { "gp-expenses", true },
+                { "gp-inventory", true },
+                { "gp-factory", true },
+                { "gp-auth", true }
+            };
+        }
+        
+        // Contador: Only expenses
+        if (isContador)
+        {
+            return new Dictionary<string, bool>
+            {
+                { "gp-expenses", true },
+                { "gp-inventory", false },
+                { "gp-factory", false },
+                { "gp-auth", true }
+            };
+        }
+        
+        // Bodeguero: Only factory and inventory
+        if (isBodeguero)
+        {
+            return new Dictionary<string, bool>
+            {
+                { "gp-expenses", false },
+                { "gp-inventory", true },
+                { "gp-factory", true },
+                { "gp-auth", true }
+            };
+        }
+        
+        // Default: Factory and Inventory access (for Vendedor, Staff, RRHH, etc.)
+        return new Dictionary<string, bool>
+        {
+            { "gp-expenses", false },
+            { "gp-inventory", true },
+            { "gp-factory", true },
+            { "gp-auth", true }
+        };
     }
 
     public async Task<AuthResponseDto> ResetPasswordAsync(ResetPasswordDto resetDto)

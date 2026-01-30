@@ -45,9 +45,11 @@ public class UserDto
     public int? Phone { get; set; }
     public bool Active { get; set; }
     public string Role { get; set; } = string.Empty;
+    public string SystemRole { get; set; } = "none";
     public List<UserRoleDto> Roles { get; set; } = new List<UserRoleDto>();
     public List<int> BusinessIds { get; set; } = new();
     public List<BusinessInfoDto> Businesses { get; set; } = new();
+    public Dictionary<string, bool> AppPermissions { get; set; } = new();
 }
 
 public class BusinessInfoDto

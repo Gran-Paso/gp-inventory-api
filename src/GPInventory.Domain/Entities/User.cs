@@ -31,6 +31,9 @@ public class User : BaseEntity
 
     public bool Active { get; set; } = true;
 
+    [StringLength(50)]
+    public string SystemRole { get; set; } = "none";
+
     // Navigation properties
     public ICollection<UserHasBusiness> UserBusinesses { get; set; } = new List<UserHasBusiness>();
 
