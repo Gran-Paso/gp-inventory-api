@@ -473,8 +473,51 @@ public class SupplyRepository : ISupplyRepository
         entity.CreatedAt = DateTime.UtcNow;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        _context.Supplies.Add(entity);
-        await _context.SaveChangesAsync();
+        await _context.Database.OpenConnectionAsync();
+
+        try
+        {
+            using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = @"
+                INSERT INTO supplies 
+                (name, sku, description, business_id, store_id, unit_measure_id, fixed_expense_id, 
+                 supply_category_id, type, active, minimum_stock, preferred_provider_id, created_at, updated_at)
+                VALUES 
+                (@Name, @Sku, @Description, @BusinessId, @StoreId, @UnitMeasureId, @FixedExpenseId, 
+                 @SupplyCategoryId, @Type, @Active, @MinimumStock, @PreferredProviderId, @CreatedAt, @UpdatedAt);
+                SELECT LAST_INSERT_ID();";
+
+            var parameters = new[]
+            {
+                CreateParameter(command, "@Name", entity.Name),
+                CreateParameter(command, "@Sku", (object?)entity.Sku ?? DBNull.Value),
+                CreateParameter(command, "@Description", (object?)entity.Description ?? DBNull.Value),
+                CreateParameter(command, "@BusinessId", entity.BusinessId),
+                CreateParameter(command, "@StoreId", entity.StoreId),
+                CreateParameter(command, "@UnitMeasureId", entity.UnitMeasureId),
+                CreateParameter(command, "@FixedExpenseId", (object?)entity.FixedExpenseId ?? DBNull.Value),
+                CreateParameter(command, "@SupplyCategoryId", (object?)entity.SupplyCategoryId ?? DBNull.Value),
+                CreateParameter(command, "@Type", (int)entity.Type),
+                CreateParameter(command, "@Active", entity.Active),
+                CreateParameter(command, "@MinimumStock", entity.MinimumStock),
+                CreateParameter(command, "@PreferredProviderId", (object?)entity.PreferredProviderId ?? DBNull.Value),
+                CreateParameter(command, "@CreatedAt", entity.CreatedAt),
+                CreateParameter(command, "@UpdatedAt", entity.UpdatedAt)
+            };
+
+            foreach (var param in parameters)
+            {
+                command.Parameters.Add(param);
+            }
+
+            var result = await command.ExecuteScalarAsync();
+            entity.Id = Convert.ToInt32(result);
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
+        }
+
         return entity;
     }
 
