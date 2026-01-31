@@ -10,6 +10,7 @@ public class AuthMappingProfile : Profile
     {
         CreateMap<User, UserDto>()
             .ForMember(dest => dest.Email, opt => opt.MapFrom(src => src.Mail))
+            .ForMember(dest => dest.SystemRole, opt => opt.MapFrom(src => src.SystemRole))
             .ForMember(dest => dest.Roles, opt => opt.MapFrom(src => src.UserBusinesses.Select(ub => new UserRoleDto
             {
                 Id = ub.Role.Id,

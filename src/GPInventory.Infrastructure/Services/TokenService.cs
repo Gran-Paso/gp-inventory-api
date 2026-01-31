@@ -34,7 +34,8 @@ public class TokenService : ITokenService
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
             new Claim(ClaimTypes.Name, $"{user.Name} {user.LastName}"),
-            new Claim("userId", user.Id.ToString())
+            new Claim("userId", user.Id.ToString()),
+            new Claim("systemRole", user.SystemRole ?? "none")
         };
 
         // Estructura limpia de roles - array de objetos JSON
