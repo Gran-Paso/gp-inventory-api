@@ -71,6 +71,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:3002",  // GP Expenses
                 "http://localhost:3003",  // GP Inventory  
                 "http://localhost:3004",  // GP Auth
+                "http://localhost:3005",  // GP Admin
                 "http://localhost:5175",  // Gran Paso website dev
                 "http://localhost:4173",  // Vite preview mode
                 "http://localhost:4174",  // Vite preview mode alternate
@@ -86,6 +87,7 @@ builder.Services.AddCors(options =>
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
                 "https://factory.granpasochile.cl",    // GP Factory producción
                 "https://auth.granpasochile.cl",       // GP Auth producción
+                "https://admin.granpasochile.cl",      // GP Admin producción
                 "https://granpasochile.cl",            // Gran Paso website producción
                 "https://www.granpasochile.cl",        // Gran Paso website producción con www
                 // QA
@@ -93,11 +95,13 @@ builder.Services.AddCors(options =>
                 "https://qa.expenses.granpasochile.cl",   // GP Expenses QA
                 "https://qa.factory.granpasochile.cl",    // GP Factory QA
                 "https://qa.auth.granpasochile.cl",       // GP Auth QA
+                "https://qa.admin.granpasochile.cl",      // GP Admin QA
                 // Dev
                 "https://dev.inventory.granpasochile.cl",  // GP Inventory Dev
                 "https://dev.expenses.granpasochile.cl",   // GP Expenses Dev
                 "https://dev.factory.granpasochile.cl",    // GP Factory Dev
-                "https://dev.auth.granpasochile.cl"        // GP Auth Dev
+                "https://dev.auth.granpasochile.cl",       // GP Auth Dev
+                "https://dev.admin.granpasochile.cl"       // GP Admin Dev
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
