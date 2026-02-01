@@ -140,6 +140,10 @@ builder.Services.AddAutoMapper(typeof(AuthMappingProfile), typeof(NotificationMa
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey is not configured");
 
+// Deshabilitar el mapeo automático de claims para preservar los nombres originales
+Microsoft.IdentityModel.Logging.IdentityModelEventSource.ShowPII = true;
+System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -152,7 +156,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidAudience = jwtSettings["Audience"],
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            NameClaimType = "email" // Usar email como identificador principal
         };
     });
 

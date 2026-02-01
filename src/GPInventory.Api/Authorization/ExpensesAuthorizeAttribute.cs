@@ -58,7 +58,9 @@ public class ExpensesAuthorizeFilter : IAuthorizationFilter
         }
 
         // Obtener los roles desde el claim "roles" (JSON array)
-        var rolesClaim = context.HttpContext.User.FindFirst("roles")?.Value;
+        // El claim puede venir como "roles" o como ClaimTypes.Role (http://schemas.microsoft.com/ws/2008/06/identity/claims/role)
+        var rolesClaim = context.HttpContext.User.FindFirst("roles")?.Value 
+                      ?? context.HttpContext.User.FindFirst(ClaimTypes.Role)?.Value;
         
         if (string.IsNullOrEmpty(rolesClaim))
         {
@@ -70,7 +72,10 @@ public class ExpensesAuthorizeFilter : IAuthorizationFilter
         try
         {
             // Parsear el JSON de roles
-            var rolesArray = JsonSerializer.Deserialize<JsonElement[]>(rolesClaim);
+            var rolesArray = JsonSerializer.Deserialize<JsonElement[]>(rolesClaim, new JsonSerializerOptions 
+            { 
+                PropertyNameCaseInsensitive = true 
+            });
             if (rolesArray == null || rolesArray.Length == 0)
             {
                 _logger.LogWarning("[ExpensesAuthorize] Access denied for {Email} - roles array is empty", userEmail);

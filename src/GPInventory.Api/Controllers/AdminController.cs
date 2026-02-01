@@ -202,7 +202,7 @@ public class AdminController : ControllerBase
                 WHERE u.id = @Id";
 
             using var cmd = new MySqlCommand(query, conn);
-            cmd.Parameters.AddWithValue("@UserId", id);
+            cmd.Parameters.AddWithValue("@Id", id);
             using var reader = await cmd.ExecuteReaderAsync();
 
             if (!await reader.ReadAsync())
