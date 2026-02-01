@@ -7,7 +7,10 @@ namespace GPInventory.Api.Authorization;
 
 /// <summary>
 /// Autorización personalizada para GP Expenses.
-/// Solo permite acceso a usuarios con roles: Cofundador(1), Dueño(2), Administrador(3), Contador(6)
+/// Permite acceso a:
+/// - Usuarios con systemRole 'super_admin'
+/// - Usuarios con roles: Dueño(2), Administrador(3), Contador(6)
+/// Nota: Cofundador(1) ya no se usa pero se mantiene en la lista por compatibilidad
 /// </summary>
 public class ExpensesAuthorizeAttribute : TypeFilterAttribute
 {
@@ -18,7 +21,7 @@ public class ExpensesAuthorizeAttribute : TypeFilterAttribute
 
 public class ExpensesAuthorizeFilter : IAuthorizationFilter
 {
-    private static readonly int[] AllowedRoleIds = { 1, 2, 3, 6 }; // Cofundador, Dueño, Administrador, Contador
+    private static readonly int[] AllowedRoleIds = { 1, 2, 3, 6 }; // [Legacy: Cofundador], Dueño, Administrador, Contador
     private readonly ILogger<ExpensesAuthorizeFilter> _logger;
 
     public ExpensesAuthorizeFilter(ILogger<ExpensesAuthorizeFilter> logger)
@@ -43,6 +46,14 @@ public class ExpensesAuthorizeFilter : IAuthorizationFilter
         {
             _logger.LogWarning("[ExpensesAuthorize] Unauthorized access attempt - email claim not found");
             context.Result = new UnauthorizedResult();
+            return;
+        }
+
+        // Permitir acceso directo a super_admin
+        var systemRole = context.HttpContext.User.FindFirst("systemRole")?.Value;
+        if (systemRole == "super_admin")
+        {
+            _logger.LogInformation("[ExpensesAuthorize] Access granted for {Email} - super_admin bypass", userEmail);
             return;
         }
 
