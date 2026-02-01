@@ -16,7 +16,7 @@ public class AuthMappingProfile : Profile
             .ForMember(dest => dest.SystemRole, opt => opt.MapFrom(src => src.SystemRole))
             .ForMember(dest => dest.Roles, opt => opt.MapFrom(src => src.UserBusinesses.Select(ub => new UserRoleDto
             {
-                Id = ub.Role.Id,
+                Id = ub.RoleId, // Cambiado de ub.Role.Id a ub.RoleId para obtener el ID correcto del rol (1=Cofundador, 2=Dueño, etc)
                 Name = ub.Role.Name,
                 BusinessId = ub.Business.Id,
                 BusinessName = ub.Business.CompanyName
