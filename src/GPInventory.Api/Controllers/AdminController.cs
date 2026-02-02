@@ -1,3 +1,4 @@
+#pragma warning disable CS8601 // Possible null reference assignment for Dictionary<string, object> values
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
@@ -75,21 +76,23 @@ public class AdminController : ControllerBase
             var userList = new List<Dictionary<string, object>>();
             while (await reader.ReadAsync())
             {
+#pragma warning disable CS8601
                 var user = new Dictionary<string, object>
                 {
                     ["id"] = reader.GetInt32("id"),
-                    ["email"] = reader.GetString("mail"),
-                    ["name"] = reader.GetString("name"),
-                    ["lastName"] = reader.GetString("lastname"),
-                    ["fullName"] = reader.GetString("full_name"),
-                    ["gender"] = reader.IsDBNull("gender") ? null : reader.GetString("gender"),
-                    ["birthDate"] = reader.IsDBNull("birthdate") ? null : reader.GetDateTime("birthdate").ToString("yyyy-MM-dd"),
-                    ["phone"] = reader.IsDBNull("phone") ? null : reader.GetInt32("phone"),
+                    ["email"] = reader.GetString("mail")!,
+                    ["name"] = reader.GetString("name")!,
+                    ["lastName"] = reader.GetString("lastname")!,
+                    ["fullName"] = reader.GetString("full_name")!,
+                    ["gender"] = reader.IsDBNull("gender") ? (object)"" : reader.GetString("gender")!,
+                    ["birthDate"] = reader.IsDBNull("birthdate") ? (object)"" : reader.GetDateTime("birthdate").ToString("yyyy-MM-dd")!,
+                    ["phone"] = reader.IsDBNull("phone") ? (object)0 : reader.GetInt32("phone"),
                     ["active"] = reader.GetBoolean("active"),
-                    ["systemRole"] = reader.GetString("system_role"),
-                    ["createdAt"] = reader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss"),
-                    ["updatedAt"] = reader.GetDateTime("updated_at").ToString("yyyy-MM-dd HH:mm:ss")
+                    ["systemRole"] = reader.GetString("system_role")!,
+                    ["createdAt"] = reader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss")!,
+                    ["updatedAt"] = reader.GetDateTime("updated_at").ToString("yyyy-MM-dd HH:mm:ss")!
                 };
+#pragma warning restore CS8601
                 userList.Add(user);
             }
 
@@ -117,13 +120,15 @@ public class AdminController : ControllerBase
                 var businesses = new List<Dictionary<string, object>>();
                 while (await businessReader.ReadAsync())
                 {
+#pragma warning disable CS8601
                     businesses.Add(new Dictionary<string, object>
                     {
                         ["businessId"] = businessReader.GetInt32("business_id"),
-                        ["businessName"] = businessReader.GetString("business_name"),
-                        ["companyName"] = businessReader.IsDBNull("company_name") ? null : businessReader.GetString("company_name"),
-                        ["logo"] = businessReader.IsDBNull("logo") ? null : businessReader.GetString("logo")
+                        ["businessName"] = businessReader.GetString("business_name")!,
+                        ["companyName"] = businessReader.IsDBNull("company_name") ? (object)"" : businessReader.GetString("company_name")!,
+                        ["logo"] = businessReader.IsDBNull("logo") ? (object)"" : businessReader.GetString("logo")!
                     });
+#pragma warning restore CS8601
                 }
                 businessReader.Close();
 
@@ -210,21 +215,23 @@ public class AdminController : ControllerBase
                 return NotFound(new { message = "User not found" });
             }
 
+#pragma warning disable CS8601
             var user = new Dictionary<string, object>
             {
                 ["id"] = reader.GetInt32("id"),
-                ["email"] = reader.GetString("mail"),
-                ["name"] = reader.GetString("name"),
-                ["lastName"] = reader.GetString("lastname"),
-                ["fullName"] = reader.GetString("full_name"),
-                ["gender"] = reader.IsDBNull("gender") ? null : reader.GetString("gender"),
-                ["birthDate"] = reader.IsDBNull("birthdate") ? null : reader.GetDateTime("birthdate").ToString("yyyy-MM-dd"),
-                ["phone"] = reader.IsDBNull("phone") ? null : reader.GetInt32("phone"),
+                ["email"] = reader.GetString("mail")!,
+                ["name"] = reader.GetString("name")!,
+                ["lastName"] = reader.GetString("lastname")!,
+                ["fullName"] = reader.GetString("full_name")!,
+                ["gender"] = reader.IsDBNull("gender") ? (object)"" : reader.GetString("gender")!,
+                ["birthDate"] = reader.IsDBNull("birthdate") ? (object)"" : reader.GetDateTime("birthdate").ToString("yyyy-MM-dd")!,
+                ["phone"] = reader.IsDBNull("phone") ? (object)0 : reader.GetInt32("phone"),
                 ["active"] = reader.GetBoolean("active"),
-                ["systemRole"] = reader.GetString("system_role"),
-                ["createdAt"] = reader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss"),
-                ["updatedAt"] = reader.GetDateTime("updated_at").ToString("yyyy-MM-dd HH:mm:ss")
+                ["systemRole"] = reader.GetString("system_role")!,
+                ["createdAt"] = reader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss")!,
+                ["updatedAt"] = reader.GetDateTime("updated_at").ToString("yyyy-MM-dd HH:mm:ss")!
             };
+#pragma warning restore CS8601
 
             reader.Close();
 
@@ -246,13 +253,15 @@ public class AdminController : ControllerBase
             var businesses = new List<Dictionary<string, object>>();
             while (await businessReader.ReadAsync())
             {
+#pragma warning disable CS8601
                 businesses.Add(new Dictionary<string, object>
                 {
                     ["businessId"] = businessReader.GetInt32("business_id"),
-                    ["businessName"] = businessReader.GetString("business_name"),
-                    ["companyName"] = businessReader.IsDBNull("company_name") ? null : businessReader.GetString("company_name"),
-                    ["logo"] = businessReader.IsDBNull("logo") ? null : businessReader.GetString("logo")
+                    ["businessName"] = businessReader.GetString("business_name")!,
+                    ["companyName"] = businessReader.IsDBNull("company_name") ? (object)"" : businessReader.GetString("company_name")!,
+                    ["logo"] = businessReader.IsDBNull("logo") ? (object)"" : businessReader.GetString("logo")!
                 });
+#pragma warning restore CS8601
             }
             businessReader.Close();
 
@@ -327,15 +336,17 @@ public class AdminController : ControllerBase
             var businesses = new List<Dictionary<string, object>>();
             while (await reader.ReadAsync())
             {
+#pragma warning disable CS8601
                 businesses.Add(new Dictionary<string, object>
                 {
                     ["id"] = reader.GetInt32("id"),
-                    ["name"] = reader.IsDBNull("company_name") ? null : reader.GetString("company_name"),
-                    ["companyName"] = reader.IsDBNull("company_name") ? null : reader.GetString("company_name"),
-                    ["logo"] = reader.IsDBNull("logo") ? null : reader.GetString("logo"),
+                    ["name"] = reader.IsDBNull("company_name") ? (object)"" : reader.GetString("company_name")!,
+                    ["companyName"] = reader.IsDBNull("company_name") ? (object)"" : reader.GetString("company_name")!,
+                    ["logo"] = reader.IsDBNull("logo") ? (object)"" : reader.GetString("logo")!,
                     ["active"] = reader.GetBoolean("active"),
-                    ["createdAt"] = reader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss")
+                    ["createdAt"] = reader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss")!
                 });
+#pragma warning restore CS8601
             }
 
             return Ok(businesses);
