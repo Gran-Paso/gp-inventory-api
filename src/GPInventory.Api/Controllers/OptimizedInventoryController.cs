@@ -100,6 +100,9 @@ public class OptimizedInventoryController : ControllerBase
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             _logger.LogInformation("🔄 Obteniendo productos con stock para negocio: {businessId}, tienda: {storeId}", businessId, storeId);
 
+            // Limpiar cualquier caché de Entity Framework para asegurar datos frescos
+            _context.ChangeTracker.Clear();
+
             // Verificaciones básicas usando SQL directo
             var businessExists = await _context.Database.SqlQueryRaw<int>(
                 "SELECT COUNT(*) as Value FROM business WHERE id = {0}", businessId)
@@ -129,7 +132,19 @@ public class OptimizedInventoryController : ControllerBase
                     p.name,
                     p.sku,
                     p.price,
-                    COALESCE(p.cost, 0) as Cost,
+                    -- Calcular costo unitario: promedio de (costo_total / cantidad) de cada lote activo
+                    COALESCE((
+                        SELECT AVG(s.cost / s.amount)
+                        FROM stock s
+                        INNER JOIN store st ON s.id_store = st.id
+                        WHERE s.product = p.id
+                        AND st.id_business = {0}
+                        " + (storeId.HasValue ? "AND s.id_store = {1}" : "") + @"
+                        AND s.amount > 0
+                        AND COALESCE(s.active, 0) = 1
+                        AND s.cost IS NOT NULL
+                        AND s.cost > 0
+                    ), p.cost, 0) as Cost,
                     COALESCE(fifo_cost_data.fifo_cost, p.cost, 0) as AverageCost,
                     p.image,
                     COALESCE(p.minimumStock, 0) as StockMin,
