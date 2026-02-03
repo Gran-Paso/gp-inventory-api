@@ -531,16 +531,58 @@ public class StockController : ControllerBase
                 return NotFound(new { message = "Store no encontrado" });
             }
 
-            // Obtener todos los lotes de entrada (amount > 0) activos del producto en el store
-            var stockLots = await _context.Stocks
-                .Include(s => s.FlowType)
-                .Include(s => s.Provider)
-                .Where(s => s.ProductId == productId && 
-                           s.StoreId == storeId && 
-                           s.Amount > 0 && 
-                           s.IsActive == true)
-                .OrderBy(s => s.Date) // FIFO: más antiguos primero
-                .ToListAsync();
+            // Usar SQL raw para evitar problemas con shadow properties de EF
+            var sql = $@"
+                SELECT 
+                    s.id,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.expiration_date,
+                    s.notes,
+                    ft.id as flowTypeId,
+                    ft.type as flowTypeName,
+                    p.id as providerId,
+                    p.name as providerName
+                FROM stock s
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN provider p ON s.provider = p.id
+                WHERE s.product = {productId}
+                  AND s.id_store = {storeId}
+                  AND s.amount > 0
+                  AND COALESCE(s.active, 1) = 1
+                ORDER BY s.date ASC";
+
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            var stockLots = new List<StockLotData>();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        stockLots.Add(new StockLotData
+                        {
+                            Id = reader.GetInt32(0),
+                            Date = reader.GetDateTime(1),
+                            Amount = reader.GetInt32(2),
+                            Cost = reader.IsDBNull(3) ? (decimal?)null : Convert.ToDecimal(reader.GetValue(3)),
+                            ExpirationDate = reader.IsDBNull(4) ? (DateTime?)null : reader.GetDateTime(4),
+                            Notes = reader.IsDBNull(5) ? null : reader.GetString(5),
+                            FlowTypeId = reader.GetInt32(6),
+                            FlowTypeName = reader.GetString(7),
+                            ProviderId = reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8),
+                            ProviderName = reader.IsDBNull(9) ? null : reader.GetString(9)
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
 
             // Para cada lote, calcular cuánto se ha usado en ventas y salidas
             var lotsWithAvailability = new List<object>();
@@ -575,15 +617,15 @@ public class StockController : ControllerBase
                         id = lot.Id,
                         date = lot.Date,
                         expirationDate = lot.ExpirationDate,
-                        flowType = new { id = lot.FlowType.Id, name = lot.FlowType.Name },
+                        flowType = new { id = lot.FlowTypeId, name = lot.FlowTypeName },
                         originalAmount = lot.Amount,
                         soldAmount = soldFromLot,
                         availableAmount = availableInLot,
                         cost = lot.Cost,
-                        provider = lot.Provider != null ? new { id = lot.Provider.Id, name = lot.Provider.Name } : null,
+                        provider = lot.ProviderId.HasValue ? new { id = lot.ProviderId.Value, name = lot.ProviderName } : null,
                         notes = lot.Notes,
                         isExpired = lot.ExpirationDate.HasValue && lot.ExpirationDate.Value < DateTime.Today,
-                        daysUntilExpiration = lot.ExpirationDate.HasValue 
+                        daysUntilExpiration = lot.ExpirationDate.HasValue
                             ? (lot.ExpirationDate.Value - DateTime.Today).Days 
                             : (int?)null
                     });
@@ -2205,4 +2247,19 @@ public class CorregirStockRequest
     /// Razón de la corrección
     /// </summary>
     public string Reason { get; set; } = string.Empty;
+}
+
+// Clase auxiliar para datos de lotes de stock
+public class StockLotData
+{
+    public int Id { get; set; }
+    public DateTime Date { get; set; }
+    public int Amount { get; set; }
+    public decimal? Cost { get; set; }
+    public DateTime? ExpirationDate { get; set; }
+    public string? Notes { get; set; }
+    public int FlowTypeId { get; set; }
+    public string FlowTypeName { get; set; } = string.Empty;
+    public int? ProviderId { get; set; }
+    public string? ProviderName { get; set; }
 }
