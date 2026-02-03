@@ -279,7 +279,8 @@ public class SupplyRepository : ISupplyRepository
                     ReferenceToSupplyEntry = reader.IsDBNull(6) ? null : reader.GetInt32(6), // se.supply_entry_id
                     ProcessDoneId = reader.IsDBNull(7) ? null : reader.GetInt32(7), // se.ProcessDoneId
                     CreatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8), // se.CreatedAt
-                    UpdatedAt = reader.IsDBNull(9) ? DateTime.UtcNow : reader.GetDateTime(9) // se.UpdatedAt
+                    UpdatedAt = reader.IsDBNull(9) ? DateTime.UtcNow : reader.GetDateTime(9), // se.UpdatedAt
+                    IsActive = reader.GetBoolean(10) // se.active
                 };
 
                 supplyEntries.Add(supplyEntry);

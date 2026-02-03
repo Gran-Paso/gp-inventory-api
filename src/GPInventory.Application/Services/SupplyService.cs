@@ -277,16 +277,16 @@ public class SupplyService : ISupplyService
 
     private static decimal GetLastUnitCost(Supply supply)
     {
-        // Get the first supply entry with available stock (FIFO logic)
-        // This represents the oldest batch that still has remaining inventory
-        var firstAvailableEntry = supply.SupplyEntries
-            ?.Where(se => se.Amount > 0 && se.ProcessDoneId == null) // Only purchase entries (not consumptions)
+        // FIFO logic: Get the oldest supply entry that still has available stock
+        // Filter by original purchase entries (ReferenceToSupplyEntry is null) with remaining amount and active
+        var oldestAvailableEntry = supply.SupplyEntries
+            ?.Where(se => se.Amount > 0 && se.ReferenceToSupplyEntry == null && se.IsActive) // Only active purchase entries with remaining stock
             .OrderBy(se => se.CreatedAt) // Order by oldest first (FIFO)
             .FirstOrDefault();
 
-        if (firstAvailableEntry != null && firstAvailableEntry.UnitCost > 0)
+        if (oldestAvailableEntry != null && oldestAvailableEntry.UnitCost > 0)
         {
-            return firstAvailableEntry.UnitCost;
+            return oldestAvailableEntry.UnitCost;
         }
 
         // Fallback to FixedExpense if no supply entry found
