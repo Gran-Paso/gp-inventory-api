@@ -238,17 +238,20 @@ public class SupplyRepository : ISupplyRepository
             await _context.Database.OpenConnectionAsync();
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.tag as Tag, se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
-                       se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt, se.active, sep.Id, sep.active as padre_active
+                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.tag as Tag, 
+                       se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
+                       se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt, 
+                       se.active, sep.Id as ParentId, sep.active as padre_active
                 FROM supply_entry se
                 LEFT JOIN process_done pd ON se.process_done_id = pd.id
                 LEFT JOIN supply_entry sep ON se.supply_entry_id = sep.Id
                 WHERE se.supply_id = @supplyId
+                  AND se.active = 1
                   AND (
-                    (se.active = 1 AND se.amount > 0) OR  
-                    (se.amount < 0 AND se.supply_entry_id IS NOT NULL) OR
-                    (se.amount > 0 AND EXISTS (SELECT 1 FROM supply_entry child WHERE child.supply_entry_id = se.id AND child.active = 1))
-                  )"; ;
+                    se.supply_entry_id IS NULL OR 
+                    (se.supply_entry_id IS NOT NULL AND sep.active = 1)
+                  )
+                ORDER BY se.created_at ASC";
 
             var parameter = command.CreateParameter();
             parameter.ParameterName = "@supplyId";
