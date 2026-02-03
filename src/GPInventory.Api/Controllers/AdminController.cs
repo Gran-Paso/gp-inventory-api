@@ -318,7 +318,6 @@ public class AdminController : ControllerBase
                     active,
                     created_at
                 FROM business
-                WHERE active = 1
                 ORDER BY company_name";
 
             using var cmd = new MySqlCommand(query, conn);
@@ -344,6 +343,136 @@ public class AdminController : ControllerBase
         {
             _logger.LogError(ex, "Error getting businesses");
             return StatusCode(500, new { message = "Error retrieving businesses", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Crea un nuevo negocio
+    /// </summary>
+    [HttpPost("businesses")]
+    public async Task<IActionResult> CreateBusiness([FromBody] CreateBusinessRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.CompanyName))
+            {
+                return BadRequest(new { message = "Company name is required" });
+            }
+
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var insertQuery = @"
+                INSERT INTO business (company_name, logo, active, created_at)
+                VALUES (@CompanyName, @Logo, 1, @Now)";
+
+            using var cmd = new MySqlCommand(insertQuery, conn);
+            cmd.Parameters.AddWithValue("@CompanyName", request.CompanyName);
+            cmd.Parameters.AddWithValue("@Logo", string.IsNullOrWhiteSpace(request.Logo) ? DBNull.Value : request.Logo);
+            cmd.Parameters.AddWithValue("@Now", DateTime.UtcNow);
+
+            await cmd.ExecuteNonQueryAsync();
+            var newId = cmd.LastInsertedId;
+
+            _logger.LogInformation("Business created with ID {BusinessId}", newId);
+
+            return Ok(new { 
+                message = "Business created successfully", 
+                id = newId,
+                companyName = request.CompanyName
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating business");
+            return StatusCode(500, new { message = "Error creating business", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Actualiza un negocio existente
+    /// </summary>
+    [HttpPut("businesses/{id}")]
+    public async Task<IActionResult> UpdateBusiness(int id, [FromBody] UpdateBusinessRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.CompanyName))
+            {
+                return BadRequest(new { message = "Company name is required" });
+            }
+
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var updateQuery = @"
+                UPDATE business 
+                SET company_name = @CompanyName, 
+                    logo = @Logo
+                WHERE id = @Id";
+
+            using var cmd = new MySqlCommand(updateQuery, conn);
+            cmd.Parameters.AddWithValue("@CompanyName", request.CompanyName);
+            cmd.Parameters.AddWithValue("@Logo", string.IsNullOrWhiteSpace(request.Logo) ? DBNull.Value : request.Logo);
+            cmd.Parameters.AddWithValue("@Id", id);
+
+            var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected > 0)
+            {
+                _logger.LogInformation("Business {BusinessId} updated", id);
+                return Ok(new { message = "Business updated successfully", id });
+            }
+
+            return NotFound(new { message = "Business not found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating business {BusinessId}", id);
+            return StatusCode(500, new { message = "Error updating business", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Activa o desactiva un negocio
+    /// </summary>
+    [HttpPatch("businesses/{id}/active")]
+    public async Task<IActionResult> UpdateBusinessActiveStatus(int id, [FromBody] UpdateActiveStatusRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var updateQuery = @"
+                UPDATE business 
+                SET active = @Active
+                WHERE id = @Id";
+
+            using var cmd = new MySqlCommand(updateQuery, conn);
+            cmd.Parameters.AddWithValue("@Active", request.Active);
+            cmd.Parameters.AddWithValue("@Id", id);
+
+            var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected > 0)
+            {
+                _logger.LogInformation("Business {BusinessId} active status updated to {Active}", id, request.Active);
+                return Ok(new { message = "Business status updated successfully", id, active = request.Active });
+            }
+
+            return NotFound(new { message = "Business not found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating business status {BusinessId}", id);
+            return StatusCode(500, new { message = "Error updating business status", error = ex.Message });
         }
     }
 
@@ -609,7 +738,306 @@ public class AdminController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating active status for user {UserId}", userId);
-            return StatusCode(500, new { message = "Error updating user status", error = ex.Message });
+            return StatusCode(500, new { message = "Error updating business status", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Sube una imagen y retorna la URL
+    /// </summary>
+    [HttpPost("upload-image")]
+    public async Task<IActionResult> UploadImage([FromForm] IFormFile file)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "No file provided" });
+            }
+
+            // Validar tipo de archivo
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            
+            if (!allowedExtensions.Contains(extension))
+            {
+                return BadRequest(new { message = "Invalid file type. Only images are allowed." });
+            }
+
+            // Validar tamaño (5MB máximo)
+            if (file.Length > 5 * 1024 * 1024)
+            {
+                return BadRequest(new { message = "File size exceeds 5MB limit" });
+            }
+
+            // Crear directorio si no existe
+            var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+            if (!Directory.Exists(uploadsPath))
+            {
+                Directory.CreateDirectory(uploadsPath);
+            }
+
+            // Generar nombre único
+            var fileName = $"{Guid.NewGuid()}{extension}";
+            var filePath = Path.Combine(uploadsPath, fileName);
+
+            // Guardar archivo
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            // Retornar URL relativa
+            var fileUrl = $"/uploads/{fileName}";
+
+            _logger.LogInformation("Image uploaded: {FileName}", fileName);
+
+            return Ok(new { url = fileUrl, fileName });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading image");
+            return StatusCode(500, new { message = "Error uploading image", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene todas las tiendas de un negocio
+    /// </summary>
+    [HttpGet("businesses/{businessId}/stores")]
+    public async Task<IActionResult> GetStoresByBusiness(int businessId)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var query = @"
+                SELECT 
+                    id,
+                    name,
+                    location,
+                    id_business,
+                    id_manager,
+                    open_hour,
+                    close_hour,
+                    active
+                FROM store
+                WHERE id_business = @BusinessId
+                ORDER BY name";
+
+            using var cmd = new MySqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@BusinessId", businessId);
+            using var reader = await cmd.ExecuteReaderAsync();
+
+            var stores = new List<Dictionary<string, object>>();
+            while (await reader.ReadAsync())
+            {
+                stores.Add(new Dictionary<string, object>
+                {
+                    ["id"] = reader.GetInt32("id"),
+                    ["name"] = reader.GetString("name"),
+                    ["location"] = reader.IsDBNull("location") ? null : reader.GetString("location"),
+                    ["businessId"] = reader.GetInt32("id_business"),
+                    ["managerId"] = reader.IsDBNull("id_manager") ? null : reader.GetInt32("id_manager"),
+                    ["openHour"] = reader.IsDBNull("open_hour") ? null : reader.GetTimeSpan("open_hour").ToString(@"hh\:mm"),
+                    ["closeHour"] = reader.IsDBNull("close_hour") ? null : reader.GetTimeSpan("close_hour").ToString(@"hh\:mm"),
+                    ["active"] = reader.GetBoolean("active")
+                });
+            }
+
+            return Ok(stores);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting stores for business {BusinessId}", businessId);
+            return StatusCode(500, new { message = "Error retrieving stores", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Crea una nueva tienda para un negocio
+    /// </summary>
+    [HttpPost("businesses/{businessId}/stores")]
+    public async Task<IActionResult> CreateStore(int businessId, [FromBody] CreateStoreRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return BadRequest(new { message = "Store name is required" });
+            }
+
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            // Verificar que el negocio existe
+            var businessCheck = "SELECT COUNT(*) FROM business WHERE id = @BusinessId";
+            using var businessCmd = new MySqlCommand(businessCheck, conn);
+            businessCmd.Parameters.AddWithValue("@BusinessId", businessId);
+            var businessExists = Convert.ToInt32(await businessCmd.ExecuteScalarAsync()) > 0;
+
+            if (!businessExists)
+            {
+                return NotFound(new { message = "Business not found" });
+            }
+
+            var insertQuery = @"
+                INSERT INTO store (name, location, id_business, open_hour, close_hour, active)
+                VALUES (@Name, @Location, @BusinessId, @OpenHour, @CloseHour, 1)";
+
+            using var cmd = new MySqlCommand(insertQuery, conn);
+            cmd.Parameters.AddWithValue("@Name", request.Name);
+            cmd.Parameters.AddWithValue("@Location", string.IsNullOrWhiteSpace(request.Location) ? DBNull.Value : request.Location);
+            cmd.Parameters.AddWithValue("@BusinessId", businessId);
+            cmd.Parameters.AddWithValue("@OpenHour", string.IsNullOrWhiteSpace(request.OpenHour) ? DBNull.Value : request.OpenHour);
+            cmd.Parameters.AddWithValue("@CloseHour", string.IsNullOrWhiteSpace(request.CloseHour) ? DBNull.Value : request.CloseHour);
+
+            await cmd.ExecuteNonQueryAsync();
+            var newId = cmd.LastInsertedId;
+
+            _logger.LogInformation("Store created with ID {StoreId} for business {BusinessId}", newId, businessId);
+
+            return Ok(new { 
+                message = "Store created successfully", 
+                id = newId,
+                name = request.Name
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating store for business {BusinessId}", businessId);
+            return StatusCode(500, new { message = "Error creating store", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Actualiza una tienda existente
+    /// </summary>
+    [HttpPut("stores/{id}")]
+    public async Task<IActionResult> UpdateStore(int id, [FromBody] UpdateStoreRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return BadRequest(new { message = "Store name is required" });
+            }
+
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var updateQuery = @"
+                UPDATE store 
+                SET name = @Name,
+                    location = @Location,
+                    open_hour = @OpenHour,
+                    close_hour = @CloseHour
+                WHERE id = @Id";
+
+            using var cmd = new MySqlCommand(updateQuery, conn);
+            cmd.Parameters.AddWithValue("@Name", request.Name);
+            cmd.Parameters.AddWithValue("@Location", string.IsNullOrWhiteSpace(request.Location) ? DBNull.Value : request.Location);
+            cmd.Parameters.AddWithValue("@OpenHour", string.IsNullOrWhiteSpace(request.OpenHour) ? DBNull.Value : request.OpenHour);
+            cmd.Parameters.AddWithValue("@CloseHour", string.IsNullOrWhiteSpace(request.CloseHour) ? DBNull.Value : request.CloseHour);
+            cmd.Parameters.AddWithValue("@Id", id);
+
+            var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected > 0)
+            {
+                _logger.LogInformation("Store {StoreId} updated", id);
+                return Ok(new { message = "Store updated successfully", id });
+            }
+
+            return NotFound(new { message = "Store not found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating store {StoreId}", id);
+            return StatusCode(500, new { message = "Error updating store", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Activa o desactiva una tienda
+    /// </summary>
+    [HttpPatch("stores/{id}/active")]
+    public async Task<IActionResult> UpdateStoreActiveStatus(int id, [FromBody] UpdateActiveStatusRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var updateQuery = @"
+                UPDATE store 
+                SET active = @Active
+                WHERE id = @Id";
+
+            using var cmd = new MySqlCommand(updateQuery, conn);
+            cmd.Parameters.AddWithValue("@Active", request.Active);
+            cmd.Parameters.AddWithValue("@Id", id);
+
+            var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected > 0)
+            {
+                _logger.LogInformation("Store {StoreId} active status updated to {Active}", id, request.Active);
+                return Ok(new { message = "Store status updated successfully", id, active = request.Active });
+            }
+
+            return NotFound(new { message = "Store not found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating store status {StoreId}", id);
+            return StatusCode(500, new { message = "Error updating store status", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Elimina una tienda
+    /// </summary>
+    [HttpDelete("stores/{id}")]
+    public async Task<IActionResult> DeleteStore(int id)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var deleteQuery = "DELETE FROM store WHERE id = @Id";
+
+            using var cmd = new MySqlCommand(deleteQuery, conn);
+            cmd.Parameters.AddWithValue("@Id", id);
+
+            var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected > 0)
+            {
+                _logger.LogInformation("Store {StoreId} deleted", id);
+                return Ok(new { message = "Store deleted successfully" });
+            }
+
+            return NotFound(new { message = "Store not found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting store {StoreId}", id);
+            return StatusCode(500, new { message = "Error deleting store", error = ex.Message });
         }
     }
 }
@@ -620,6 +1048,18 @@ public class AssignBusinessRequest
     public int RoleId { get; set; }
 }
 
+public class CreateBusinessRequest
+{
+    public string CompanyName { get; set; } = string.Empty;
+    public string? Logo { get; set; }
+}
+
+public class UpdateBusinessRequest
+{
+    public string CompanyName { get; set; } = string.Empty;
+    public string? Logo { get; set; }
+}
+
 public class UpdateSystemRoleRequest
 {
     public string SystemRole { get; set; } = "none";
@@ -628,4 +1068,20 @@ public class UpdateSystemRoleRequest
 public class UpdateActiveStatusRequest
 {
     public bool Active { get; set; }
+}
+
+public class CreateStoreRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Location { get; set; }
+    public string? OpenHour { get; set; }
+    public string? CloseHour { get; set; }
+}
+
+public class UpdateStoreRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Location { get; set; }
+    public string? OpenHour { get; set; }
+    public string? CloseHour { get; set; }
 }
