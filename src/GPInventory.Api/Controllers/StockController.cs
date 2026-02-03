@@ -455,24 +455,79 @@ public class StockController : ControllerBase
                 return NotFound(new { message = "Producto no encontrado" });
             }
 
-            var movements = await _context.Stocks
-                .Include(s => s.FlowType)
-                .Include(s => s.Provider)
-                .Include(s => s.Store)
-                .Where(s => s.ProductId == productId)
-                .OrderByDescending(s => s.Date)
-                .Select(s => new
+            // Usar SQL raw para evitar problemas con DateTime NULL
+            var sql = $@"
+                SELECT 
+                    s.id,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.notes,
+                    ft.id as flowTypeId,
+                    ft.`type` as flowTypeName,
+                    p.id as providerId,
+                    p.name as providerName,
+                    st.id as storeId,
+                    st.name as storeName,
+                    st.location as storeLocation
+                FROM stock s
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN provider p ON s.provider = p.id
+                INNER JOIN store st ON s.id_store = st.id
+                WHERE s.product = {productId}
+                ORDER BY s.date DESC";
+
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            var movements = new List<object>();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
                 {
-                    id = s.Id,
-                    date = s.Date,
-                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
-                    amount = s.Amount,
-                    cost = s.Cost,
-                    provider = s.Provider != null ? new { id = s.Provider.Id, name = s.Provider.Name } : null,
-                    store = new { id = s.Store.Id, name = s.Store.Name, location = s.Store.Location },
-                    notes = s.Notes
-                })
-                .ToListAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        movements.Add(new
+                        {
+                            id = reader.GetInt32(reader.GetOrdinal("id")),
+                            date = reader.IsDBNull(reader.GetOrdinal("date"))
+                                ? (DateTime?)null
+                                : reader.GetDateTime(reader.GetOrdinal("date")),
+                            flowType = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("flowTypeId")),
+                                name = reader.GetString(reader.GetOrdinal("flowTypeName"))
+                            },
+                            amount = reader.GetInt32(reader.GetOrdinal("amount")),
+                            cost = reader.IsDBNull(reader.GetOrdinal("cost"))
+                                ? (int?)null
+                                : reader.GetInt32(reader.GetOrdinal("cost")),
+                            provider = reader.IsDBNull(reader.GetOrdinal("providerId"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("providerId")),
+                                    name = reader.GetString(reader.GetOrdinal("providerName"))
+                                },
+                            store = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("storeId")),
+                                name = reader.GetString(reader.GetOrdinal("storeName")),
+                                location = reader.IsDBNull(reader.GetOrdinal("storeLocation"))
+                                    ? null
+                                    : reader.GetString(reader.GetOrdinal("storeLocation"))
+                            },
+                            notes = reader.IsDBNull(reader.GetOrdinal("notes"))
+                                ? null
+                                : reader.GetString(reader.GetOrdinal("notes"))
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
 
             // Calcular stock actual solo con movimientos activos usando lógica FIFO
             var currentStock = await _context.Stocks
@@ -734,36 +789,93 @@ public class StockController : ControllerBase
         {
             _logger.LogInformation("Obteniendo movimientos del lote {stockId}", stockId);
 
-            var stockLot = await _context.Stocks.FindAsync(stockId);
-            if (stockLot == null)
+            // Verificar existencia del lote usando SQL raw
+            var existsSql = $"SELECT COUNT(*) FROM stock WHERE id = {stockId}";
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+            
+            int stockExists = 0;
+            using (var existsCommand = connection.CreateCommand())
             {
+                existsCommand.CommandText = existsSql;
+                var result = await existsCommand.ExecuteScalarAsync();
+                stockExists = Convert.ToInt32(result);
+            }
+
+            if (stockExists == 0)
+            {
+                await connection.CloseAsync();
                 return NotFound(new { message = "Lote de stock no encontrado" });
             }
 
-            // Obtener todos los movimientos de salida que referencian este lote
-            var movements = await _context.Stocks
-                .Include(s => s.FlowType)
-                .Include(s => s.Sale)
-                .Where(s => s.StockId == stockId && s.Amount < 0)
-                .OrderByDescending(s => s.Date)
-                .Select(s => new
+            // Usar SQL raw para evitar problemas con DateTime NULL
+            var sql = $@"
+                SELECT 
+                    s.id,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.notes,
+                    s.sale_id as saleId,
+                    s.created_at as createdAt,
+                    ft.id as flowTypeId,
+                    ft.`type` as flowTypeName,
+                    sale.id as saleIdFull,
+                    sale.total as saleTotal,
+                    sale.payment_method as salePaymentMethodId
+                FROM stock s
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN sales sale ON s.sale_id = sale.id
+                WHERE s.stock_id = {stockId} AND s.amount < 0
+                ORDER BY s.date DESC";
+
+            var movements = new List<object>();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
                 {
-                    id = s.Id,
-                    date = s.Date,
-                    amount = s.Amount,
-                    cost = s.Cost,
-                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
-                    saleId = s.SaleId,
-                    sale = s.Sale != null ? new
+                    while (await reader.ReadAsync())
                     {
-                        id = s.Sale.Id,
-                        total = s.Sale.Total,
-                        paymentMethod = s.Sale.PaymentMethod
-                    } : null,
-                    notes = s.Notes,
-                    createdAt = s.CreatedAt
-                })
-                .ToListAsync();
+                        movements.Add(new
+                        {
+                            id = reader.GetInt32(reader.GetOrdinal("id")),
+                            date = reader.IsDBNull(reader.GetOrdinal("date")) 
+                                ? (DateTime?)null 
+                                : reader.GetDateTime(reader.GetOrdinal("date")),
+                            amount = reader.GetInt32(reader.GetOrdinal("amount")),
+                            cost = reader.IsDBNull(reader.GetOrdinal("cost")) 
+                                ? (int?)null 
+                                : reader.GetInt32(reader.GetOrdinal("cost")),
+                            flowType = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("flowTypeId")),
+                                name = reader.GetString(reader.GetOrdinal("flowTypeName"))
+                            },
+                            saleId = reader.IsDBNull(reader.GetOrdinal("saleId")) 
+                                ? (int?)null 
+                                : reader.GetInt32(reader.GetOrdinal("saleId")),
+                            sale = reader.IsDBNull(reader.GetOrdinal("saleIdFull"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("saleIdFull")),
+                                    total = Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("saleTotal"))),
+                                    paymentMethod = reader.GetInt32(reader.GetOrdinal("salePaymentMethodId"))
+                                },
+                            notes = reader.IsDBNull(reader.GetOrdinal("notes")) 
+                                ? null 
+                                : reader.GetString(reader.GetOrdinal("notes")),
+                            createdAt = reader.IsDBNull(reader.GetOrdinal("createdAt")) 
+                                ? (DateTime?)null 
+                                : reader.GetDateTime(reader.GetOrdinal("createdAt"))
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
 
             _logger.LogInformation("Encontrados {count} movimientos para lote {stockId}", movements.Count, stockId);
 
