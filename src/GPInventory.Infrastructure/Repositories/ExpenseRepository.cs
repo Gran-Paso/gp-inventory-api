@@ -257,8 +257,11 @@ public class ExpenseRepository : IExpenseRepository
 
         if (endDate.HasValue)
         {
+            // Agregar un día para incluir todos los expenses del día final
+            // Si endDate es "2026-02-04 00:00:00", cambiar a "2026-02-04 23:59:59"
+            var adjustedEndDate = endDate.Value.Date.AddDays(1).AddSeconds(-1);
             sql += " AND e.date <= @endDate";
-            parameters.Add(new MySqlParameter("@endDate", endDate.Value));
+            parameters.Add(new MySqlParameter("@endDate", adjustedEndDate));
         }
 
         // Filtro por monto

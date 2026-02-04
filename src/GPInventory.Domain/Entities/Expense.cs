@@ -41,6 +41,10 @@ public class Expense
     [Column("provider_id")]
     public int? ProviderId { get; set; } // Proveedor asociado al gasto (cuando viene de un supply entry)
 
+    [ForeignKey(nameof(PaymentPlan))]
+    [Column("payment_plan_id")]
+    public int? PaymentPlanId { get; set; } // Plan de pagos asociado (para crédito o financiamiento)
+
     // Navigation properties
     public ExpenseSubcategory ExpenseSubcategory { get; set; } = null!;
     public Business Business { get; set; } = null!;

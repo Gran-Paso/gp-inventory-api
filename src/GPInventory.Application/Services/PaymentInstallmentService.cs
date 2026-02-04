@@ -115,11 +115,11 @@ public class PaymentInstallmentService : IPaymentInstallmentService
         // Calcular conteos basados en el estado real de las cuotas
         var paidInstallments = installmentsList.Where(i => i.Status == "paid" || i.Status == "pagado").ToList();
         var overdueInstallments = installmentsList.Where(i => 
-            (i.Status == "pending" || i.Status == "overdue") && 
+            (i.Status == "pendiente" || i.Status == "overdue") && 
             i.DueDate.Date < now.Date
         ).ToList();
         var pendingInstallments = installmentsList.Where(i => 
-            (i.Status == "pending") && 
+            (i.Status == "pendiente") && 
             i.DueDate.Date >= now.Date
         ).ToList();
         
@@ -159,10 +159,10 @@ public class PaymentInstallmentService : IPaymentInstallmentService
                 // Verificar el estado del plan
                 var paidCount = installmentsPlan.Count(i => i.Status == "paid" || i.Status == "pagado");
                 var overdueCount = installmentsPlan.Count(i => 
-                    (i.Status == "pending" || i.Status == "overdue") && i.DueDate.Date < now.Date
+                    (i.Status == "pendiente" || i.Status == "overdue") && i.DueDate.Date < now.Date
                 );
                 var pendingCount = installmentsPlan.Count(i => 
-                    (i.Status == "pending") && i.DueDate.Date >= now.Date
+                    (i.Status == "pendiente") && i.DueDate.Date >= now.Date
                 );
                 
                 // Calcular proporciones basadas en el monto original del expense

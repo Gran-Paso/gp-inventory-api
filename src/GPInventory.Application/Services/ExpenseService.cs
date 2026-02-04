@@ -245,12 +245,12 @@ public class ExpenseService : IExpenseService
                     var installmentsList = installments.ToList();
                     
                     item.TotalInstallments = installmentsList.Count;
-                    item.PaidInstallments = installmentsList.Count(i => i.Status == "pagado" || i.Status == "paid");
+                    item.PaidInstallments = installmentsList.Count(i => i.Status == "pagado");
                     
                     // Calcular si hay cuotas vencidas
                     var today = DateTime.Today;
                     item.HasOverdueInstallments = installmentsList.Any(i => 
-                        (i.Status != "pagado" && i.Status != "paid") && 
+                        i.Status != "pagado" && 
                         i.DueDate.Date < today
                     );
                 }
@@ -367,6 +367,11 @@ public class ExpenseService : IExpenseService
                 
                 var createdPaymentPlan = await _paymentPlanRepository.CreateAsync(paymentPlan);
                 Console.WriteLine($"Payment plan created with ID: {createdPaymentPlan.Id}");
+                
+                // Actualizar el expense con el payment_plan_id
+                createdExpense.PaymentPlanId = createdPaymentPlan.Id;
+                await _expenseRepository.UpdateAsync(createdExpense);
+                Console.WriteLine($"Expense updated with PaymentPlanId: {createdPaymentPlan.Id}");
                 
                 // Crear las cuotas
                 decimal baseInstallmentAmount = Math.Floor(createdExpense.Amount / createExpenseDto.InstallmentsCount.Value);
@@ -757,149 +762,107 @@ public class ExpenseService : IExpenseService
                 throw new ArgumentException("Se debe proporcionar al menos un ID de negocio");
             }
 
-            var businessIdsString = string.Join(",", businessIds);
+            Console.WriteLine($"📊 GetExpenseSummaryAsync - businessIds: {string.Join(", ", businessIds)}");
+            Console.WriteLine($"📊 GetExpenseSummaryAsync - StartDate: {filters.StartDate}, EndDate: {filters.EndDate}");
+
+            // Obtener expenses del período usando Entity Framework
+            var expenses = await _expenseRepository.GetExpensesWithDetailsAsync(
+                businessId: null,
+                businessIds: businessIds,
+                startDate: filters.StartDate,
+                endDate: filters.EndDate,
+                page: 1,
+                pageSize: int.MaxValue);
+
+            var expensesList = expenses.ToList();
             
-            // Construir filtros de fecha
-            var dateFilter = "";
-            if (filters.StartDate.HasValue)
+            Console.WriteLine($"📊 GetExpenseSummaryAsync - Total expenses retrieved: {expensesList.Count}");
+            
+            // Calcular totales basados en monto completo de cada expense
+            // (NO filtrar por cuotas - esto es diferente al KPI mensual)
+            decimal totalAmount = 0;
+            var categoryTotals = new Dictionary<int, (string Name, decimal Amount, int Count)>();
+            var monthlyTotals = new Dictionary<(int Year, int Month), (decimal Amount, int Count)>();
+
+            foreach (var expense in expensesList)
             {
-                dateFilter += $" AND e.date >= '{filters.StartDate.Value:yyyy-MM-dd}'";
+                // Para resumen de categorías, siempre usar el monto completo del expense
+                // independientemente de si tiene payment_plan o no
+                decimal amountToAdd = expense.Amount;
+                
+                totalAmount += amountToAdd;
+                
+                // Agrupar por categoría
+                var categoryId = expense.ExpenseSubcategory?.ExpenseCategoryId ?? 0;
+                var categoryName = expense.ExpenseSubcategory?.ExpenseCategory?.Name ?? "Sin categoría";
+                
+                if (categoryTotals.ContainsKey(categoryId))
+                {
+                    var current = categoryTotals[categoryId];
+                    categoryTotals[categoryId] = (current.Name, current.Amount + amountToAdd, current.Count + 1);
+                }
+                else
+                {
+                    categoryTotals[categoryId] = (categoryName, amountToAdd, 1);
+                }
+                
+                // Agrupar por mes
+                var year = expense.Date.Year;
+                var month = expense.Date.Month;
+                var key = (year, month);
+                
+                if (monthlyTotals.ContainsKey(key))
+                {
+                    var current = monthlyTotals[key];
+                    monthlyTotals[key] = (current.Amount + amountToAdd, current.Count + 1);
+                }
+                else
+                {
+                    monthlyTotals[key] = (amountToAdd, 1);
+                }
             }
-            if (filters.EndDate.HasValue)
+
+            // Crear listas de resultados
+            var expensesByCategory = categoryTotals
+                .OrderByDescending(x => x.Value.Amount)
+                .Select(x => new ExpenseByCategoryDto
+                {
+                    CategoryId = x.Key,
+                    CategoryName = x.Value.Name,
+                    TotalAmount = x.Value.Amount,
+                    Count = x.Value.Count,
+                    Percentage = totalAmount > 0 ? (x.Value.Amount / totalAmount) * 100 : 0
+                })
+                .ToList();
+
+            var monthlyExpenses = monthlyTotals
+                .OrderBy(x => x.Key.Year)
+                .ThenBy(x => x.Key.Month)
+                .Select(x => new MonthlyExpenseDto
+                {
+                    Year = x.Key.Year,
+                    Month = x.Key.Month,
+                    MonthName = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(x.Key.Month),
+                    TotalAmount = x.Value.Amount,
+                    Count = x.Value.Count
+                })
+                .ToList();
+
+            var summary = new ExpenseSummaryDto
             {
-                dateFilter += $" AND e.date <= '{filters.EndDate.Value:yyyy-MM-dd}'";
-            }
+                TotalAmount = totalAmount,
+                TotalCount = expensesByCategory.Sum(e => e.Count),
+                ExpensesAmount = 0, // TODO: Calcular fixed expenses
+                ExpensesCount = 0,
+                VariableExpensesAmount = totalAmount,
+                VariableExpensesCount = expensesByCategory.Sum(e => e.Count),
+                PeriodStart = filters.StartDate,
+                PeriodEnd = filters.EndDate,
+                ExpensesByCategory = expensesByCategory,
+                MonthlyExpenses = monthlyExpenses
+            };
 
-            // Usar raw SQL para obtener todos los datos de una vez
-            var connection = _expenseRepository.GetDbConnection();
-            await connection.OpenAsync();
-
-            try
-            {
-                // 1. Obtener total de expenses
-                decimal totalAmount = 0;
-                var totalSql = $@"
-                    SELECT COALESCE(SUM(e.amount), 0) as total
-                    FROM expenses e
-                    WHERE e.business_id IN ({businessIdsString}){dateFilter}";
-
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandText = totalSql;
-                    var result = await cmd.ExecuteScalarAsync();
-                    totalAmount = result != null && result != DBNull.Value ? Convert.ToDecimal(result) : 0;
-                }
-
-                // 2. Obtener total de fixed expenses
-                decimal fixedExpensesAmount = 0;
-                var fixedExpensesSql = $@"
-                    SELECT COALESCE(SUM(fe.amount), 0) as total
-                    FROM fixed_expense fe
-                    WHERE fe.business_id IN ({businessIdsString})";
-
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandText = fixedExpensesSql;
-                    var result = await cmd.ExecuteScalarAsync();
-                    fixedExpensesAmount = result != null && result != DBNull.Value ? Convert.ToDecimal(result) : 0;
-                }
-
-                // 3. Obtener gastos por categoría
-                var expensesByCategory = new List<ExpenseByCategoryDto>();
-                var categorySql = $@"
-                    SELECT 
-                        ec.id as CategoryId,
-                        ec.name as CategoryName,
-                        SUM(e.amount) as TotalAmount,
-                        COUNT(e.id) as Count
-                    FROM expenses e
-                    INNER JOIN expense_subcategory es ON e.subcategory_id = es.id
-                    INNER JOIN expense_category ec ON es.expense_category_id = ec.id
-                    WHERE e.business_id IN ({businessIdsString}){dateFilter}
-                    GROUP BY ec.id, ec.name
-                    ORDER BY TotalAmount DESC";
-
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandText = categorySql;
-                    using (var reader = await cmd.ExecuteReaderAsync())
-                    {
-                        while (await reader.ReadAsync())
-                        {
-                            var categoryTotal = reader.IsDBNull(reader.GetOrdinal("TotalAmount")) 
-                                ? 0 
-                                : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("TotalAmount")));
-
-                            expensesByCategory.Add(new ExpenseByCategoryDto
-                            {
-                                CategoryId = reader.GetInt32(reader.GetOrdinal("CategoryId")),
-                                CategoryName = reader.GetString(reader.GetOrdinal("CategoryName")),
-                                TotalAmount = categoryTotal,
-                                Count = reader.GetInt32(reader.GetOrdinal("Count")),
-                                Percentage = totalAmount > 0 ? (categoryTotal / totalAmount) * 100 : 0
-                            });
-                        }
-                    }
-                }
-
-                // 4. Obtener gastos mensuales
-                var monthlyExpenses = new List<MonthlyExpenseDto>();
-                var monthlySql = $@"
-                    SELECT 
-                        YEAR(e.date) as Year,
-                        MONTH(e.date) as Month,
-                        SUM(e.amount) as TotalAmount,
-                        COUNT(e.id) as Count
-                    FROM expenses e
-                    WHERE e.business_id IN ({businessIdsString}){dateFilter}
-                    GROUP BY YEAR(e.date), MONTH(e.date)
-                    ORDER BY Year, Month";
-
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandText = monthlySql;
-                    using (var reader = await cmd.ExecuteReaderAsync())
-                    {
-                        while (await reader.ReadAsync())
-                        {
-                            var year = reader.GetInt32(reader.GetOrdinal("Year"));
-                            var month = reader.GetInt32(reader.GetOrdinal("Month"));
-                            var monthTotal = reader.IsDBNull(reader.GetOrdinal("TotalAmount")) 
-                                ? 0 
-                                : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("TotalAmount")));
-
-                            monthlyExpenses.Add(new MonthlyExpenseDto
-                            {
-                                Year = year,
-                                Month = month,
-                                MonthName = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(month),
-                                TotalAmount = monthTotal,
-                                Count = reader.GetInt32(reader.GetOrdinal("Count"))
-                            });
-                        }
-                    }
-                }
-
-                var summary = new ExpenseSummaryDto
-                {
-                    TotalAmount = totalAmount,
-                    TotalCount = expensesByCategory.Sum(e => e.Count),
-                    ExpensesAmount = fixedExpensesAmount,
-                    ExpensesCount = 0, // TODO: Implementar conteo de gastos fijos
-                    VariableExpensesAmount = totalAmount - fixedExpensesAmount,
-                    VariableExpensesCount = expensesByCategory.Sum(e => e.Count),
-                    PeriodStart = filters.StartDate,
-                    PeriodEnd = filters.EndDate,
-                    ExpensesByCategory = expensesByCategory,
-                    MonthlyExpenses = monthlyExpenses
-                };
-
-                return summary;
-            }
-            finally
-            {
-                await connection.CloseAsync();
-            }
+            return summary;
         }
         catch (Exception ex)
         {
@@ -942,41 +905,86 @@ public class ExpenseService : IExpenseService
 
             var expensesList = thisMonthExpenses.ToList();
             
-            // Calculate totals using full expense amounts (not installments)
+            // Calculate totals based on installments due this month
             decimal totalThisMonth = 0;
             decimal totalLastMonth = 0;
             decimal gastos = 0;
             decimal costos = 0;
             decimal inversiones = 0;
             
-            // Process this month expenses - usar el monto total del expense
+            // Lista para desglose (breakdown)
+            var breakdown = new List<object>();
+            
+            // Process this month expenses
             foreach (var expense in expensesList)
             {
-                totalThisMonth += expense.Amount;
+                // Verificar si tiene payment_plan
+                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+                var paymentPlan = paymentPlans.FirstOrDefault();
+                
+                decimal amountToAdd = 0;
+                string detail = "";
+                
+                if (paymentPlan != null)
+                {
+                    // Tiene payment_plan - sumar solo cuotas que vencen este mes
+                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                    var installmentsThisMonth = installments.Where(i => 
+                        i.DueDate.Year == now.Year && 
+                        i.DueDate.Month == now.Month
+                    ).ToList();
+                    
+                    amountToAdd = installmentsThisMonth.Sum(i => i.AmountClp);
+                    detail = $"Cuotas mes ({installmentsThisMonth.Count})";
+                }
+                else
+                {
+                    // No tiene payment_plan - usar monto completo
+                    amountToAdd = expense.Amount;
+                    detail = "Pago único";
+                }
+                
+                totalThisMonth += amountToAdd;
                 
                 // Add to type-specific totals
-                if (expense.ExpenseTypeId == 1) gastos += expense.Amount;
-                else if (expense.ExpenseTypeId == 2) costos += expense.Amount;
-                else if (expense.ExpenseTypeId == 3) inversiones += expense.Amount;
+                if (expense.ExpenseTypeId == 1) gastos += amountToAdd;
+                else if (expense.ExpenseTypeId == 2) costos += amountToAdd;
+                else if (expense.ExpenseTypeId == 3) inversiones += amountToAdd;
+                
+                // Agregar al breakdown
+                breakdown.Add(new
+                {
+                    expenseId = expense.Id,
+                    description = expense.Description,
+                    expenseType = expense.ExpenseTypeId == 1 ? "Gasto" : expense.ExpenseTypeId == 2 ? "Costo" : "Inversión",
+                    amount = amountToAdd,
+                    detail = detail,
+                    hasPaymentPlan = paymentPlan != null
+                });
             }
             
-            // Process last month expenses - usar el monto total del expense
+            // Process last month expenses
             foreach (var expense in lastMonthExpenses)
             {
-                totalLastMonth += expense.Amount;
+                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+                var paymentPlan = paymentPlans.FirstOrDefault();
+                
+                if (paymentPlan != null)
+                {
+                    // Tiene payment_plan - sumar solo cuotas que vencían el mes pasado
+                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
+                    var installmentsLastMonth = installments.Where(i => 
+                        i.DueDate.Year == firstDayLastMonth.Year && 
+                        i.DueDate.Month == firstDayLastMonth.Month
+                    ).ToList();
+                    
+                    totalLastMonth += installmentsLastMonth.Sum(i => i.AmountClp);
+                }
+                else
+                {
+                    totalLastMonth += expense.Amount;
+                }
             }
-
-            Console.WriteLine($"📊 GetMonthlyKPIs - This month expenses count: {expensesList.Count}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - This month total (with payment plans): {totalThisMonth}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
-
-            Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
-            Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
-
-            var totalDistribution = gastos + costos + inversiones;
 
             // Get fixed expenses for pending/overdue calculations
             var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(new[] { businessId });
@@ -1050,6 +1058,14 @@ public class ExpenseService : IExpenseService
                 ? ((totalThisMonth - totalLastMonth) / totalLastMonth) * 100 
                 : 0;
 
+            Console.WriteLine($"📊 GetMonthlyKPIs - This month total (installments based): {totalThisMonth}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Gastos (type 1): {gastos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Costos (type 2): {costos}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Inversiones (type 3): {inversiones}");
+            Console.WriteLine($"📊 GetMonthlyKPIs - Breakdown items: {breakdown.Count}");
+
+            var totalDistribution = gastos + costos + inversiones;
+
             return new
             {
                 totalThisMonth,
@@ -1059,6 +1075,7 @@ public class ExpenseService : IExpenseService
                 pendingAmount,
                 overdueCount,
                 upcomingCount,
+                breakdown, // Agregar el desglose
                 distribution = new
                 {
                     gastos,
@@ -1115,7 +1132,7 @@ public class ExpenseService : IExpenseService
                     
                     foreach (var installment in installmentsList)
                     {
-                        bool isPaid = installment.Status == "pagado" || installment.Status == "paid";
+                        bool isPaid = installment.Status == "pagado";
                         bool isOverdue = !isPaid && installment.DueDate.Date < today;
                         bool isUpcoming = !isPaid && installment.DueDate.Date >= today && installment.DueDate.Date <= today.AddDays(7);
                         
