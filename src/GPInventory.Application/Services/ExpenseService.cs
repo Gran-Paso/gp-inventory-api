@@ -757,85 +757,149 @@ public class ExpenseService : IExpenseService
                 throw new ArgumentException("Se debe proporcionar al menos un ID de negocio");
             }
 
-            // Calcular totales combinando datos de todos los negocios
-            decimal totalAmount = 0;
-            decimal fixedExpensesAmount = 0;
-            var allExpensesByCategory = new List<(int CategoryId, string CategoryName, decimal TotalAmount, int Count)>();
-            var allMonthlyExpenses = new List<(int Year, int Month, decimal TotalAmount, int Count)>();
-
-            foreach (var businessId in businessIds)
+            var businessIdsString = string.Join(",", businessIds);
+            
+            // Construir filtros de fecha
+            var dateFilter = "";
+            if (filters.StartDate.HasValue)
             {
-                // Sumar totales de cada negocio
-                var businessTotalAmount = await _expenseRepository.GetTotalExpensesAmountAsync(businessId, filters.StartDate, filters.EndDate);
-                var businessFixedExpensesAmount = await _fixedExpenseRepository.GetTotalFixedExpensesAmountAsync(businessId);
-                
-                totalAmount += businessTotalAmount;
-                fixedExpensesAmount += businessFixedExpensesAmount;
-
-                // Combinar gastos por categoría
-                var businessExpensesByCategory = await _expenseRepository.GetExpensesByCategoryAsync(businessId, filters.StartDate, filters.EndDate);
-                allExpensesByCategory.AddRange(businessExpensesByCategory);
-
-                // Combinar gastos mensuales
-                var businessMonthlyExpenses = await _expenseRepository.GetMonthlyExpensesAsync(businessId, filters.StartDate, filters.EndDate);
-                allMonthlyExpenses.AddRange(businessMonthlyExpenses);
+                dateFilter += $" AND e.date >= '{filters.StartDate.Value:yyyy-MM-dd}'";
+            }
+            if (filters.EndDate.HasValue)
+            {
+                dateFilter += $" AND e.date <= '{filters.EndDate.Value:yyyy-MM-dd}'";
             }
 
-            // Agrupar gastos por categoría combinando datos de todos los negocios
-            var expensesByCategory = allExpensesByCategory
-                .GroupBy(e => new { e.CategoryId, e.CategoryName })
-                .Select(g => new
-                {
-                    CategoryId = g.Key.CategoryId,
-                    CategoryName = g.Key.CategoryName,
-                    TotalAmount = g.Sum(e => e.TotalAmount),
-                    Count = g.Sum(e => e.Count)
-                })
-                .ToList();
+            // Usar raw SQL para obtener todos los datos de una vez
+            var connection = _expenseRepository.GetDbConnection();
+            await connection.OpenAsync();
 
-            // Agrupar gastos mensuales combinando datos de todos los negocios
-            var monthlyExpenses = allMonthlyExpenses
-                .GroupBy(m => new { m.Year, m.Month })
-                .Select(g => new
-                {
-                    Year = g.Key.Year,
-                    Month = g.Key.Month,
-                    TotalAmount = g.Sum(m => m.TotalAmount),
-                    Count = g.Sum(m => m.Count)
-                })
-                .OrderBy(m => m.Year)
-                .ThenBy(m => m.Month)
-                .ToList();
-
-            var summary = new ExpenseSummaryDto
+            try
             {
-                TotalAmount = totalAmount,
-                TotalCount = expensesByCategory.Sum(e => e.Count),
-                ExpensesAmount = fixedExpensesAmount,
-                ExpensesCount = 0, // TODO: Implementar conteo de gastos fijos
-                VariableExpensesAmount = totalAmount - fixedExpensesAmount,
-                VariableExpensesCount = expensesByCategory.Sum(e => e.Count), // Por ahora, todos los gastos contados son variables
-                PeriodStart = filters.StartDate,
-                PeriodEnd = filters.EndDate,
-                ExpensesByCategory = expensesByCategory.Select(e => new ExpenseByCategoryDto
-                {
-                    CategoryId = e.CategoryId,
-                    CategoryName = e.CategoryName,
-                    TotalAmount = e.TotalAmount,
-                    Count = e.Count,
-                    Percentage = totalAmount > 0 ? (e.TotalAmount / totalAmount) * 100 : 0
-                }).ToList(),
-                MonthlyExpenses = monthlyExpenses.Select(m => new MonthlyExpenseDto
-                {
-                    Year = m.Year,
-                    Month = m.Month,
-                    MonthName = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m.Month),
-                    TotalAmount = m.TotalAmount,
-                    Count = m.Count
-                }).ToList()
-            };
+                // 1. Obtener total de expenses
+                decimal totalAmount = 0;
+                var totalSql = $@"
+                    SELECT COALESCE(SUM(e.amount), 0) as total
+                    FROM expenses e
+                    WHERE e.business_id IN ({businessIdsString}){dateFilter}";
 
-            return summary;
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = totalSql;
+                    var result = await cmd.ExecuteScalarAsync();
+                    totalAmount = result != null && result != DBNull.Value ? Convert.ToDecimal(result) : 0;
+                }
+
+                // 2. Obtener total de fixed expenses
+                decimal fixedExpensesAmount = 0;
+                var fixedExpensesSql = $@"
+                    SELECT COALESCE(SUM(fe.amount), 0) as total
+                    FROM fixed_expense fe
+                    WHERE fe.business_id IN ({businessIdsString})";
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = fixedExpensesSql;
+                    var result = await cmd.ExecuteScalarAsync();
+                    fixedExpensesAmount = result != null && result != DBNull.Value ? Convert.ToDecimal(result) : 0;
+                }
+
+                // 3. Obtener gastos por categoría
+                var expensesByCategory = new List<ExpenseByCategoryDto>();
+                var categorySql = $@"
+                    SELECT 
+                        ec.id as CategoryId,
+                        ec.name as CategoryName,
+                        SUM(e.amount) as TotalAmount,
+                        COUNT(e.id) as Count
+                    FROM expenses e
+                    INNER JOIN expense_subcategory es ON e.subcategory_id = es.id
+                    INNER JOIN expense_category ec ON es.expense_category_id = ec.id
+                    WHERE e.business_id IN ({businessIdsString}){dateFilter}
+                    GROUP BY ec.id, ec.name
+                    ORDER BY TotalAmount DESC";
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = categorySql;
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            var categoryTotal = reader.IsDBNull(reader.GetOrdinal("TotalAmount")) 
+                                ? 0 
+                                : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("TotalAmount")));
+
+                            expensesByCategory.Add(new ExpenseByCategoryDto
+                            {
+                                CategoryId = reader.GetInt32(reader.GetOrdinal("CategoryId")),
+                                CategoryName = reader.GetString(reader.GetOrdinal("CategoryName")),
+                                TotalAmount = categoryTotal,
+                                Count = reader.GetInt32(reader.GetOrdinal("Count")),
+                                Percentage = totalAmount > 0 ? (categoryTotal / totalAmount) * 100 : 0
+                            });
+                        }
+                    }
+                }
+
+                // 4. Obtener gastos mensuales
+                var monthlyExpenses = new List<MonthlyExpenseDto>();
+                var monthlySql = $@"
+                    SELECT 
+                        YEAR(e.date) as Year,
+                        MONTH(e.date) as Month,
+                        SUM(e.amount) as TotalAmount,
+                        COUNT(e.id) as Count
+                    FROM expenses e
+                    WHERE e.business_id IN ({businessIdsString}){dateFilter}
+                    GROUP BY YEAR(e.date), MONTH(e.date)
+                    ORDER BY Year, Month";
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = monthlySql;
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            var year = reader.GetInt32(reader.GetOrdinal("Year"));
+                            var month = reader.GetInt32(reader.GetOrdinal("Month"));
+                            var monthTotal = reader.IsDBNull(reader.GetOrdinal("TotalAmount")) 
+                                ? 0 
+                                : Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("TotalAmount")));
+
+                            monthlyExpenses.Add(new MonthlyExpenseDto
+                            {
+                                Year = year,
+                                Month = month,
+                                MonthName = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(month),
+                                TotalAmount = monthTotal,
+                                Count = reader.GetInt32(reader.GetOrdinal("Count"))
+                            });
+                        }
+                    }
+                }
+
+                var summary = new ExpenseSummaryDto
+                {
+                    TotalAmount = totalAmount,
+                    TotalCount = expensesByCategory.Sum(e => e.Count),
+                    ExpensesAmount = fixedExpensesAmount,
+                    ExpensesCount = 0, // TODO: Implementar conteo de gastos fijos
+                    VariableExpensesAmount = totalAmount - fixedExpensesAmount,
+                    VariableExpensesCount = expensesByCategory.Sum(e => e.Count),
+                    PeriodStart = filters.StartDate,
+                    PeriodEnd = filters.EndDate,
+                    ExpensesByCategory = expensesByCategory,
+                    MonthlyExpenses = monthlyExpenses
+                };
+
+                return summary;
+            }
+            finally
+            {
+                await connection.CloseAsync();
+            }
         }
         catch (Exception ex)
         {

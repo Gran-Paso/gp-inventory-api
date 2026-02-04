@@ -1,4 +1,5 @@
 using GPInventory.Domain.Entities;
+using System.Data.Common;
 
 namespace GPInventory.Application.Interfaces;
 
@@ -30,4 +31,5 @@ public interface IExpenseRepository
     Task<decimal> GetTotalExpensesAmountAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
     Task<IEnumerable<(int CategoryId, string CategoryName, decimal TotalAmount, int Count)>> GetExpensesByCategoryAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
     Task<IEnumerable<(int Year, int Month, decimal TotalAmount, int Count)>> GetMonthlyExpensesAsync(int businessId, DateTime? startDate = null, DateTime? endDate = null);
+    DbConnection GetDbConnection();
 }

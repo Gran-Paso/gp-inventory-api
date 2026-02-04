@@ -17,6 +17,11 @@ public class ExpenseRepository : IExpenseRepository
         _dbSet = context.Set<Expense>();
     }
 
+    public System.Data.Common.DbConnection GetDbConnection()
+    {
+        return _context.Database.GetDbConnection();
+    }
+
     public async Task<Expense?> GetByIdAsync(int id)
     {
         return await _dbSet.FindAsync(id);
