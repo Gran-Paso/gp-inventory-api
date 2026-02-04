@@ -455,24 +455,79 @@ public class StockController : ControllerBase
                 return NotFound(new { message = "Producto no encontrado" });
             }
 
-            var movements = await _context.Stocks
-                .Include(s => s.FlowType)
-                .Include(s => s.Provider)
-                .Include(s => s.Store)
-                .Where(s => s.ProductId == productId)
-                .OrderByDescending(s => s.Date)
-                .Select(s => new
+            // Usar SQL raw para evitar problemas con DateTime NULL
+            var sql = $@"
+                SELECT 
+                    s.id,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.notes,
+                    ft.id as flowTypeId,
+                    ft.`type` as flowTypeName,
+                    p.id as providerId,
+                    p.name as providerName,
+                    st.id as storeId,
+                    st.name as storeName,
+                    st.location as storeLocation
+                FROM stock s
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN provider p ON s.provider = p.id
+                INNER JOIN store st ON s.id_store = st.id
+                WHERE s.product = {productId}
+                ORDER BY s.date DESC";
+
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            var movements = new List<object>();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
                 {
-                    id = s.Id,
-                    date = s.Date,
-                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
-                    amount = s.Amount,
-                    cost = s.Cost,
-                    provider = s.Provider != null ? new { id = s.Provider.Id, name = s.Provider.Name } : null,
-                    store = new { id = s.Store.Id, name = s.Store.Name, location = s.Store.Location },
-                    notes = s.Notes
-                })
-                .ToListAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        movements.Add(new
+                        {
+                            id = reader.GetInt32(reader.GetOrdinal("id")),
+                            date = reader.IsDBNull(reader.GetOrdinal("date"))
+                                ? (DateTime?)null
+                                : reader.GetDateTime(reader.GetOrdinal("date")),
+                            flowType = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("flowTypeId")),
+                                name = reader.GetString(reader.GetOrdinal("flowTypeName"))
+                            },
+                            amount = reader.GetInt32(reader.GetOrdinal("amount")),
+                            cost = reader.IsDBNull(reader.GetOrdinal("cost"))
+                                ? (int?)null
+                                : reader.GetInt32(reader.GetOrdinal("cost")),
+                            provider = reader.IsDBNull(reader.GetOrdinal("providerId"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("providerId")),
+                                    name = reader.GetString(reader.GetOrdinal("providerName"))
+                                },
+                            store = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("storeId")),
+                                name = reader.GetString(reader.GetOrdinal("storeName")),
+                                location = reader.IsDBNull(reader.GetOrdinal("storeLocation"))
+                                    ? null
+                                    : reader.GetString(reader.GetOrdinal("storeLocation"))
+                            },
+                            notes = reader.IsDBNull(reader.GetOrdinal("notes"))
+                                ? null
+                                : reader.GetString(reader.GetOrdinal("notes"))
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
 
             // Calcular stock actual solo con movimientos activos usando lógica FIFO
             var currentStock = await _context.Stocks
@@ -531,16 +586,58 @@ public class StockController : ControllerBase
                 return NotFound(new { message = "Store no encontrado" });
             }
 
-            // Obtener todos los lotes de entrada (amount > 0) activos del producto en el store
-            var stockLots = await _context.Stocks
-                .Include(s => s.FlowType)
-                .Include(s => s.Provider)
-                .Where(s => s.ProductId == productId && 
-                           s.StoreId == storeId && 
-                           s.Amount > 0 && 
-                           s.IsActive == true)
-                .OrderBy(s => s.Date) // FIFO: más antiguos primero
-                .ToListAsync();
+            // Usar SQL raw para evitar problemas con shadow properties de EF
+            var sql = $@"
+                SELECT 
+                    s.id,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.expiration_date,
+                    s.notes,
+                    ft.id as flowTypeId,
+                    ft.type as flowTypeName,
+                    p.id as providerId,
+                    p.name as providerName
+                FROM stock s
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN provider p ON s.provider = p.id
+                WHERE s.product = {productId}
+                  AND s.id_store = {storeId}
+                  AND s.amount > 0
+                  AND COALESCE(s.active, 1) = 1
+                ORDER BY s.date ASC";
+
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+
+            var stockLots = new List<StockLotData>();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        stockLots.Add(new StockLotData
+                        {
+                            Id = reader.GetInt32(0),
+                            Date = reader.GetDateTime(1),
+                            Amount = reader.GetInt32(2),
+                            Cost = reader.IsDBNull(3) ? (decimal?)null : Convert.ToDecimal(reader.GetValue(3)),
+                            ExpirationDate = reader.IsDBNull(4) ? (DateTime?)null : reader.GetDateTime(4),
+                            Notes = reader.IsDBNull(5) ? null : reader.GetString(5),
+                            FlowTypeId = reader.GetInt32(6),
+                            FlowTypeName = reader.GetString(7),
+                            ProviderId = reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8),
+                            ProviderName = reader.IsDBNull(9) ? null : reader.GetString(9)
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
 
             // Para cada lote, calcular cuánto se ha usado en ventas y salidas
             var lotsWithAvailability = new List<object>();
@@ -548,14 +645,8 @@ public class StockController : ControllerBase
 
             foreach (var lot in stockLots)
             {
-                // Calcular cuánto se ha vendido de este lote específico
-                var salesFromLot = await _context.SaleDetails
-                    .Where(sd => sd.StockId == lot.Id)
-                    .ToListAsync();
-
-                var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
-
-                // Calcular cuánto se ha removido de este lote (registros negativos con stock_id = lot.Id)
+                // Calcular cuánto se ha removido de este lote (movimientos negativos con stock_id = lot.Id)
+                // Esto incluye tanto ventas como salidas manuales
                 var removalsFromLot = await _context.Stocks
                     .Where(s => s.StockId == lot.Id && s.Amount < 0)
                     .ToListAsync();
@@ -563,7 +654,7 @@ public class StockController : ControllerBase
                 var removedFromLot = removalsFromLot.Sum(s => Math.Abs(s.Amount));
 
                 // Calcular el stock disponible real
-                var availableInLot = lot.Amount - soldFromLot - removedFromLot;
+                var availableInLot = lot.Amount - removedFromLot;
 
                 // Solo incluir lotes con stock disponible
                 if (availableInLot > 0)
@@ -575,15 +666,15 @@ public class StockController : ControllerBase
                         id = lot.Id,
                         date = lot.Date,
                         expirationDate = lot.ExpirationDate,
-                        flowType = new { id = lot.FlowType.Id, name = lot.FlowType.Name },
+                        flowType = new { id = lot.FlowTypeId, name = lot.FlowTypeName },
                         originalAmount = lot.Amount,
-                        soldAmount = soldFromLot,
+                        soldAmount = removedFromLot,
                         availableAmount = availableInLot,
                         cost = lot.Cost,
-                        provider = lot.Provider != null ? new { id = lot.Provider.Id, name = lot.Provider.Name } : null,
+                        provider = lot.ProviderId.HasValue ? new { id = lot.ProviderId.Value, name = lot.ProviderName } : null,
                         notes = lot.Notes,
                         isExpired = lot.ExpirationDate.HasValue && lot.ExpirationDate.Value < DateTime.Today,
-                        daysUntilExpiration = lot.ExpirationDate.HasValue 
+                        daysUntilExpiration = lot.ExpirationDate.HasValue
                             ? (lot.ExpirationDate.Value - DateTime.Today).Days 
                             : (int?)null
                     });
@@ -692,36 +783,93 @@ public class StockController : ControllerBase
         {
             _logger.LogInformation("Obteniendo movimientos del lote {stockId}", stockId);
 
-            var stockLot = await _context.Stocks.FindAsync(stockId);
-            if (stockLot == null)
+            // Verificar existencia del lote usando SQL raw
+            var existsSql = $"SELECT COUNT(*) FROM stock WHERE id = {stockId}";
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+            
+            int stockExists = 0;
+            using (var existsCommand = connection.CreateCommand())
             {
+                existsCommand.CommandText = existsSql;
+                var result = await existsCommand.ExecuteScalarAsync();
+                stockExists = Convert.ToInt32(result);
+            }
+
+            if (stockExists == 0)
+            {
+                await connection.CloseAsync();
                 return NotFound(new { message = "Lote de stock no encontrado" });
             }
 
-            // Obtener todos los movimientos de salida que referencian este lote
-            var movements = await _context.Stocks
-                .Include(s => s.FlowType)
-                .Include(s => s.Sale)
-                .Where(s => s.StockId == stockId && s.Amount < 0)
-                .OrderByDescending(s => s.Date)
-                .Select(s => new
+            // Usar SQL raw para evitar problemas con DateTime NULL
+            var sql = $@"
+                SELECT 
+                    s.id,
+                    s.date,
+                    s.amount,
+                    s.cost,
+                    s.notes,
+                    s.sale_id as saleId,
+                    s.created_at as createdAt,
+                    ft.id as flowTypeId,
+                    ft.`type` as flowTypeName,
+                    sale.id as saleIdFull,
+                    sale.total as saleTotal,
+                    sale.payment_method as salePaymentMethodId
+                FROM stock s
+                INNER JOIN flow_type ft ON s.flow = ft.id
+                LEFT JOIN sales sale ON s.sale_id = sale.id
+                WHERE s.stock_id = {stockId} AND s.amount < 0
+                ORDER BY s.date DESC";
+
+            var movements = new List<object>();
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (var reader = await command.ExecuteReaderAsync())
                 {
-                    id = s.Id,
-                    date = s.Date,
-                    amount = s.Amount,
-                    cost = s.Cost,
-                    flowType = new { id = s.FlowType.Id, name = s.FlowType.Name },
-                    saleId = s.SaleId,
-                    sale = s.Sale != null ? new
+                    while (await reader.ReadAsync())
                     {
-                        id = s.Sale.Id,
-                        total = s.Sale.Total,
-                        paymentMethod = s.Sale.PaymentMethod
-                    } : null,
-                    notes = s.Notes,
-                    createdAt = s.CreatedAt
-                })
-                .ToListAsync();
+                        movements.Add(new
+                        {
+                            id = reader.GetInt32(reader.GetOrdinal("id")),
+                            date = reader.IsDBNull(reader.GetOrdinal("date")) 
+                                ? (DateTime?)null 
+                                : reader.GetDateTime(reader.GetOrdinal("date")),
+                            amount = reader.GetInt32(reader.GetOrdinal("amount")),
+                            cost = reader.IsDBNull(reader.GetOrdinal("cost")) 
+                                ? (int?)null 
+                                : reader.GetInt32(reader.GetOrdinal("cost")),
+                            flowType = new
+                            {
+                                id = reader.GetInt32(reader.GetOrdinal("flowTypeId")),
+                                name = reader.GetString(reader.GetOrdinal("flowTypeName"))
+                            },
+                            saleId = reader.IsDBNull(reader.GetOrdinal("saleId")) 
+                                ? (int?)null 
+                                : reader.GetInt32(reader.GetOrdinal("saleId")),
+                            sale = reader.IsDBNull(reader.GetOrdinal("saleIdFull"))
+                                ? null
+                                : new
+                                {
+                                    id = reader.GetInt32(reader.GetOrdinal("saleIdFull")),
+                                    total = Convert.ToDecimal(reader.GetValue(reader.GetOrdinal("saleTotal"))),
+                                    paymentMethod = reader.GetInt32(reader.GetOrdinal("salePaymentMethodId"))
+                                },
+                            notes = reader.IsDBNull(reader.GetOrdinal("notes")) 
+                                ? null 
+                                : reader.GetString(reader.GetOrdinal("notes")),
+                            createdAt = reader.IsDBNull(reader.GetOrdinal("createdAt")) 
+                                ? (DateTime?)null 
+                                : reader.GetDateTime(reader.GetOrdinal("createdAt"))
+                        });
+                    }
+                }
+            }
+
+            await connection.CloseAsync();
 
             _logger.LogInformation("Encontrados {count} movimientos para lote {stockId}", movements.Count, stockId);
 
@@ -2205,4 +2353,19 @@ public class CorregirStockRequest
     /// Razón de la corrección
     /// </summary>
     public string Reason { get; set; } = string.Empty;
+}
+
+// Clase auxiliar para datos de lotes de stock
+public class StockLotData
+{
+    public int Id { get; set; }
+    public DateTime Date { get; set; }
+    public int Amount { get; set; }
+    public decimal? Cost { get; set; }
+    public DateTime? ExpirationDate { get; set; }
+    public string? Notes { get; set; }
+    public int FlowTypeId { get; set; }
+    public string FlowTypeName { get; set; } = string.Empty;
+    public int? ProviderId { get; set; }
+    public string? ProviderName { get; set; }
 }

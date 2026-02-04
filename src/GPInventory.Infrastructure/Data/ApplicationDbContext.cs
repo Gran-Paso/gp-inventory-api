@@ -281,6 +281,7 @@ public class ApplicationDbContext : DbContext
 
             // Ignore shadow properties that EF might try to create
             entity.Ignore("SupplyCategoryId1");
+            entity.Ignore("SupplyCategoryId2");
             entity.Ignore("UnitMeasure");
 
             entity.HasOne(e => e.SupplyCategory)

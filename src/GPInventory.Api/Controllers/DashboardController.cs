@@ -127,7 +127,7 @@ public class DashboardController : ControllerBase
                                         WHERE sd.stock_id = s.id
                                     ), 0),
                                     0
-                                ) * s.cost
+                                ) * (s.cost / s.amount)
                             ELSE 0
                         END
                     ), 0) as TodayStockCapital
@@ -148,7 +148,7 @@ public class DashboardController : ControllerBase
             // Nota: Esto es una aproximación, idealmente debería haber un snapshot histórico
             var yesterdayStockCapital = todayStockCapital; // Por ahora usamos el mismo valor
 
-            // Query para obtener valor potencial de ventas (precio de venta * cantidad en stock)
+            // Query para obtener valor potencial de ventas (precio de venta sin IVA * cantidad en stock)
             // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
             var stockRevenueQuery = @"
                 SELECT 
@@ -162,7 +162,7 @@ public class DashboardController : ControllerBase
                                         WHERE sd.stock_id = s.id
                                     ), 0),
                                     0
-                                ) * p.price
+                                ) * (p.price / 1.19)
                             ELSE 0
                         END
                     ), 0) as StockRevenuePotential

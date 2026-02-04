@@ -206,7 +206,11 @@ public class ProductsController : ControllerBase
                     name = p.Name,
                     sku = p.Sku,
                     price = p.Price,
-                    cost = p.Cost,
+                    // Calcular costo unitario: promedio simple de (costo total / cantidad) de cada lote
+                    cost = p.Stocks.Any(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0) 
+                        ? (decimal)p.Stocks.Where(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0)
+                            .Average(s => (double)s.Cost!.Value / s.Amount)
+                        : p.Cost,
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
@@ -259,7 +263,11 @@ public class ProductsController : ControllerBase
                     name = p.Name,
                     sku = p.Sku,
                     price = p.Price,
-                    cost = p.Cost,
+                    // Calcular costo unitario: promedio simple de (costo total / cantidad) de cada lote
+                    cost = p.Stocks.Any(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0) 
+                        ? (decimal)p.Stocks.Where(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0)
+                            .Average(s => (double)s.Cost!.Value / s.Amount)
+                        : p.Cost,
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },

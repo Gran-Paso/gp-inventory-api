@@ -277,18 +277,37 @@ public class SupplyService : ISupplyService
 
     private static decimal GetLastUnitCost(Supply supply)
     {
-        // Get the last supply entry with a positive amount (purchase)
-        var lastEntry = supply.SupplyEntries
-            ?.Where(se => se.Amount > 0)
-            .OrderByDescending(se => se.CreatedAt)
-            .FirstOrDefault();
+        // FIFO logic: Get the oldest supply entry that still has available stock
+        // Filter original purchase entries (Amount > 0 and ReferenceToSupplyEntry is null)
+        var purchaseEntries = supply.SupplyEntries
+            ?.Where(se => se.Amount > 0 && se.ReferenceToSupplyEntry == null)
+            .OrderBy(se => se.CreatedAt)
+            .ToList();
 
-        if (lastEntry != null && lastEntry.UnitCost > 0)
+        if (purchaseEntries == null || !purchaseEntries.Any())
         {
-            return lastEntry.UnitCost;
+            // Fallback to FixedExpense if no supply entry found
+            return supply.FixedExpense?.Amount ?? 0;
         }
 
-        // Fallback to FixedExpense if no supply entry found
-        return supply.FixedExpense?.Amount ?? 0;
+        // Calculate remaining stock for each purchase entry by subtracting consumption entries
+        foreach (var purchaseEntry in purchaseEntries)
+        {
+            var consumed = supply.SupplyEntries
+                ?.Where(se => se.ReferenceToSupplyEntry == purchaseEntry.Id)
+                .Sum(se => Math.Abs(se.Amount)) ?? 0;
+
+            var remainingStock = purchaseEntry.Amount - consumed;
+
+            // Return cost of first entry that still has stock (FIFO)
+            if (remainingStock > 0)
+            {
+                return purchaseEntry.UnitCost;
+            }
+        }
+
+        // If all entries are consumed, return cost of the most recent purchase
+        var lastPurchase = purchaseEntries.LastOrDefault();
+        return lastPurchase?.UnitCost ?? supply.FixedExpense?.Amount ?? 0;
     }
 }

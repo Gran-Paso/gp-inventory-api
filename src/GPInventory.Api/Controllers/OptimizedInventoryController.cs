@@ -100,6 +100,9 @@ public class OptimizedInventoryController : ControllerBase
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             _logger.LogInformation("🔄 Obteniendo productos con stock para negocio: {businessId}, tienda: {storeId}", businessId, storeId);
 
+            // Limpiar cualquier caché de Entity Framework para asegurar datos frescos
+            _context.ChangeTracker.Clear();
+
             // Verificaciones básicas usando SQL directo
             var businessExists = await _context.Database.SqlQueryRaw<int>(
                 "SELECT COUNT(*) as Value FROM business WHERE id = {0}", businessId)
@@ -129,7 +132,19 @@ public class OptimizedInventoryController : ControllerBase
                     p.name,
                     p.sku,
                     p.price,
-                    COALESCE(p.cost, 0) as Cost,
+                    -- Calcular costo unitario: promedio de (costo_total / cantidad) de cada lote activo
+                    COALESCE((
+                        SELECT AVG(s.cost / s.amount)
+                        FROM stock s
+                        INNER JOIN store st ON s.id_store = st.id
+                        WHERE s.product = p.id
+                        AND st.id_business = {0}
+                        " + (storeId.HasValue ? "AND s.id_store = {1}" : "") + @"
+                        AND s.amount > 0
+                        AND COALESCE(s.active, 0) = 1
+                        AND s.cost IS NOT NULL
+                        AND s.cost > 0
+                    ), p.cost, 0) as Cost,
                     COALESCE(fifo_cost_data.fifo_cost, p.cost, 0) as AverageCost,
                     p.image,
                     COALESCE(p.minimumStock, 0) as StockMin,
@@ -372,22 +387,19 @@ public class OptimizedInventoryController : ControllerBase
             
             foreach (var lot in lots)
             {
-                // Calcular cuánto se ha vendido de este lote
-                var salesFromLot = await _context.SaleDetails
-                    .Where(sd => sd.StockId == lot.Id)
-                    .ToListAsync();
-                var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
-
-                // Calcular cuánto se ha removido de este lote (registros negativos)
+                // Calcular cuánto se ha removido de este lote (movimientos negativos con stock_id = lot.Id)
+                // Esto incluye tanto ventas como salidas manuales
                 var removalsFromLot = await _context.Stocks
                     .Where(s => s.StockId == lot.Id && s.Amount < 0)
-                    .SumAsync(s => Math.Abs(s.Amount));
+                    .ToListAsync();
+
+                var removedFromLot = removalsFromLot.Sum(s => Math.Abs(s.Amount));
 
                 // Calcular el stock disponible real
-                var availableInLot = lot.Amount - soldFromLot - removalsFromLot;
+                var availableInLot = lot.Amount - removedFromLot;
 
-                _logger.LogInformation("📦 Lote ID: {lotId}, Original: {original}, Vendido: {sold}, Removido: {removed}, Disponible: {available}", 
-                    lot.Id, lot.Amount, soldFromLot, removalsFromLot, availableInLot);
+                _logger.LogInformation("📦 Lote ID: {lotId}, Original: {original}, Removido: {removed}, Disponible: {available}", 
+                    lot.Id, lot.Amount, removedFromLot, availableInLot);
 
                 // Solo incluir lotes con stock disponible
                 if (availableInLot > 0)

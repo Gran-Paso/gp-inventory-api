@@ -238,17 +238,20 @@ public class SupplyRepository : ISupplyRepository
             await _context.Database.OpenConnectionAsync();
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.tag as Tag, se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
-                       se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt, se.active, sep.Id, sep.active as padre_active
+                SELECT se.id as Id, se.unit_cost as UnitCost, se.amount as Amount, se.tag as Tag, 
+                       se.provider_id as ProviderId, se.supply_id as SupplyId, se.supply_entry_id as SupplyEntryId,
+                       se.process_done_id as ProcessDoneId, se.created_at as CreatedAt, se.updated_at as UpdatedAt, 
+                       se.active, sep.Id as ParentId, sep.active as padre_active
                 FROM supply_entry se
                 LEFT JOIN process_done pd ON se.process_done_id = pd.id
                 LEFT JOIN supply_entry sep ON se.supply_entry_id = sep.Id
                 WHERE se.supply_id = @supplyId
+                  AND se.active = 1
                   AND (
-                    (se.active = 1 AND se.amount > 0) OR  
-                    (se.amount < 0 AND se.supply_entry_id IS NOT NULL) OR
-                    (se.amount > 0 AND EXISTS (SELECT 1 FROM supply_entry child WHERE child.supply_entry_id = se.id AND child.active = 1))
-                  )"; ;
+                    se.supply_entry_id IS NULL OR 
+                    (se.supply_entry_id IS NOT NULL AND sep.active = 1)
+                  )
+                ORDER BY se.created_at ASC";
 
             var parameter = command.CreateParameter();
             parameter.ParameterName = "@supplyId";
@@ -279,7 +282,8 @@ public class SupplyRepository : ISupplyRepository
                     ReferenceToSupplyEntry = reader.IsDBNull(6) ? null : reader.GetInt32(6), // se.supply_entry_id
                     ProcessDoneId = reader.IsDBNull(7) ? null : reader.GetInt32(7), // se.ProcessDoneId
                     CreatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8), // se.CreatedAt
-                    UpdatedAt = reader.IsDBNull(9) ? DateTime.UtcNow : reader.GetDateTime(9) // se.UpdatedAt
+                    UpdatedAt = reader.IsDBNull(9) ? DateTime.UtcNow : reader.GetDateTime(9), // se.UpdatedAt
+                    IsActive = reader.GetBoolean(10) // se.active
                 };
 
                 supplyEntries.Add(supplyEntry);
@@ -473,8 +477,51 @@ public class SupplyRepository : ISupplyRepository
         entity.CreatedAt = DateTime.UtcNow;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        _context.Supplies.Add(entity);
-        await _context.SaveChangesAsync();
+        await _context.Database.OpenConnectionAsync();
+
+        try
+        {
+            using var command = _context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = @"
+                INSERT INTO supplies 
+                (name, sku, description, business_id, store_id, unit_measure_id, fixed_expense_id, 
+                 supply_category_id, type, active, minimum_stock, preferred_provider_id, created_at, updated_at)
+                VALUES 
+                (@Name, @Sku, @Description, @BusinessId, @StoreId, @UnitMeasureId, @FixedExpenseId, 
+                 @SupplyCategoryId, @Type, @Active, @MinimumStock, @PreferredProviderId, @CreatedAt, @UpdatedAt);
+                SELECT LAST_INSERT_ID();";
+
+            var parameters = new[]
+            {
+                CreateParameter(command, "@Name", entity.Name),
+                CreateParameter(command, "@Sku", (object?)entity.Sku ?? DBNull.Value),
+                CreateParameter(command, "@Description", (object?)entity.Description ?? DBNull.Value),
+                CreateParameter(command, "@BusinessId", entity.BusinessId),
+                CreateParameter(command, "@StoreId", entity.StoreId),
+                CreateParameter(command, "@UnitMeasureId", entity.UnitMeasureId),
+                CreateParameter(command, "@FixedExpenseId", (object?)entity.FixedExpenseId ?? DBNull.Value),
+                CreateParameter(command, "@SupplyCategoryId", (object?)entity.SupplyCategoryId ?? DBNull.Value),
+                CreateParameter(command, "@Type", (int)entity.Type),
+                CreateParameter(command, "@Active", entity.Active),
+                CreateParameter(command, "@MinimumStock", entity.MinimumStock),
+                CreateParameter(command, "@PreferredProviderId", (object?)entity.PreferredProviderId ?? DBNull.Value),
+                CreateParameter(command, "@CreatedAt", entity.CreatedAt),
+                CreateParameter(command, "@UpdatedAt", entity.UpdatedAt)
+            };
+
+            foreach (var param in parameters)
+            {
+                command.Parameters.Add(param);
+            }
+
+            var result = await command.ExecuteScalarAsync();
+            entity.Id = Convert.ToInt32(result);
+        }
+        finally
+        {
+            await _context.Database.CloseConnectionAsync();
+        }
+
         return entity;
     }
 
