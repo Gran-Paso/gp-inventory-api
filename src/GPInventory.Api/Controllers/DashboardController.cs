@@ -157,9 +157,9 @@ public class DashboardController : ControllerBase
                             WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
                                 GREATEST(
                                     s.amount - COALESCE((
-                                        SELECT SUM(CAST(sd.amount AS SIGNED))
-                                        FROM sales_detail sd
-                                        WHERE sd.stock_id = s.id
+                                        SELECT SUM(ABS(s2.amount))
+                                        FROM stock s2
+                                        WHERE s2.stock_id = s.id AND s2.amount < 0 AND s2.active = 1
                                     ), 0),
                                     0
                                 ) * p.price

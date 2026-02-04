@@ -387,22 +387,19 @@ public class OptimizedInventoryController : ControllerBase
             
             foreach (var lot in lots)
             {
-                // Calcular cuánto se ha vendido de este lote
-                var salesFromLot = await _context.SaleDetails
-                    .Where(sd => sd.StockId == lot.Id)
-                    .ToListAsync();
-                var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
-
-                // Calcular cuánto se ha removido de este lote (registros negativos)
+                // Calcular cuánto se ha removido de este lote (movimientos negativos con stock_id = lot.Id)
+                // Esto incluye tanto ventas como salidas manuales
                 var removalsFromLot = await _context.Stocks
                     .Where(s => s.StockId == lot.Id && s.Amount < 0)
-                    .SumAsync(s => Math.Abs(s.Amount));
+                    .ToListAsync();
+
+                var removedFromLot = removalsFromLot.Sum(s => Math.Abs(s.Amount));
 
                 // Calcular el stock disponible real
-                var availableInLot = lot.Amount - soldFromLot - removalsFromLot;
+                var availableInLot = lot.Amount - removedFromLot;
 
-                _logger.LogInformation("📦 Lote ID: {lotId}, Original: {original}, Vendido: {sold}, Removido: {removed}, Disponible: {available}", 
-                    lot.Id, lot.Amount, soldFromLot, removalsFromLot, availableInLot);
+                _logger.LogInformation("📦 Lote ID: {lotId}, Original: {original}, Removido: {removed}, Disponible: {available}", 
+                    lot.Id, lot.Amount, removedFromLot, availableInLot);
 
                 // Solo incluir lotes con stock disponible
                 if (availableInLot > 0)

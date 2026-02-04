@@ -645,14 +645,8 @@ public class StockController : ControllerBase
 
             foreach (var lot in stockLots)
             {
-                // Calcular cuánto se ha vendido de este lote específico
-                var salesFromLot = await _context.SaleDetails
-                    .Where(sd => sd.StockId == lot.Id)
-                    .ToListAsync();
-
-                var soldFromLot = salesFromLot.Sum(sd => int.TryParse(sd.Amount, out var amount) ? amount : 0);
-
-                // Calcular cuánto se ha removido de este lote (registros negativos con stock_id = lot.Id)
+                // Calcular cuánto se ha removido de este lote (movimientos negativos con stock_id = lot.Id)
+                // Esto incluye tanto ventas como salidas manuales
                 var removalsFromLot = await _context.Stocks
                     .Where(s => s.StockId == lot.Id && s.Amount < 0)
                     .ToListAsync();
@@ -660,7 +654,7 @@ public class StockController : ControllerBase
                 var removedFromLot = removalsFromLot.Sum(s => Math.Abs(s.Amount));
 
                 // Calcular el stock disponible real
-                var availableInLot = lot.Amount - soldFromLot - removedFromLot;
+                var availableInLot = lot.Amount - removedFromLot;
 
                 // Solo incluir lotes con stock disponible
                 if (availableInLot > 0)
@@ -674,7 +668,7 @@ public class StockController : ControllerBase
                         expirationDate = lot.ExpirationDate,
                         flowType = new { id = lot.FlowTypeId, name = lot.FlowTypeName },
                         originalAmount = lot.Amount,
-                        soldAmount = soldFromLot,
+                        soldAmount = removedFromLot,
                         availableAmount = availableInLot,
                         cost = lot.Cost,
                         provider = lot.ProviderId.HasValue ? new { id = lot.ProviderId.Value, name = lot.ProviderName } : null,
