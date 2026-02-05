@@ -60,4 +60,6 @@ public class InstallmentsSummaryDto
     public int PendingInstallments { get; set; }
     public int PaidInstallments { get; set; }
     public int OverdueInstallments { get; set; }
+    public int SinglePaymentsCount { get; set; }
+    public int InstallmentsOnlyCount { get; set; }
 }

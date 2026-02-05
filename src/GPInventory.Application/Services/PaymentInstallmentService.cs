@@ -189,7 +189,9 @@ public class PaymentInstallmentService : IPaymentInstallmentService
             OverdueInstallments = overdueInstallments.Count,
             TotalPending = totalPending,
             TotalPaid = totalPaid,
-            TotalOverdue = totalOverdue
+            TotalOverdue = totalOverdue,
+            SinglePaymentsCount = singlePaymentsCount,
+            InstallmentsOnlyCount = installmentsList.Count
         };
 
         return summary;
