@@ -22,6 +22,8 @@ public class ExpenseListItemDto
     public int? PaidInstallments { get; set; }
     public int? TotalInstallments { get; set; }
     public bool? HasOverdueInstallments { get; set; }
+    public int? PaymentPlanId { get; set; }
+    public DateTime? NextInstallmentDueDate { get; set; }
 }
 
 public class CreateExpenseDto

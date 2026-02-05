@@ -56,6 +56,10 @@ public class AuthService : IAuthService
         }
 
         var userDto = _mapper.Map<UserDto>(user);
+        
+        // Calculate app permissions based on roles
+        userDto.AppPermissions = CalculateAppPermissions(userDto);
+        
         var token = _tokenService.GenerateToken(userDto);
 
         return new AuthResponseDto
@@ -167,6 +171,10 @@ public class AuthService : IAuthService
         await _userRepository.SaveChangesAsync();
 
         var userDto = _mapper.Map<UserDto>(user);
+        
+        // Calculate app permissions based on roles
+        userDto.AppPermissions = CalculateAppPermissions(userDto);
+        
         var token = _tokenService.GenerateToken(userDto);
 
         return new AuthResponseDto

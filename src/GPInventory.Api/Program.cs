@@ -12,6 +12,12 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure Kestrel to listen on all network interfaces
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.ListenAnyIP(8080); // Listen on 0.0.0.0:8080
+});
+
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -79,9 +85,10 @@ builder.Services.AddCors(options =>
                 "https://localhost:5173", 
                 "https://localhost:5174", // GP Factory HTTPS
                 "https://localhost:4173", // Vite preview HTTPS
-                "http://localhost:5000",
+                "http://localhost:8080",
                 "http://127.0.0.1:5173",  // Local IP variant
-                "http://127.0.0.1:5000",  // Local IP variant
+                "http://127.0.0.1:8080",  // Local IP variant
+                "http://192.168.1.83:8080", // Local network for mobile testing
                 // Producción
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción

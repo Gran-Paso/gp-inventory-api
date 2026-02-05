@@ -241,6 +241,8 @@ public class ExpenseService : IExpenseService
                 
                 if (paymentPlan != null)
                 {
+                    item.PaymentPlanId = paymentPlan.Id;
+                    
                     var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
                     var installmentsList = installments.ToList();
                     
@@ -253,6 +255,17 @@ public class ExpenseService : IExpenseService
                         i.Status != "pagado" && 
                         i.DueDate.Date < today
                     );
+                    
+                    // Obtener la fecha de vencimiento de la próxima cuota sin pagar
+                    var nextInstallment = installmentsList
+                        .Where(i => i.Status != "pagado")
+                        .OrderBy(i => i.DueDate)
+                        .FirstOrDefault();
+                    
+                    if (nextInstallment != null)
+                    {
+                        item.NextInstallmentDueDate = nextInstallment.DueDate;
+                    }
                 }
 
                 result.Add(item);

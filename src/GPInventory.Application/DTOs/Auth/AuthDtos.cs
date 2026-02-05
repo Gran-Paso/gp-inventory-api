@@ -53,6 +53,7 @@ public class UserDto
     public string Role { get; set; } = string.Empty;
     public string SystemRole { get; set; } = "none";
     public List<UserRoleDto> Roles { get; set; } = new List<UserRoleDto>();
+    public List<BusinessRoleInfo> BusinessRoles { get; set; } = new List<BusinessRoleInfo>();
     public List<int> BusinessIds { get; set; } = new();
     public List<BusinessInfoDto> Businesses { get; set; } = new();
     public Dictionary<string, bool> AppPermissions { get; set; } = new();

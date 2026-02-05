@@ -20,6 +20,13 @@ public class AuthMappingProfile : Profile
                 Name = ub.Role.Name,
                 BusinessId = ub.Business.Id,
                 BusinessName = ub.Business.CompanyName
+            })))
+            .ForMember(dest => dest.BusinessRoles, opt => opt.MapFrom(src => src.UserBusinesses.Select(ub => new BusinessRoleInfo
+            {
+                BusinessId = ub.Business.Id,
+                BusinessName = ub.Business.CompanyName,
+                RoleId = ub.RoleId,
+                RoleName = ub.Role.Name
             })));
         
         CreateMap<RegisterDto, User>()
