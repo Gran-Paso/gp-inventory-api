@@ -1469,27 +1469,70 @@ public class StockController : ControllerBase
     /// <returns>ID del proveedor</returns>
     private async Task<int> GetOrCreateProviderForStore(string providerName, int storeId)
     {
-        // Buscar proveedor existente en el store
-        var existingProvider = await _context.Providers
-            .FirstOrDefaultAsync(p => p.Name.ToLower() == providerName.ToLower() && p.StoreId == storeId);
-
-        if (existingProvider != null)
+        var connection = _context.Database.GetDbConnection();
+        var wasOpen = connection.State == System.Data.ConnectionState.Open;
+        
+        try
         {
-            return existingProvider.Id;
+            if (!wasOpen)
+                await connection.OpenAsync();
+
+            // Buscar proveedor existente en el store usando raw SQL
+            using (var selectCommand = connection.CreateCommand())
+            {
+                selectCommand.CommandText = @"
+                    SELECT id 
+                    FROM provider 
+                    WHERE LOWER(name) = LOWER(@providerName) 
+                    AND id_store = @storeId 
+                    LIMIT 1";
+                
+                var nameParam = selectCommand.CreateParameter();
+                nameParam.ParameterName = "@providerName";
+                nameParam.Value = providerName;
+                selectCommand.Parameters.Add(nameParam);
+                
+                var storeParam = selectCommand.CreateParameter();
+                storeParam.ParameterName = "@storeId";
+                storeParam.Value = storeId;
+                selectCommand.Parameters.Add(storeParam);
+
+                var existingId = await selectCommand.ExecuteScalarAsync();
+                if (existingId != null)
+                {
+                    return Convert.ToInt32(existingId);
+                }
+            }
+
+            // Crear nuevo proveedor usando raw SQL
+            using (var insertCommand = connection.CreateCommand())
+            {
+                insertCommand.CommandText = @"
+                    INSERT INTO provider (name, id_store, active) 
+                    VALUES (@providerName, @storeId, 1);
+                    SELECT LAST_INSERT_ID();";
+                
+                var nameParam = insertCommand.CreateParameter();
+                nameParam.ParameterName = "@providerName";
+                nameParam.Value = providerName;
+                insertCommand.Parameters.Add(nameParam);
+                
+                var storeParam = insertCommand.CreateParameter();
+                storeParam.ParameterName = "@storeId";
+                storeParam.Value = storeId;
+                insertCommand.Parameters.Add(storeParam);
+
+                var newProviderId = await insertCommand.ExecuteScalarAsync();
+                
+                _logger.LogInformation("Proveedor creado: {providerName} para store: {storeId}", providerName, storeId);
+                return Convert.ToInt32(newProviderId);
+            }
         }
-
-        // Crear nuevo proveedor asociado al store
-        var newProvider = new GPInventory.Domain.Entities.Provider
+        finally
         {
-            Name = providerName,
-            StoreId = storeId
-        };
-
-        _context.Providers.Add(newProvider);
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation("Proveedor creado: {providerName} para store: {storeId}", providerName, storeId);
-        return newProvider.Id;
+            if (!wasOpen && connection.State == System.Data.ConnectionState.Open)
+                await connection.CloseAsync();
+        }
     }
 
     /// <summary>
@@ -1503,27 +1546,8 @@ public class StockController : ControllerBase
         // Primero obtener o crear un store por defecto para el business
         var defaultStore = await GetOrCreateDefaultStore(businessId);
         
-        // Buscar proveedor existente en esa store
-        var existingProvider = await _context.Providers
-            .FirstOrDefaultAsync(p => p.Name.ToLower() == providerName.ToLower() && p.StoreId == defaultStore.Id);
-
-        if (existingProvider != null)
-        {
-            return existingProvider.Id;
-        }
-
-        // Crear nuevo proveedor asociado al store
-        var newProvider = new GPInventory.Domain.Entities.Provider
-        {
-            Name = providerName,
-            StoreId = defaultStore.Id
-        };
-
-        _context.Providers.Add(newProvider);
-        await _context.SaveChangesAsync();
-
-        _logger.LogInformation("Proveedor creado: {providerName} para store: {storeId} (business: {businessId})", providerName, defaultStore.Id, businessId);
-        return newProvider.Id;
+        // Usar el método raw SQL para evitar problema de EF
+        return await GetOrCreateProviderForStore(providerName, defaultStore.Id);
     }
 
     /// <summary>

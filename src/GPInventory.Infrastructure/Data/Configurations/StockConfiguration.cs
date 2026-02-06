@@ -76,7 +76,12 @@ public class StockConfiguration : IEntityTypeConfiguration<Stock>
         // Configurar el nuevo campo StockId para relaciones FIFO
         builder.Property(e => e.StockId)
             .HasColumnName("stock_id")
-            .IsRequired(false);        // Relationships
+            .IsRequired(false);
+        
+        // Ignorar propiedades shadow que EF Core pueda generar automáticamente
+        builder.Ignore("StoreId1");
+
+        // Relationships
         builder.HasOne(e => e.Product)
             .WithMany(p => p.Stocks)
             .HasForeignKey(e => e.ProductId)
