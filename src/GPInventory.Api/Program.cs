@@ -293,7 +293,24 @@ else
 app.UseHttpsRedirection();
 
 // Configure static files middleware for serving uploaded images
-app.UseStaticFiles();
+app.UseStaticFiles(); // Sirve archivos desde wwwroot
+
+// Configurar ruta para servir imágenes subidas desde /uploads
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(Directory.GetCurrentDirectory(), "uploads")),
+    RequestPath = "/uploads",
+    OnPrepareResponse = ctx =>
+    {
+        // Agregar headers CORS para imágenes
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET");
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Headers", "Content-Type");
+        // Cache de 1 día para imágenes
+        ctx.Context.Response.Headers.Append("Cache-Control", "public, max-age=86400");
+    }
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
