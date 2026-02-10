@@ -187,7 +187,7 @@ public class ProcessDoneService : IProcessDoneService
                 ComponentId = process.Product.Id,
                 ProcessDoneId = processDoneDto.Id,
                 BusinessId = process.Product.BusinessId,
-                StoreId = process.StoreId,
+                StoreId = process.StoreId ?? 0,
                 ProducedAmount = amountProduced,
                 ProductionDate = DateTime.UtcNow,
                 Cost = totalCost, // Usar el costo TOTAL de la manufactura (insumos + componentes)
@@ -761,7 +761,7 @@ public class ProcessDoneService : IProcessDoneService
                 ComponentId = componentUsage.ComponentId,
                 ProcessDoneId = processDoneId,
                 BusinessId = process.Product?.BusinessId ?? availableProduction.BusinessId,
-                StoreId = process.StoreId,
+                StoreId = process.StoreId ?? 0,
                 ProducedAmount = -consumeFromThisProduction, // Cantidad negativa
                 ProductionDate = DateTime.Now,
                 Cost = costPerUnit * consumeFromThisProduction, // Costo proporcional
