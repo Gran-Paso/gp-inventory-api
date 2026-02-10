@@ -50,7 +50,7 @@ public class ProviderRepository : IProviderRepository
             {
                 provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -107,7 +107,7 @@ public class ProviderRepository : IProviderRepository
             {
                 var provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -169,7 +169,7 @@ public class ProviderRepository : IProviderRepository
             {
                 var provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -231,7 +231,7 @@ public class ProviderRepository : IProviderRepository
             {
                 var provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -502,7 +502,7 @@ public class ProviderRepository : IProviderRepository
             {
                 provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 

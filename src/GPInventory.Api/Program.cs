@@ -88,7 +88,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:8080",
                 "http://127.0.0.1:5173",  // Local IP variant
                 "http://127.0.0.1:8080",  // Local IP variant
-                "http://192.168.1.83:8080", // Local network for mobile testing
+                "http://localhost:8080", // Local network for mobile testing
                 // Producción
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción

@@ -17,7 +17,7 @@ public class ProcessDto
     public string? Description { get; set; }
     public int ProductionTime { get; set; }
     public int TimeUnitId { get; set; }
-    public int StoreId { get; set; }
+    public int? StoreId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsActive { get; set; }
@@ -47,7 +47,7 @@ public class CreateProcessDto
     public string? Description { get; set; }
     public int ProductionTime { get; set; }
     public int TimeUnitId { get; set; }
-    public int StoreId { get; set; }
+    public int? StoreId { get; set; }
     public List<CreateProcessSupplyDto> ProcessSupplies { get; set; } = new();
     public List<CreateProcessComponentDto> ProcessComponents { get; set; } = new();
 }

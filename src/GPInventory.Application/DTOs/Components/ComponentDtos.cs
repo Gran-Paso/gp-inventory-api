@@ -113,6 +113,7 @@ public class ComponentProductionDto
     public string? CreatedByUserName { get; set; }
     public bool Active { get; set; }
     public DateTime CreatedAt { get; set; }
+    public int? ComponentProductionId { get; set; }
 }
 
 public class CreateComponentProductionDto

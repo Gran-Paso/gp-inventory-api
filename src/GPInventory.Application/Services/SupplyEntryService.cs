@@ -155,9 +155,10 @@ public class SupplyEntryService : ISupplyEntryService
 
         var unitCost = createDto.UnitCost;
         
-        // If the supply is measured in grams (UnitMeasureId = 2), adjust the unit cost
-        // Since items are bought by kilogram but stored in grams, divide the cost by 1000
-        if (supply.UnitMeasureId == 2) // Grams
+        // If the supply is measured in grams (UnitMeasureId = 2) or milliliters (UnitMeasureId = 4), 
+        // adjust the unit cost. Items are bought by kilogram/liter but stored in grams/milliliters, 
+        // so divide the cost by 1000
+        if (supply.UnitMeasureId == 2 || supply.UnitMeasureId == 4) // Grams or Milliliters
         {
             unitCost = createDto.UnitCost / 1000;
         }

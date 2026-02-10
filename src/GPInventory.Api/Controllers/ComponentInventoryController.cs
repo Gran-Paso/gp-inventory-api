@@ -125,7 +125,8 @@ public class ComponentInventoryController : ControllerBase
                 CreatedByUserId = p.CreatedByUserId,
                 CreatedByUserName = p.CreatedByUserId.HasValue && users.TryGetValue(p.CreatedByUserId.Value, out var userName) ? userName : null,
                 Active = p.IsActive,
-                CreatedAt = p.CreatedAt
+                CreatedAt = p.CreatedAt,
+                ComponentProductionId = p.ComponentProductionId
             }).ToList();
             
             return Ok(dtos);

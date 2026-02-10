@@ -28,7 +28,7 @@ public class ExpenseMappingProfile : Profile
             {
                 Id = src.Provider.Id,
                 Name = src.Provider.Name,
-                BusinessId = src.Provider.BusinessId,
+                BusinessId = src.Provider.BusinessId ?? 0,
                 StoreId = src.Provider.StoreId,
                 Contact = src.Provider.Contact,
                 Address = src.Provider.Address,

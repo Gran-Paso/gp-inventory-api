@@ -242,7 +242,7 @@ public class SupplyService : ISupplyService
             {
                 Id = supply.PreferredProvider.Id,
                 Name = supply.PreferredProvider.Name,
-                BusinessId = supply.PreferredProvider.BusinessId,
+                BusinessId = supply.PreferredProvider.BusinessId ?? 0,
                 StoreId = supply.PreferredProvider.StoreId,
                 Contact = supply.PreferredProvider.Contact,
                 Address = supply.PreferredProvider.Address,

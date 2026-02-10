@@ -27,7 +27,7 @@ public class Provider : BaseEntity
     /// ID del negocio al que pertenece
     /// </summary>
     [Column("id_business")]
-    public int BusinessId { get; set; }
+    public int? BusinessId { get; set; }
 
     /// <summary>
     /// Información de contacto del proveedor (número de teléfono)
@@ -101,7 +101,7 @@ public class Provider : BaseEntity
     {
     }
 
-    public Provider(string name, int businessId, int? storeId = null)
+    public Provider(string name, int? businessId, int? storeId = null)
     {
         Name = name;
         BusinessId = businessId;
