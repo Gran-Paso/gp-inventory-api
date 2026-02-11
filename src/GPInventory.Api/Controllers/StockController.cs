@@ -339,7 +339,13 @@ public class StockController : ControllerBase
             int? providerId = null;
             if (!string.IsNullOrEmpty(request.ProviderName))
             {
-                providerId = await GetOrCreateProviderForStore(request.ProviderName.Trim(), request.StoreId);
+                if (store.BusinessId == null)
+                {
+                    return BadRequest(new { message = "El store no tiene un negocio asociado" });
+                }
+                
+                // Los proveedores se crean a nivel de negocio, no por tienda
+                providerId = await GetOrCreateProviderForBusiness(request.ProviderName.Trim(), store.BusinessId.Value);
             }
 
             // Usar SQL directo para evitar problemas con Entity Framework y valores NULL
@@ -347,17 +353,6 @@ public class StockController : ControllerBase
             var notes = request.Notes?.Trim();
             var cost = request.Cost;
             
-            // Debug: Log valores antes de guardar
-            _logger.LogInformation("🔍 Debug - Valores del stock antes de insertar:");
-            _logger.LogInformation("  ProductId: {ProductId}", request.ProductId);
-            _logger.LogInformation("  StoreId: {StoreId}", request.StoreId);
-            _logger.LogInformation("  FlowTypeId: {FlowTypeId}", request.FlowTypeId);
-            _logger.LogInformation("  Amount: {Amount}", request.Amount);
-            _logger.LogInformation("  Cost: {Cost}", cost);
-            _logger.LogInformation("  ProviderId: {ProviderId}", providerId);
-            _logger.LogInformation("  Notes: '{Notes}'", notes);
-            _logger.LogInformation("  Date: {Date}", date);
-
             // Construir SQL con valores explícitos para manejar NULL correctamente
             var costValue = cost?.ToString() ?? "NULL";
             var providerValue = providerId?.ToString() ?? "NULL";
@@ -377,13 +372,10 @@ public class StockController : ControllerBase
                     VALUES ({request.ProductId}, '{dateString}', {request.FlowTypeId}, {request.Amount}, {costValue}, {providerValue}, {expirationDateValue}, {notesValue}, {request.StoreId}, 1, NOW(), NOW())";
 
                 var affectedRows = await _context.Database.ExecuteSqlRawAsync(insertSql);
-                _logger.LogInformation("🔍 Rows afectadas por INSERT: {affectedRows}", affectedRows);
 
                 // En MySQL, obtener el último ID insertado usando una variable de sesión
                 var lastIdQuery = await _context.Database.SqlQueryRaw<LastInsertIdResult>("SELECT @@IDENTITY as Id").FirstAsync();
                 var lastInsertId = lastIdQuery.Id;
-                
-                _logger.LogInformation("🔍 ID obtenido con @@IDENTITY: {lastInsertId}", lastInsertId);
                 
                 await transaction.CommitAsync();
 
@@ -1462,12 +1454,14 @@ public class StockController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene o crea un proveedor para un store específico
+    /// Obtiene o crea un proveedor para un negocio
+    /// IMPORTANTE: Los proveedores son a nivel de negocio (id_business), NO por tienda
+    /// El campo id_store solo se usa cuando is_self=1 (proveedor propio/fábrica)
     /// </summary>
     /// <param name="providerName">Nombre del proveedor</param>
-    /// <param name="storeId">ID del store</param>
+    /// <param name="businessId">ID del negocio</param>
     /// <returns>ID del proveedor</returns>
-    private async Task<int> GetOrCreateProviderForStore(string providerName, int storeId)
+    private async Task<int> GetOrCreateProviderForBusiness(string providerName, int businessId)
     {
         var connection = _context.Database.GetDbConnection();
         var wasOpen = connection.State == System.Data.ConnectionState.Open;
@@ -1477,14 +1471,14 @@ public class StockController : ControllerBase
             if (!wasOpen)
                 await connection.OpenAsync();
 
-            // Buscar proveedor existente en el store usando raw SQL
+            // Buscar proveedor existente en el negocio usando raw SQL
             using (var selectCommand = connection.CreateCommand())
             {
                 selectCommand.CommandText = @"
                     SELECT id 
                     FROM provider 
                     WHERE LOWER(name) = LOWER(@providerName) 
-                    AND id_store = @storeId 
+                    AND id_business = @businessId 
                     LIMIT 1";
                 
                 var nameParam = selectCommand.CreateParameter();
@@ -1492,10 +1486,10 @@ public class StockController : ControllerBase
                 nameParam.Value = providerName;
                 selectCommand.Parameters.Add(nameParam);
                 
-                var storeParam = selectCommand.CreateParameter();
-                storeParam.ParameterName = "@storeId";
-                storeParam.Value = storeId;
-                selectCommand.Parameters.Add(storeParam);
+                var businessParam = selectCommand.CreateParameter();
+                businessParam.ParameterName = "@businessId";
+                businessParam.Value = businessId;
+                selectCommand.Parameters.Add(businessParam);
 
                 var existingId = await selectCommand.ExecuteScalarAsync();
                 if (existingId != null)
@@ -1504,12 +1498,12 @@ public class StockController : ControllerBase
                 }
             }
 
-            // Crear nuevo proveedor usando raw SQL
+            // Crear nuevo proveedor a nivel de negocio usando raw SQL
             using (var insertCommand = connection.CreateCommand())
             {
                 insertCommand.CommandText = @"
-                    INSERT INTO provider (name, id_store, active) 
-                    VALUES (@providerName, @storeId, 1);
+                    INSERT INTO provider (name, id_business, active) 
+                    VALUES (@providerName, @businessId, 1);
                     SELECT LAST_INSERT_ID();";
                 
                 var nameParam = insertCommand.CreateParameter();
@@ -1517,14 +1511,14 @@ public class StockController : ControllerBase
                 nameParam.Value = providerName;
                 insertCommand.Parameters.Add(nameParam);
                 
-                var storeParam = insertCommand.CreateParameter();
-                storeParam.ParameterName = "@storeId";
-                storeParam.Value = storeId;
-                insertCommand.Parameters.Add(storeParam);
+                var businessParam = insertCommand.CreateParameter();
+                businessParam.ParameterName = "@businessId";
+                businessParam.Value = businessId;
+                insertCommand.Parameters.Add(businessParam);
 
                 var newProviderId = await insertCommand.ExecuteScalarAsync();
                 
-                _logger.LogInformation("Proveedor creado: {providerName} para store: {storeId}", providerName, storeId);
+                _logger.LogInformation("Proveedor creado: {providerName} para negocio: {businessId}", providerName, businessId);
                 return Convert.ToInt32(newProviderId);
             }
         }
@@ -1543,11 +1537,9 @@ public class StockController : ControllerBase
     /// <returns>ID del proveedor</returns>
     private async Task<int> GetOrCreateProvider(string providerName, int businessId)
     {
-        // Primero obtener o crear un store por defecto para el business
-        var defaultStore = await GetOrCreateDefaultStore(businessId);
-        
-        // Usar el método raw SQL para evitar problema de EF
-        return await GetOrCreateProviderForStore(providerName, defaultStore.Id);
+        // Los proveedores se crean directamente a nivel de negocio
+        // Ya no es necesario obtener un store por defecto
+        return await GetOrCreateProviderForBusiness(providerName, businessId);
     }
 
     /// <summary>
@@ -2298,7 +2290,8 @@ public class CreateStockMovementRequest
     public int Amount { get; set; }
 
     /// <summary>
-    /// Costo (opcional)
+    /// Costo UNITARIO del producto (opcional)
+    /// IMPORTANTE: Este es el costo por unidad, NO el costo total del lote
     /// </summary>
     public int? Cost { get; set; }
 
@@ -2345,6 +2338,17 @@ public class UpdateStockLotRequest
 public class LastInsertIdResult
 {
     public int Id { get; set; }
+}
+
+/// <summary>
+/// Clase para verificar el stock insertado
+/// </summary>
+public class StockVerifyResult
+{
+    public int Id { get; set; }
+    public int Product { get; set; }
+    public int Amount { get; set; }
+    public decimal? Cost { get; set; }
 }
 
 /// <summary>

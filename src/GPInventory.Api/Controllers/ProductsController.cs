@@ -206,11 +206,9 @@ public class ProductsController : ControllerBase
                     name = p.Name,
                     sku = p.Sku,
                     price = p.Price,
-                    // Calcular costo unitario: promedio simple de (costo total / cantidad) de cada lote
-                    cost = p.Stocks.Any(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0) 
-                        ? (decimal)p.Stocks.Where(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0)
-                            .Average(s => (double)s.Cost!.Value / s.Amount)
-                        : p.Cost,
+                    // Costo unitario configurado del producto
+                    cost = p.Cost,
+                    baseCost = p.Cost, // Costo base configurado al crear el producto (para usar al agregar nuevo stock)
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
@@ -263,11 +261,9 @@ public class ProductsController : ControllerBase
                     name = p.Name,
                     sku = p.Sku,
                     price = p.Price,
-                    // Calcular costo unitario: promedio simple de (costo total / cantidad) de cada lote
-                    cost = p.Stocks.Any(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0) 
-                        ? (decimal)p.Stocks.Where(s => s.Amount > 0 && s.Cost.HasValue && s.Cost.Value > 0)
-                            .Average(s => (double)s.Cost!.Value / s.Amount)
-                        : p.Cost,
+                    // Costo unitario configurado del producto
+                    cost = p.Cost,
+                    baseCost = p.Cost, // Costo base configurado al crear el producto (para usar al agregar nuevo stock)
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
@@ -283,7 +279,6 @@ public class ProductsController : ControllerBase
                 return NotFound(new { message = "Producto no encontrado" });
             }
 
-            _logger.LogInformation("Producto encontrado: {productName}", product.name);
             return Ok(product);
         }
         catch (Exception ex)

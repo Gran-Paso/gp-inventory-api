@@ -212,6 +212,8 @@ public class ProcessDoneService : IProcessDoneService
         var processDone = await _processDoneRepository.GetByIdAsync(processDoneId);
         if (processDone == null) return;
         
+        Console.WriteLine($"[COST CALCULATION] ProcessDone ID: {processDoneId}, Amount: {processDone.Amount}");
+        
         // 1. Calcular costo de SUPPLIES
         var supplyEntries = await _supplyEntryRepository.GetByProcessDoneIdAsync(processDoneId);
         decimal totalSupplyCost = 0m;
@@ -220,9 +222,13 @@ public class ProcessDoneService : IProcessDoneService
         {
             if (supplyEntry.Amount < 0) // Solo consumos
             {
-                totalSupplyCost += Math.Abs(supplyEntry.Amount) * supplyEntry.UnitCost;
+                var entryCost = Math.Abs(supplyEntry.Amount) * supplyEntry.UnitCost;
+                Console.WriteLine($"[SUPPLY] ID: {supplyEntry.Id}, Amount: {supplyEntry.Amount}, UnitCost: {supplyEntry.UnitCost}, EntryCost: {entryCost}");
+                totalSupplyCost += entryCost;
             }
         }
+        
+        Console.WriteLine($"[COST CALCULATION] Total Supply Cost: {totalSupplyCost}");
         
         // 2. Calcular costo de COMPONENTES
         var componentProductions = await _componentProductionRepository.GetByProcessDoneIdAsync(processDoneId);
@@ -234,16 +240,23 @@ public class ProcessDoneService : IProcessDoneService
             {
                 if (componentProduction.ProducedAmount < 0) // Solo consumos
                 {
+                    Console.WriteLine($"[COMPONENT] ID: {componentProduction.Id}, ProducedAmount: {componentProduction.ProducedAmount}, Cost: {componentProduction.Cost}");
                     totalComponentCost += componentProduction.Cost;
                 }
             }
         }
         
+        Console.WriteLine($"[COST CALCULATION] Total Component Cost: {totalComponentCost}");
+        
         // 3. Costo TOTAL = supplies + componentes
         decimal totalCost = totalSupplyCost + totalComponentCost;
         
+        Console.WriteLine($"[COST CALCULATION] FINAL TOTAL COST: {totalCost}");
+        
         // 4. Actualizar ProcessDone con el costo TOTAL (no unitario)
         await _processDoneRepository.UpdateCostAsync(processDoneId, totalCost);
+        
+        Console.WriteLine($"[COST CALCULATION] Cost updated in database for ProcessDone {processDoneId}");
     }
 
     /// <summary>
@@ -289,6 +302,9 @@ public class ProcessDoneService : IProcessDoneService
         // Costo total = insumos + componentes
         decimal totalCost = totalSupplyCost + totalComponentCost;
 
+        // Calcular el costo UNITARIO para Manufacture (costo total / cantidad)
+        decimal unitCost = processDone.Amount > 0 ? totalCost / processDone.Amount : 0;
+
         // Crear el registro de Manufacture
         var manufacture = new Manufacture
         {
@@ -297,9 +313,9 @@ public class ProcessDoneService : IProcessDoneService
             BusinessId = process.Product.BusinessId,
             StoreId = storeId, // Asignar la tienda si se proporcionó
             Amount = processDone.Amount,
-            Cost = (int)Math.Round(totalCost),
+            Cost = (int)Math.Round(unitCost), // ⭐ Costo UNITARIO, no total
             Date = DateTime.UtcNow,
-            Notes = $"Producción del proceso: {process.Name}. Insumos: {totalSupplyCost:C}, Componentes: {totalComponentCost:C}, Total: {totalCost:C}",
+            Notes = $"Producción del proceso: {process.Name}. Total: ${totalCost:F0} ({processDone.Amount} unidades a ${unitCost:F0} c/u). Insumos: ${totalSupplyCost:F0}, Componentes: ${totalComponentCost:F0}",
             Status = storeId.HasValue ? "sent" : "pending", // Si tiene tienda, marcarlo como "sent"
             IsActive = !storeId.HasValue, // Si se envía directamente, IsActive = false; si queda en fábrica, IsActive = true
             CreatedByUserId = createdByUserId,

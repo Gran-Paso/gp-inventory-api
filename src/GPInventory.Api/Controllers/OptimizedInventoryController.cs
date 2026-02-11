@@ -132,19 +132,9 @@ public class OptimizedInventoryController : ControllerBase
                     p.name,
                     p.sku,
                     p.price,
-                    -- Calcular costo unitario: promedio de (costo_total / cantidad) de cada lote activo
-                    COALESCE((
-                        SELECT AVG(s.cost / s.amount)
-                        FROM stock s
-                        INNER JOIN store st ON s.id_store = st.id
-                        WHERE s.product = p.id
-                        AND st.id_business = {0}
-                        " + (storeId.HasValue ? "AND s.id_store = {1}" : "") + @"
-                        AND s.amount > 0
-                        AND COALESCE(s.active, 0) = 1
-                        AND s.cost IS NOT NULL
-                        AND s.cost > 0
-                    ), p.cost, 0) as Cost,
+                    -- Costo unitario configurado del producto (NO promedio)
+                    COALESCE(p.cost, 0) as Cost,
+                    COALESCE(p.cost, 0) as BaseCost,
                     COALESCE(fifo_cost_data.fifo_cost, p.cost, 0) as AverageCost,
                     p.image,
                     COALESCE(p.minimumStock, 0) as StockMin,
@@ -259,7 +249,8 @@ public class OptimizedInventoryController : ControllerBase
                     name = r.Name,
                     sku = r.Sku,
                     price = r.Price,
-                    cost = r.Cost, // Costo original del producto de la tabla Product
+                    cost = r.Cost, // Costo configurado del producto (directo de la tabla Product)
+                    baseCost = r.BaseCost, // Mismo que cost, para usar al agregar nuevo stock
                     averageCost = r.AverageCost, // Costo promedio calculado con FIFO
                     image = r.Image,
                     stockMin = r.StockMin,
@@ -610,6 +601,7 @@ public class ProductStockResult
     public string? Sku { get; set; }
     public decimal Price { get; set; }
     public decimal? Cost { get; set; }
+    public decimal? BaseCost { get; set; }
     public decimal? AverageCost { get; set; }
     public string? Image { get; set; }
     public int StockMin { get; set; }

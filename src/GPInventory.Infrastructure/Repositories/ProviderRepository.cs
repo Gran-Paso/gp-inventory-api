@@ -86,7 +86,7 @@ public class ProviderRepository : IProviderRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT 
+                SELECT DISTINCT
                     p.id,
                     p.name,
                     p.id_store,
@@ -142,7 +142,7 @@ public class ProviderRepository : IProviderRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT 
+                SELECT
                     p.id,
                     p.name,
                     p.id_store,
@@ -204,7 +204,7 @@ public class ProviderRepository : IProviderRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT 
+                SELECT
                     p.id,
                     p.name,
                     p.id_store,

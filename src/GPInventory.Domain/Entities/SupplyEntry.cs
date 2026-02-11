@@ -22,6 +22,11 @@ public class SupplyEntry : BaseEntity
     public int? ProcessDoneId { get; set; }
     
     /// <summary>
+    /// Referencia al ComponentProduction cuando esta entrada es un consumo para producción de componente
+    /// </summary>
+    public int? ComponentProductionId { get; set; }
+    
+    /// <summary>
     /// Referencia al SupplyEntry original cuando esta es una entrada de consumo (negativa)
     /// </summary>
     public int? ReferenceToSupplyEntry { get; set; }
@@ -57,13 +62,15 @@ public class SupplyEntry : BaseEntity
     // Constructor para autoreferencing (consumo con referencia a supply entry original)
     public SupplyEntry(decimal unitCost, decimal amount, 
                       int providerId, int supplyId, int? processDoneId, 
-                      int referencedSupplyEntryId, int? createdByUserId = null)
+                      int referencedSupplyEntryId, int? createdByUserId = null, 
+                      int? componentProductionId = null)
     {
         UnitCost = unitCost;
         Amount = (int)amount;
         ProviderId = providerId;
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;
+        ComponentProductionId = componentProductionId; // ⭐ Guardar referencia a la producción de componente
         ReferenceToSupplyEntry = referencedSupplyEntryId; // ⭐ Guardar la referencia
         CreatedByUserId = createdByUserId;
         // Las entradas hijas (consumos) también deben estar activas por defecto

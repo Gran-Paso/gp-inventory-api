@@ -9,6 +9,11 @@ public class Product : BaseEntity
     public string? Image { get; set; }
     public int ProductTypeId { get; set; }
     public decimal Price { get; set; }
+    
+    /// <summary>
+    /// Costo unitario del producto.
+    /// Este valor se usa como costo base para inyecciones de stock automáticas.
+    /// </summary>
     public decimal Cost { get; set; }
     
     public string? Sku { get; set; }
