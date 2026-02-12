@@ -10,6 +10,7 @@ public interface IExpenseRepository
     Task<IEnumerable<Expense>> GetAllAsync();
     Task<Expense> AddAsync(Expense entity);
     Task UpdateAsync(Expense entity);
+    Task UpdatePaymentPlanIdAsync(int expenseId, int paymentPlanId);
     Task DeleteAsync(int id);
     Task<IEnumerable<Expense>> GetExpensesWithDetailsAsync(
         int? businessId = null,

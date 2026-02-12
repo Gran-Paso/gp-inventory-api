@@ -15,7 +15,7 @@ public class ExpenseFiltersDto
     public int? ExpenseTypeId { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 1000; // Aumentado para mostrar todos los gastos por defecto
-    public string? OrderBy { get; set; } = "Date";
+    public string? OrderBy { get; set; } = "Id"; // Por defecto ordenar por ID (más reciente primero)
     public bool OrderDescending { get; set; } = true;
 }
 

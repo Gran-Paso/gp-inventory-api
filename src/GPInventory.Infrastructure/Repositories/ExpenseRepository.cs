@@ -149,6 +149,12 @@ public class ExpenseRepository : IExpenseRepository
         await _context.SaveChangesAsync();
     }
 
+    public async Task UpdatePaymentPlanIdAsync(int expenseId, int paymentPlanId)
+    {
+        var sql = "UPDATE expenses SET payment_plan_id = @p0 WHERE id = @p1";
+        await _context.Database.ExecuteSqlRawAsync(sql, paymentPlanId, expenseId);
+    }
+
     public async Task DeleteAsync(int id)
     {
         var entity = await GetByIdAsync(id);
@@ -294,9 +300,10 @@ public class ExpenseRepository : IExpenseRepository
         // Ordenamiento
         var orderColumn = orderBy.ToLower() switch
         {
+            "date" => "e.date",
             "amount" => "e.amount",
             "description" => "e.description",
-            _ => "e.date"
+            _ => "e.id" // Por defecto ordenar por ID
         };
         var orderDirection = orderDescending ? "DESC" : "ASC";
         sql += $" ORDER BY {orderColumn} {orderDirection}";

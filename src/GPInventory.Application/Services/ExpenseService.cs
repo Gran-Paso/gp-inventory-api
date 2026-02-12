@@ -155,7 +155,7 @@ public class ExpenseService : IExpenseService
                 expenseTypeId: filters.ExpenseTypeId,
                 page: filters.Page,
                 pageSize: filters.PageSize,
-                orderBy: filters.OrderBy ?? "Date",
+                orderBy: filters.OrderBy ?? "Id",
                 orderDescending: filters.OrderDescending);
 
             var expenseDtos = _mapper.Map<List<ExpenseWithDetailsDto>>(expenses);
@@ -213,7 +213,7 @@ public class ExpenseService : IExpenseService
                 page: filters.Page,
                 pageSize: filters.PageSize,
                 orderBy: filters.OrderBy ?? "Date",
-                orderDescending: filters.OrderDescending);
+                orderDescending: true); // Por defecto descendente (más reciente primero)
 
             // Mapear a DTO ligero
             var result = new List<ExpenseListItemDto>();
@@ -359,32 +359,34 @@ public class ExpenseService : IExpenseService
             
             var createdExpense = await _expenseRepository.AddAsync(expense);
             
-            // Si viene con datos de payment plan, crear el payment plan
-            // Aplica tanto para Crédito (2) como Financiamiento Bancario (3)
-            if (createExpenseDto.PaymentTypeId.HasValue && 
-                (createExpenseDto.PaymentTypeId.Value == 2 || createExpenseDto.PaymentTypeId.Value == 3) &&
-                createExpenseDto.InstallmentsCount.HasValue &&
-                createExpenseDto.InstallmentsCount.Value > 1)
+            // Si viene con datos de cuotas, crear el payment plan
+            // Cualquier gasto puede tener cuotas, no solo crédito o financiamiento
+            if (createExpenseDto.InstallmentsCount.HasValue && createExpenseDto.InstallmentsCount.Value > 1)
             {
-                Console.WriteLine($"Creating payment plan for expense {createdExpense.Id} with payment type {createExpenseDto.PaymentTypeId.Value}");
+                // Si no se especifica PaymentTypeId, usar 2 (Crédito) por defecto
+                var paymentTypeId = createExpenseDto.PaymentTypeId ?? 2;
+                
+                Console.WriteLine($"Creating payment plan for expense {createdExpense.Id} with {createExpenseDto.InstallmentsCount.Value} installments");
                 
                 var paymentPlan = new PaymentPlan
                 {
                     ExpenseId = createdExpense.Id,
-                    PaymentTypeId = createExpenseDto.PaymentTypeId.Value,
+                    PaymentTypeId = paymentTypeId,
                     InstallmentsCount = createExpenseDto.InstallmentsCount.Value,
                     ExpressedInUf = createExpenseDto.ExpressedInUf ?? false,
-                    BankEntityId = createExpenseDto.BankEntityId, // Null para crédito, requerido para financiamiento
+                    BankEntityId = createExpenseDto.BankEntityId,
                     StartDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow
                 };
                 
                 var createdPaymentPlan = await _paymentPlanRepository.CreateAsync(paymentPlan);
                 Console.WriteLine($"Payment plan created with ID: {createdPaymentPlan.Id}");
                 
-                // Actualizar el expense con el payment_plan_id
+                // Actualizar el expense con el payment_plan_id usando SQL directo para asegurar persistencia
+                await _expenseRepository.UpdatePaymentPlanIdAsync(createdExpense.Id, createdPaymentPlan.Id);
+                Console.WriteLine($"Expense {createdExpense.Id} updated with PaymentPlanId: {createdPaymentPlan.Id}");
+                
+                // Actualizar también la entidad en memoria para mantener consistencia
                 createdExpense.PaymentPlanId = createdPaymentPlan.Id;
-                await _expenseRepository.UpdateAsync(createdExpense);
-                Console.WriteLine($"Expense updated with PaymentPlanId: {createdPaymentPlan.Id}");
                 
                 // Crear las cuotas
                 decimal baseInstallmentAmount = Math.Floor(createdExpense.Amount / createExpenseDto.InstallmentsCount.Value);
@@ -940,40 +942,63 @@ public class ExpenseService : IExpenseService
                 
                 if (paymentPlan != null)
                 {
-                    // Tiene payment_plan - sumar solo cuotas que vencen este mes
+                    // Tiene payment_plan - sumar solo cuotas PAGADAS que vencen este mes
                     var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
-                    var installmentsThisMonth = installments.Where(i => 
+                    var paidInstallmentsThisMonth = installments.Where(i => 
                         i.DueDate.Year == now.Year && 
-                        i.DueDate.Month == now.Month
+                        i.DueDate.Month == now.Month &&
+                        i.Status == "pagado"  // SOLO cuotas pagadas
                     ).ToList();
                     
-                    amountToAdd = installmentsThisMonth.Sum(i => i.AmountClp);
-                    detail = $"Cuotas mes ({installmentsThisMonth.Count})";
+                    // Solo agregar al breakdown si hay cuotas pagadas
+                    if (paidInstallmentsThisMonth.Any())
+                    {
+                        amountToAdd = paidInstallmentsThisMonth.Sum(i => i.AmountClp);
+                        detail = $"Cuotas mes ({paidInstallmentsThisMonth.Count})";
+                        
+                        totalThisMonth += amountToAdd;
+                        
+                        // Add to type-specific totals
+                        if (expense.ExpenseTypeId == 1) gastos += amountToAdd;
+                        else if (expense.ExpenseTypeId == 2) costos += amountToAdd;
+                        else if (expense.ExpenseTypeId == 3) inversiones += amountToAdd;
+                        
+                        // Agregar al breakdown
+                        breakdown.Add(new
+                        {
+                            expenseId = expense.Id,
+                            description = expense.Description,
+                            expenseType = expense.ExpenseTypeId == 1 ? "Gasto" : expense.ExpenseTypeId == 2 ? "Costo" : "Inversión",
+                            amount = amountToAdd,
+                            detail = detail,
+                            hasPaymentPlan = paymentPlan != null
+                        });
+                    }
                 }
                 else
                 {
                     // No tiene payment_plan - usar monto completo
                     amountToAdd = expense.Amount;
                     detail = "Pago único";
+                    
+                    totalThisMonth += amountToAdd;
+                    
+                    // Add to type-specific totals
+                    if (expense.ExpenseTypeId == 1) gastos += amountToAdd;
+                    else if (expense.ExpenseTypeId == 2) costos += amountToAdd;
+                    else if (expense.ExpenseTypeId == 3) inversiones += amountToAdd;
+                    
+                    // Agregar al breakdown
+                    breakdown.Add(new
+                    {
+                        expenseId = expense.Id,
+                        description = expense.Description,
+                        expenseType = expense.ExpenseTypeId == 1 ? "Gasto" : expense.ExpenseTypeId == 2 ? "Costo" : "Inversión",
+                        amount = amountToAdd,
+                        detail = detail,
+                        hasPaymentPlan = paymentPlan != null
+                    });
                 }
-                
-                totalThisMonth += amountToAdd;
-                
-                // Add to type-specific totals
-                if (expense.ExpenseTypeId == 1) gastos += amountToAdd;
-                else if (expense.ExpenseTypeId == 2) costos += amountToAdd;
-                else if (expense.ExpenseTypeId == 3) inversiones += amountToAdd;
-                
-                // Agregar al breakdown
-                breakdown.Add(new
-                {
-                    expenseId = expense.Id,
-                    description = expense.Description,
-                    expenseType = expense.ExpenseTypeId == 1 ? "Gasto" : expense.ExpenseTypeId == 2 ? "Costo" : "Inversión",
-                    amount = amountToAdd,
-                    detail = detail,
-                    hasPaymentPlan = paymentPlan != null
-                });
             }
             
             // Process last month expenses
@@ -984,14 +1009,15 @@ public class ExpenseService : IExpenseService
                 
                 if (paymentPlan != null)
                 {
-                    // Tiene payment_plan - sumar solo cuotas que vencían el mes pasado
+                    // Tiene payment_plan - sumar solo cuotas PAGADAS que vencían el mes pasado
                     var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
-                    var installmentsLastMonth = installments.Where(i => 
+                    var paidInstallmentsLastMonth = installments.Where(i => 
                         i.DueDate.Year == firstDayLastMonth.Year && 
-                        i.DueDate.Month == firstDayLastMonth.Month
+                        i.DueDate.Month == firstDayLastMonth.Month &&
+                        i.Status == "pagado"  // SOLO cuotas pagadas
                     ).ToList();
                     
-                    totalLastMonth += installmentsLastMonth.Sum(i => i.AmountClp);
+                    totalLastMonth += paidInstallmentsLastMonth.Sum(i => i.AmountClp);
                 }
                 else
                 {
