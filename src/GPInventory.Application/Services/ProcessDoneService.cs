@@ -757,7 +757,7 @@ public class ProcessDoneService : IProcessDoneService
         if (!availableProductions.Any())
             throw new InvalidOperationException($"No stock available for Component ID {componentUsage.ComponentId}");
         
-        var productionsToUpdate = new List<ComponentProduction>(); // Producciones que necesitan actualización
+        var productionsToUpdate = new List<ComponentProduction>();
         
         foreach (var availableProduction in availableProductions)
         {
@@ -766,10 +766,16 @@ public class ProcessDoneService : IProcessDoneService
             // Determinar cuánto consumir de esta producción
             var consumeFromThisProduction = Math.Min(remainingQuantity, availableProduction.ProducedAmount);
             
-            // Calcular costo proporcional del stock consumido
-            var costPerUnit = availableProduction.ProducedAmount > 0 
-                ? availableProduction.Cost / availableProduction.ProducedAmount 
-                : 0;
+            // ⭐ CRITICAL FIX: Para calcular el costo unitario, obtener la cantidad ORIGINAL del lote directamente de la BD
+            var originalProduction = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
+            if (originalProduction == null) continue;
+            
+            // La cantidad original es el ProducedAmount del registro padre (positivo)
+            var originalAmount = Math.Abs(originalProduction.ProducedAmount);
+            var lotCost = originalProduction.Cost;
+            
+            // Calcular costo proporcional usando la cantidad ORIGINAL
+            var costPerUnit = originalAmount > 0 ? lotCost / originalAmount : 0;
             
             // Crear component_production negativo con referencia al lote original
             var componentProduction = new ComponentProduction
@@ -792,10 +798,9 @@ public class ProcessDoneService : IProcessDoneService
             
             // Si esta producción se queda completamente vacía, marcarla para desactivar
             var remainingInProduction = availableProduction.ProducedAmount - consumeFromThisProduction;
-            if (remainingInProduction == 0)
+            if (remainingInProduction <= 0.0001m)
             {
                 // Obtener la producción original para actualizar su estado
-                var originalProduction = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
                 if (originalProduction != null)
                 {
                     originalProduction.IsActive = false; // Marcar como inactiva

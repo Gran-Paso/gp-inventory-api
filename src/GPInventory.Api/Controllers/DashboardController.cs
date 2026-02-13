@@ -115,6 +115,7 @@ public class DashboardController : ControllerBase
 
             // Query para calcular el capital en stock (al costo)
             // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
+            // Capital en stock = Σ(Costo unitario × unidades disponibles del lote)
             var stockCapitalQuery = @"
                 SELECT 
                     COALESCE(SUM(
@@ -127,7 +128,7 @@ public class DashboardController : ControllerBase
                                         WHERE sd.stock_id = s.id
                                     ), 0),
                                     0
-                                ) * (s.cost / s.amount)
+                                ) * s.cost
                             ELSE 0
                         END
                     ), 0) as TodayStockCapital
@@ -963,7 +964,9 @@ public class DashboardController : ControllerBase
 
     private static string FormatCurrency(decimal value)
     {
-        return $"${value:N0}";
+        // Redondear primero, luego formatear sin decimales
+        var rounded = Math.Round(value, 0);
+        return $"${rounded:N0}";
     }
 }
 

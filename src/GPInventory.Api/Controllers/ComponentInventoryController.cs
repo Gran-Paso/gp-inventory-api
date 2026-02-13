@@ -372,28 +372,68 @@ public class ComponentInventoryController : ControllerBase
             return result;
         }
 
-        foreach (var production in availableProductions)
+        // ⭐ Abrir conexión una sola vez antes del loop
+        var connection = _context.Database.GetDbConnection();
+        await connection.OpenAsync();
+
+        try
         {
-            if (remainingQuantity <= 0) break;
-
-            var consumeFromThis = Math.Min(remainingQuantity, production.ProducedAmount);
-            
-            // Calcular costo unitario del lote original
-            var originalRecord = await _componentProductionRepository.GetByIdAsync(production.Id);
-            var originalAmount = originalRecord?.ProducedAmount ?? production.ProducedAmount;
-            var costPerUnit = originalAmount > 0 ? production.Cost / originalAmount : 0;
-            var costFromThis = consumeFromThis * costPerUnit;
-
-            result.LotDetails.Add(new FifoLotDetailDto
+            foreach (var production in availableProductions)
             {
-                LotId = production.Id,
-                QuantityFromLot = consumeFromThis,
-                UnitCost = costPerUnit,
-                CostFromLot = costFromThis
-            });
+                if (remainingQuantity <= 0) break;
 
-            result.TotalCost += costFromThis;
-            remainingQuantity -= consumeFromThis;
+                var consumeFromThis = Math.Min(remainingQuantity, production.ProducedAmount);
+                
+                // ⭐ CRITICAL FIX: Obtener cantidad ORIGINAL del lote directamente de la BD (sin cálculos)
+                // GetAvailableProductionsByComponentIdAsync devuelve cantidad DISPONIBLE calculada
+                decimal originalAmount;
+                decimal lotCost;
+                
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = "SELECT produced_amount, cost FROM component_production WHERE id = @id";
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = production.Id;
+                cmd.Parameters.Add(idParam);
+                
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    originalAmount = Math.Abs(reader.GetDecimal(0));
+                    lotCost = reader.GetDecimal(1);
+                    
+                    _logger.LogInformation("🔍 Lote {lotId} - Original BD: {amount}g @ ${cost} | Disponible: {available}g", 
+                        production.Id, originalAmount, lotCost, production.ProducedAmount);
+                }
+                else
+                {
+                    originalAmount = Math.Abs(production.ProducedAmount);
+                    lotCost = production.Cost;
+                }
+                await reader.CloseAsync();
+                
+                // Calcular costo unitario basado en la cantidad ORIGINAL del lote
+                var costPerUnit = originalAmount > 0 ? lotCost / originalAmount : 0;
+                var costFromThis = consumeFromThis * costPerUnit;
+                
+                _logger.LogInformation("💰 Consumo: {qty}g × ${unit}/g = ${total}", 
+                    consumeFromThis, costPerUnit, costFromThis);
+
+                result.LotDetails.Add(new FifoLotDetailDto
+                {
+                    LotId = production.Id,
+                    QuantityFromLot = consumeFromThis,
+                    UnitCost = costPerUnit,
+                    CostFromLot = costFromThis
+                });
+
+                result.TotalCost += costFromThis;
+                remainingQuantity -= consumeFromThis;
+            }
+        }
+        finally
+        {
+            await connection.CloseAsync();
         }
 
         result.HasSufficientStock = remainingQuantity == 0;
@@ -623,73 +663,111 @@ public class ComponentInventoryController : ControllerBase
         var remainingQuantity = quantityToConsume;
         decimal totalCost = 0m;
 
-        // Obtener todos los component_production disponibles para este componente (FIFO)
-        // ⭐ Este método ya devuelve la cantidad disponible real (restando consumos previos)
-        var availableProductions = await _componentProductionRepository.GetAvailableProductionsByComponentIdAsync(componentId);
+        var productionsToUpdate = new List<ComponentProduction>();
 
-        if (!availableProductions.Any())
-            throw new InvalidOperationException($"No hay stock disponible para el componente ID {componentId}");
+        // ⭐ Query SQL directo para obtener lotes disponibles con cantidad disponible calculada
+        var sql = @"
+            SELECT 
+                parent.id,
+                parent.component_id,
+                parent.business_id,
+                parent.store_id,
+                parent.produced_amount as original_amount,
+                parent.cost,
+                parent.produced_amount + COALESCE(
+                    (SELECT SUM(child.produced_amount) 
+                     FROM component_production child 
+                     WHERE child.component_production_id = parent.id 
+                     AND child.is_active = 1), 
+                    0
+                ) as available_amount
+            FROM component_production parent
+            WHERE parent.component_id = @componentId
+            AND parent.component_production_id IS NULL
+            AND parent.is_active = 1
+            AND parent.produced_amount > 0
+            HAVING available_amount > 0
+            ORDER BY parent.created_at ASC";
 
-        var productionsToUpdate = new List<ComponentProduction>(); // Producciones que necesitan actualización de active
+        var connection = _context.Database.GetDbConnection();
+        await connection.OpenAsync();
 
-        foreach (var availableProduction in availableProductions)
+        try
         {
-            if (remainingQuantity <= 0) break;
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = sql;
+            var param = cmd.CreateParameter();
+            param.ParameterName = "@componentId";
+            param.Value = componentId;
+            cmd.Parameters.Add(param);
 
-            // ⭐ availableProduction.ProducedAmount ya contiene la cantidad disponible real
-            // Determinar cuánto consumir de esta producción
-            var consumeFromThisProduction = Math.Min(remainingQuantity, availableProduction.ProducedAmount);
-
-            // ⭐ CRITICAL FIX: Obtener la cantidad ORIGINAL del lote para calcular costo unitario correcto
-            // La cantidad disponible (ProducedAmount) ya tiene los consumos restados, pero el Cost es del lote completo
-            // Necesitamos obtener el registro padre original para saber su cantidad inicial
-            var originalProductionRecord = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
-            var originalAmount = originalProductionRecord?.ProducedAmount ?? availableProduction.ProducedAmount;
-
-            // Calcular costo unitario basado en la cantidad ORIGINAL del lote, no la disponible
-            var costPerUnit = originalAmount > 0
-                ? availableProduction.Cost / originalAmount
-                : 0;
-
-            // Calcular el costo de esta porción
-            var costFromThisProduction = costPerUnit * consumeFromThisProduction;
-            totalCost += costFromThisProduction;
-
-            // Crear component_production negativo con referencia al lote original
-            var componentConsumption = new ComponentProduction
+            var availableProductions = new List<(int id, int componentId, int businessId, int storeId, decimal originalAmount, decimal cost, decimal availableAmount)>();
+            
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
             {
-                ComponentId = componentId,
-                ProcessDoneId = null,
-                BusinessId = businessId,
-                StoreId = storeId,
-                ProducedAmount = -consumeFromThisProduction, // Cantidad negativa
-                ProductionDate = DateTime.Now,
-                Cost = costFromThisProduction, // Costo proporcional
-                Notes = notes,
-                ComponentProductionId = availableProduction.Id, // ⭐ Referencia al lote original (FIFO)
-                CreatedByUserId = createdByUserId, // ⭐ Usuario responsable
-                IsActive = true,
-                CreatedAt = DateTime.Now,
-                UpdatedAt = DateTime.Now
-            };
-
-            await _componentProductionRepository.CreateAsync(componentConsumption);
-
-            // ⭐ VALIDACIÓN CRÍTICA: Si esta producción se queda completamente vacía, marcarla como inactiva
-            var remainingInProduction = availableProduction.ProducedAmount - consumeFromThisProduction;
-            if (remainingInProduction == 0)
-            {
-                // Obtener la producción original para actualizar su estado
-                var originalProduction = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
-                if (originalProduction != null)
-                {
-                    originalProduction.IsActive = false; // ⭐ Marcar como inactiva cuando se agota
-                    productionsToUpdate.Add(originalProduction);
-                }
+                availableProductions.Add((
+                    reader.GetInt32(0),  // id
+                    reader.GetInt32(1),  // component_id
+                    reader.GetInt32(2),  // business_id
+                    reader.GetInt32(3),  // store_id
+                    reader.GetDecimal(4), // original_amount
+                    reader.GetDecimal(5), // cost
+                    reader.GetDecimal(6)  // available_amount
+                ));
             }
 
-            // Reducir la cantidad pendiente
-            remainingQuantity -= consumeFromThisProduction;
+            if (!availableProductions.Any())
+                throw new InvalidOperationException($"No hay stock disponible para el componente ID {componentId}");
+
+            foreach (var production in availableProductions)
+            {
+                if (remainingQuantity <= 0) break;
+
+                var consumeFromThisProduction = Math.Min(remainingQuantity, production.availableAmount);
+
+                // Calcular costo unitario basado en la cantidad ORIGINAL del lote
+                var costPerUnit = production.originalAmount > 0 ? production.cost / production.originalAmount : 0;
+                var costFromThisProduction = costPerUnit * consumeFromThisProduction;
+                totalCost += costFromThisProduction;
+
+                // Crear component_production negativo con referencia al lote original
+                var componentConsumption = new ComponentProduction
+                {
+                    ComponentId = componentId,
+                    ProcessDoneId = null,
+                    BusinessId = businessId,
+                    StoreId = storeId,
+                    ProducedAmount = -consumeFromThisProduction,
+                    ProductionDate = DateTime.Now,
+                    Cost = costFromThisProduction,
+                    Notes = notes,
+                    ComponentProductionId = production.id,
+                    CreatedByUserId = createdByUserId,
+                    IsActive = true,
+                    CreatedAt = DateTime.Now,
+                    UpdatedAt = DateTime.Now
+                };
+
+                await _componentProductionRepository.CreateAsync(componentConsumption);
+
+                // Si esta producción se queda completamente vacía, marcarla como inactiva
+                if (production.availableAmount == consumeFromThisProduction)
+                {
+                    var originalProduction = await _componentProductionRepository.GetByIdAsync(production.id);
+                    if (originalProduction != null)
+                    {
+                        originalProduction.IsActive = false;
+                        productionsToUpdate.Add(originalProduction);
+                    }
+                }
+
+                remainingQuantity -= consumeFromThisProduction;
+            }
+        }
+        finally
+        {
+            await connection.CloseAsync();
         }
 
         // ⭐ Actualizar todas las producciones que se quedaron vacías
