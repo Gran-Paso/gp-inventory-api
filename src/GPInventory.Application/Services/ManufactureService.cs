@@ -167,123 +167,135 @@ public class ManufactureService : IManufactureService
 
         // Get database connection
         var connection = await _manufactureRepository.GetDbConnectionAsync();
-        if (connection.State != System.Data.ConnectionState.Open)
+        
+        try
         {
-            await connection.OpenAsync();
-        }
-
-        // Get default provider for the business using raw SQL
-        int? providerId = null;
-        using (var command = connection.CreateCommand())
-        {
-            command.CommandText = @"
-                SELECT id 
-                FROM provider 
-                WHERE id_business = @businessId 
-                  AND active = 1 
-                ORDER BY id ASC 
-                LIMIT 1";
-            
-            var param = command.CreateParameter();
-            param.ParameterName = "@businessId";
-            param.Value = manufacture.BusinessId;
-            command.Parameters.Add(param);
-            
-            var result = await command.ExecuteScalarAsync();
-            if (result != null && result != DBNull.Value)
+            if (connection.State != System.Data.ConnectionState.Open)
             {
-                providerId = Convert.ToInt32(result);
+                await connection.OpenAsync();
+            }
+
+            // Get default provider for the business using raw SQL
+            int? providerId = null;
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT id 
+                    FROM provider 
+                    WHERE id_business = @businessId 
+                      AND active = 1 
+                    ORDER BY id ASC 
+                    LIMIT 1";
+                
+                var param = command.CreateParameter();
+                param.ParameterName = "@businessId";
+                param.Value = manufacture.BusinessId;
+                command.Parameters.Add(param);
+                
+                var result = await command.ExecuteScalarAsync();
+                if (result != null && result != DBNull.Value)
+                {
+                    providerId = Convert.ToInt32(result);
+                }
+            }
+
+            if (!providerId.HasValue)
+                throw new InvalidOperationException($"No active provider found for business {manufacture.BusinessId}");
+
+            // Create Stock entry using raw SQL (FlowTypeId = 1 for incoming)
+            int stockId;
+            using (var insertCommand = connection.CreateCommand())
+            {
+                insertCommand.CommandText = @"
+                    INSERT INTO stock (product, date, flow, amount, cost, provider, notes, id_store, expiration_date, active, created_at)
+                    VALUES (@product, @date, @flow, @amount, @cost, @provider, @notes, @storeId, @expirationDate, 1, @createdAt);
+                    SELECT LAST_INSERT_ID();";
+                
+                var productParam = insertCommand.CreateParameter();
+                productParam.ParameterName = "@product";
+                productParam.Value = manufacture.ProductId;
+                insertCommand.Parameters.Add(productParam);
+                
+                var dateParam = insertCommand.CreateParameter();
+                dateParam.ParameterName = "@date";
+                dateParam.Value = DateTime.UtcNow;
+                insertCommand.Parameters.Add(dateParam);
+                
+                var flowParam = insertCommand.CreateParameter();
+                flowParam.ParameterName = "@flow";
+                flowParam.Value = 1; // FlowType "Entrada" / "Incoming"
+                insertCommand.Parameters.Add(flowParam);
+                
+                var amountParam = insertCommand.CreateParameter();
+                amountParam.ParameterName = "@amount";
+                amountParam.Value = manufacture.Amount;
+                insertCommand.Parameters.Add(amountParam);
+                
+                var costParam = insertCommand.CreateParameter();
+                costParam.ParameterName = "@cost";
+                costParam.Value = (object?)manufacture.Cost ?? DBNull.Value;
+                insertCommand.Parameters.Add(costParam);
+                
+                var providerParam = insertCommand.CreateParameter();
+                providerParam.ParameterName = "@provider";
+                providerParam.Value = providerId.Value;
+                insertCommand.Parameters.Add(providerParam);
+                
+                var notesParam = insertCommand.CreateParameter();
+                notesParam.ParameterName = "@notes";
+                notesParam.Value = $"Stock from manufacture batch #{manufacture.Id}";
+                insertCommand.Parameters.Add(notesParam);
+                
+                var storeIdParam = insertCommand.CreateParameter();
+                storeIdParam.ParameterName = "@storeId";
+                storeIdParam.Value = manufacture.StoreId.Value;
+                insertCommand.Parameters.Add(storeIdParam);
+                
+                var expirationParam = insertCommand.CreateParameter();
+                expirationParam.ParameterName = "@expirationDate";
+                expirationParam.Value = (object?)manufacture.ExpirationDate ?? DBNull.Value;
+                insertCommand.Parameters.Add(expirationParam);
+                
+                var createdAtParam = insertCommand.CreateParameter();
+                createdAtParam.ParameterName = "@createdAt";
+                createdAtParam.Value = DateTime.UtcNow;
+                insertCommand.Parameters.Add(createdAtParam);
+                
+                var result = await insertCommand.ExecuteScalarAsync();
+                stockId = Convert.ToInt32(result);
+            }
+
+            // Update manufacture with stock_id
+            using (var updateCommand = connection.CreateCommand())
+            {
+                updateCommand.CommandText = @"
+                    UPDATE manufacture 
+                    SET stock_id = @stockId 
+                    WHERE id = @manufactureId";
+                
+                var stockIdParam = updateCommand.CreateParameter();
+                stockIdParam.ParameterName = "@stockId";
+                stockIdParam.Value = stockId;
+                updateCommand.Parameters.Add(stockIdParam);
+                
+                var manufactureIdParam = updateCommand.CreateParameter();
+                manufactureIdParam.ParameterName = "@manufactureId";
+                manufactureIdParam.Value = manufacture.Id;
+                updateCommand.Parameters.Add(manufactureIdParam);
+                
+                await updateCommand.ExecuteNonQueryAsync();
+            }
+
+            return stockId;
+        }
+        finally
+        {
+            // ⭐ CRITICAL FIX: Cerrar la conexión MySQL
+            if (connection.State == System.Data.ConnectionState.Open)
+            {
+                await connection.CloseAsync();
             }
         }
-
-        if (!providerId.HasValue)
-            throw new InvalidOperationException($"No active provider found for business {manufacture.BusinessId}");
-
-        // Create Stock entry using raw SQL (FlowTypeId = 1 for incoming)
-        int stockId;
-        using (var insertCommand = connection.CreateCommand())
-        {
-            insertCommand.CommandText = @"
-                INSERT INTO stock (product, date, flow, amount, cost, provider, notes, id_store, expiration_date, active, created_at)
-                VALUES (@product, @date, @flow, @amount, @cost, @provider, @notes, @storeId, @expirationDate, 1, @createdAt);
-                SELECT LAST_INSERT_ID();";
-            
-            var productParam = insertCommand.CreateParameter();
-            productParam.ParameterName = "@product";
-            productParam.Value = manufacture.ProductId;
-            insertCommand.Parameters.Add(productParam);
-            
-            var dateParam = insertCommand.CreateParameter();
-            dateParam.ParameterName = "@date";
-            dateParam.Value = DateTime.UtcNow;
-            insertCommand.Parameters.Add(dateParam);
-            
-            var flowParam = insertCommand.CreateParameter();
-            flowParam.ParameterName = "@flow";
-            flowParam.Value = 1; // FlowType "Entrada" / "Incoming"
-            insertCommand.Parameters.Add(flowParam);
-            
-            var amountParam = insertCommand.CreateParameter();
-            amountParam.ParameterName = "@amount";
-            amountParam.Value = manufacture.Amount;
-            insertCommand.Parameters.Add(amountParam);
-            
-            var costParam = insertCommand.CreateParameter();
-            costParam.ParameterName = "@cost";
-            costParam.Value = (object?)manufacture.Cost ?? DBNull.Value;
-            insertCommand.Parameters.Add(costParam);
-            
-            var providerParam = insertCommand.CreateParameter();
-            providerParam.ParameterName = "@provider";
-            providerParam.Value = providerId.Value;
-            insertCommand.Parameters.Add(providerParam);
-            
-            var notesParam = insertCommand.CreateParameter();
-            notesParam.ParameterName = "@notes";
-            notesParam.Value = $"Stock from manufacture batch #{manufacture.Id}";
-            insertCommand.Parameters.Add(notesParam);
-            
-            var storeIdParam = insertCommand.CreateParameter();
-            storeIdParam.ParameterName = "@storeId";
-            storeIdParam.Value = manufacture.StoreId.Value;
-            insertCommand.Parameters.Add(storeIdParam);
-            
-            var expirationParam = insertCommand.CreateParameter();
-            expirationParam.ParameterName = "@expirationDate";
-            expirationParam.Value = (object?)manufacture.ExpirationDate ?? DBNull.Value;
-            insertCommand.Parameters.Add(expirationParam);
-            
-            var createdAtParam = insertCommand.CreateParameter();
-            createdAtParam.ParameterName = "@createdAt";
-            createdAtParam.Value = DateTime.UtcNow;
-            insertCommand.Parameters.Add(createdAtParam);
-            
-            var result = await insertCommand.ExecuteScalarAsync();
-            stockId = Convert.ToInt32(result);
-        }
-
-        // Update manufacture with stock_id
-        using (var updateCommand = connection.CreateCommand())
-        {
-            updateCommand.CommandText = @"
-                UPDATE manufacture 
-                SET stock_id = @stockId 
-                WHERE id = @manufactureId";
-            
-            var stockIdParam = updateCommand.CreateParameter();
-            stockIdParam.ParameterName = "@stockId";
-            stockIdParam.Value = stockId;
-            updateCommand.Parameters.Add(stockIdParam);
-            
-            var manufactureIdParam = updateCommand.CreateParameter();
-            manufactureIdParam.ParameterName = "@manufactureId";
-            manufactureIdParam.Value = manufacture.Id;
-            updateCommand.Parameters.Add(manufactureIdParam);
-            
-            await updateCommand.ExecuteNonQueryAsync();
-        }
-
-        return stockId;
     }
 
     public async Task DeleteAsync(int id)
