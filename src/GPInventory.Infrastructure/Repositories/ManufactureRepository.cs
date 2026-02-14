@@ -2,16 +2,19 @@ using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
 using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 
 namespace GPInventory.Infrastructure.Repositories;
 
 public class ManufactureRepository : IManufactureRepository
 {
     private readonly ApplicationDbContext _context;
+    private readonly string _connectionString;
 
     public ManufactureRepository(ApplicationDbContext context)
     {
         _context = context;
+        _connectionString = context.Database.GetConnectionString() ?? throw new InvalidOperationException("Connection string not found");
     }
 
     public async Task<Manufacture?> GetByIdAsync(int id)
@@ -585,6 +588,9 @@ public class ManufactureRepository : IManufactureRepository
 
     public async Task<System.Data.Common.DbConnection> GetDbConnectionAsync()
     {
-        return await Task.FromResult(_context.Database.GetDbConnection());
+        // ⭐ CRITICAL FIX: Crear nueva conexión en lugar de reusar la del DbContext
+        // para evitar "MySqlConnection is already in use"
+        var connection = new MySqlConnection(_connectionString);
+        return await Task.FromResult(connection);
     }
 }
