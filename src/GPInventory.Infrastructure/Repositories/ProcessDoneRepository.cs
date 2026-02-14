@@ -331,11 +331,10 @@ public class ProcessDoneRepository : IProcessDoneRepository
             );
             SELECT LAST_INSERT_ID();";
 
-        var connection = _context.Database.GetDbConnection();
-        var shouldCloseConnection = connection.State == System.Data.ConnectionState.Closed;
-        
-        if (shouldCloseConnection)
-            await connection.OpenAsync();
+        // ⭐ CRITICAL FIX: Crear nueva conexión independiente en lugar de usar la del DbContext
+        var connectionString = _context.Database.GetConnectionString();
+        using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
         
         try
         {
@@ -412,11 +411,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
             Console.WriteLine($"Error in CreateAsync: {ex.Message}");
             throw;
         }
-        finally
-        {
-            if (shouldCloseConnection)
-                await connection.CloseAsync();
-        }
+        // ⭐ La conexión se cierra automáticamente por el using statement
     }
 
     public async Task<ProcessDone> UpdateAsync(ProcessDone processDone)

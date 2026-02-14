@@ -338,50 +338,50 @@ public class ProcessDoneService : IProcessDoneService
     /// </summary>
     private async Task CreateStockFromManufactureAsync(Manufacture manufacture, int storeId, int businessId)
     {
+        // ⭐ CRITICAL FIX: Usar using para la conexión también
+        using var connection = await _manufactureRepository.GetDbConnectionAsync();
+        
         try
         {
-            // Obtener conexión desde el repositorio
-            var connection = await _manufactureRepository.GetDbConnectionAsync();
-            
-            try
+            if (connection.State != System.Data.ConnectionState.Open)
             {
-                if (connection.State != System.Data.ConnectionState.Open)
-                {
-                    await connection.OpenAsync();
-                }
+                await connection.OpenAsync();
+            }
+            
+            int? providerId = null;
+            
+            // ⭐ CRITICAL: Usar using y await para cerrar el reader antes del siguiente comando
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT id 
+                    FROM provider 
+                    WHERE id_business = @businessId 
+                      AND active = 1 
+                    ORDER BY id ASC 
+                    LIMIT 1";
                 
-                int? providerId = null;
-                using (var command = connection.CreateCommand())
+                var param = command.CreateParameter();
+                param.ParameterName = "@businessId";
+                param.Value = businessId;
+                command.Parameters.Add(param);
+                
+                var result = await command.ExecuteScalarAsync();
+                if (result != null)
                 {
-                    command.CommandText = @"
-                        SELECT id 
-                        FROM provider 
-                        WHERE id_business = @businessId 
-                          AND active = 1 
-                        ORDER BY id ASC 
-                        LIMIT 1";
-                    
-                    var param = command.CreateParameter();
-                    param.ParameterName = "@businessId";
-                    param.Value = businessId;
-                    command.Parameters.Add(param);
-                    
-                    var result = await command.ExecuteScalarAsync();
-                    if (result != null)
-                    {
-                        providerId = Convert.ToInt32(result);
-                    }
+                    providerId = Convert.ToInt32(result);
                 }
+            } // ⭐ El command se cierra aquí automáticamente
 
-                if (!providerId.HasValue)
-                {
-                    Console.WriteLine($"Warning: No active provider found for business {businessId}. Stock not created.");
-                    return;
-                }
+            if (!providerId.HasValue)
+            {
+                Console.WriteLine($"Warning: No active provider found for business {businessId}. Stock not created.");
+                return;
+            }
 
-                // Crear el stock en la tienda usando raw SQL
-                int? stockId = null;
-                using (var insertCommand = connection.CreateCommand())
+            // ⭐ Ahora podemos crear un nuevo comando sin conflictos
+            int? stockId = null;
+            using (var insertCommand = connection.CreateCommand())
                 {
                     insertCommand.CommandText = @"
                         INSERT INTO stock (
@@ -481,20 +481,13 @@ public class ProcessDoneService : IProcessDoneService
                     }
                 }
             }
-            finally
-            {
-                // ⭐ CRITICAL FIX: Cerrar la conexión MySQL
-                if (connection.State == System.Data.ConnectionState.Open)
-                {
-                    await connection.CloseAsync();
-                }
-            }
-        }
+            // ⭐ La conexión se cierra automáticamente aquí por el using var
         catch (Exception ex)
         {
             Console.WriteLine($"Error creating stock from manufacture: {ex.Message}");
             // No lanzamos la excepción para no interrumpir el flujo principal
         }
+        // ⭐ Y si hay excepción, también se cierra automáticamente la conexión
     }
 
     /// <summary>

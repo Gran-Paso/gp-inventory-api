@@ -372,13 +372,12 @@ public class ComponentInventoryController : ControllerBase
             return result;
         }
 
-        // ⭐ Abrir conexión una sola vez antes del loop
-        var connection = _context.Database.GetDbConnection();
+        // ⭐ CRITICAL FIX: Crear nueva conexión independiente
+        var connectionString = _context.Database.GetConnectionString();
+        using var connection = new MySqlConnector.MySqlConnection(connectionString);
         await connection.OpenAsync();
 
-        try
-        {
-            foreach (var production in availableProductions)
+        foreach (var production in availableProductions)
             {
                 if (remainingQuantity <= 0) break;
 
@@ -430,11 +429,7 @@ public class ComponentInventoryController : ControllerBase
                 result.TotalCost += costFromThis;
                 remainingQuantity -= consumeFromThis;
             }
-        }
-        finally
-        {
-            await connection.CloseAsync();
-        }
+        // ⭐ La conexión se cierra automáticamente por el using statement
 
         result.HasSufficientStock = remainingQuantity == 0;
         return result;
@@ -689,12 +684,12 @@ public class ComponentInventoryController : ControllerBase
             HAVING available_amount > 0
             ORDER BY parent.created_at ASC";
 
-        var connection = _context.Database.GetDbConnection();
+        // ⭐ CRITICAL FIX: Crear nueva conexión independiente
+        var connectionString = _context.Database.GetConnectionString();
+        using var connection = new MySqlConnector.MySqlConnection(connectionString);
         await connection.OpenAsync();
 
-        try
-        {
-            using var cmd = connection.CreateCommand();
+        using var cmd = connection.CreateCommand();
             cmd.CommandText = sql;
             var param = cmd.CreateParameter();
             param.ParameterName = "@componentId";
@@ -764,11 +759,7 @@ public class ComponentInventoryController : ControllerBase
 
                 remainingQuantity -= consumeFromThisProduction;
             }
-        }
-        finally
-        {
-            await connection.CloseAsync();
-        }
+        // ⭐ La conexión se cierra automáticamente por el using statement
 
         // ⭐ Actualizar todas las producciones que se quedaron vacías
         foreach (var production in productionsToUpdate)
