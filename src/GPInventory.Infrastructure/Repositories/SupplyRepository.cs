@@ -798,4 +798,14 @@ public class SupplyRepository : ISupplyRepository
 
         return stockList;
     }
+
+    public async Task<IEnumerable<Supply>> GetByFixedExpenseIdsAsync(List<int> fixedExpenseIds)
+    {
+        if (fixedExpenseIds == null || !fixedExpenseIds.Any())
+            return new List<Supply>();
+
+        return await _context.Supplies
+            .Where(s => s.FixedExpenseId.HasValue && fixedExpenseIds.Contains(s.FixedExpenseId.Value))
+            .ToListAsync();
+    }
 }

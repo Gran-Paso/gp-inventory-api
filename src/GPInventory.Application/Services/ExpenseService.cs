@@ -18,6 +18,7 @@ public class ExpenseService : IExpenseService
     private readonly IRecurrenceTypeRepository _recurrenceTypeRepository;
     private readonly IPaymentPlanRepository _paymentPlanRepository;
     private readonly IPaymentInstallmentRepository _paymentInstallmentRepository;
+    private readonly ISupplyRepository _supplyRepository;
     private readonly IMapper _mapper;
 
     public ExpenseService(
@@ -29,6 +30,7 @@ public class ExpenseService : IExpenseService
         IRecurrenceTypeRepository recurrenceTypeRepository,
         IPaymentPlanRepository paymentPlanRepository,
         IPaymentInstallmentRepository paymentInstallmentRepository,
+        ISupplyRepository supplyRepository,
         IMapper mapper)
     {
         _expenseRepository = expenseRepository;
@@ -39,6 +41,7 @@ public class ExpenseService : IExpenseService
         _recurrenceTypeRepository = recurrenceTypeRepository;
         _paymentPlanRepository = paymentPlanRepository;
         _paymentInstallmentRepository = paymentInstallmentRepository;
+        _supplyRepository = supplyRepository;
         _mapper = mapper;
     }
 
@@ -521,10 +524,16 @@ public class ExpenseService : IExpenseService
             var fixedExpenses = await _fixedExpenseRepository.GetFixedExpensesWithDetailsAsync(
                 businessIds: businessIds, expenseTypeId: expenseTypeId);
                 
+            // Obtener todos los supplies relacionados con estos fixed expenses
+            var fixedExpenseIds = fixedExpenses.Select(fe => fe.Id).ToList();
+            var relatedSupplies = await _supplyRepository.GetByFixedExpenseIdsAsync(fixedExpenseIds);
+            
             var listItems = new List<FixedExpenseListItemDto>();
             
             foreach (var fe in fixedExpenses)
             {
+                var relatedSupply = relatedSupplies.FirstOrDefault(s => s.FixedExpenseId == fe.Id);
+                
                 var item = new FixedExpenseListItemDto
                 {
                     Id = fe.Id,
@@ -537,7 +546,9 @@ public class ExpenseService : IExpenseService
                     CategoryName = fe.Subcategory?.ExpenseCategory?.Name ?? "Sin categoría",
                     SubcategoryName = fe.Subcategory?.Name ?? "Sin subcategoría",
                     RecurrenceTypeName = fe.RecurrenceType?.Description ?? "No definido",
-                    AssociatedExpensesCount = fe.GeneratedExpenses?.Count ?? 0
+                    AssociatedExpensesCount = fe.GeneratedExpenses?.Count ?? 0,
+                    IsRelatedToSupply = relatedSupply != null,
+                    SupplyName = relatedSupply?.Name
                 };
                 
                 // Calcular estado de pago sin cargar todos los detalles

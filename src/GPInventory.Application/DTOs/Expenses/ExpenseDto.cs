@@ -33,7 +33,7 @@ public class CreateExpenseDto
     public int SubcategoryId { get; set; }
 
     [Required]
-    [Range(0.01, double.MaxValue, ErrorMessage = "El monto debe ser mayor a 0")]
+    [Range(0, double.MaxValue, ErrorMessage = "El monto no puede ser negativo")]
     public decimal Amount { get; set; }
 
     [Required]
