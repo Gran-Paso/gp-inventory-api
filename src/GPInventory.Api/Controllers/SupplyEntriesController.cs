@@ -263,7 +263,7 @@ public class SupplyEntriesController : ControllerBase
                     return BadRequest(new { message = "Entry no encontrado o sin stock disponible" });
                 }
 
-                var originalAmount = reader.GetInt32(1); // amount es INT en la BD
+                var originalAmount = reader.GetDecimal(1);
                 var unitCost = reader.GetDecimal(2);
                 var supplyId = reader.GetInt32(3);
                 var providerId = reader.GetInt32(4);
@@ -286,7 +286,7 @@ public class SupplyEntriesController : ControllerBase
                 removalCmd.Parameters.Add(removalEntryIdParam);
 
                 var removedAmountObj = await removalCmd.ExecuteScalarAsync();
-                var removedAmount = Convert.ToInt32(removedAmountObj ?? 0); // amount es INT
+                var removedAmount = Convert.ToDecimal(removedAmountObj ?? 0);
 
                 // Calcular el stock disponible real
                 var availableInEntry = originalAmount - removedAmount;
@@ -345,7 +345,7 @@ public class SupplyEntriesController : ControllerBase
                 await insertCmd.ExecuteNonQueryAsync();
 
                 // Si la cantidad a eliminar es igual a la cantidad disponible, desactivar el entry
-                if (availableInEntry == request.Amount)
+                if (availableInEntry - request.Amount <= 0)
                 {
                     var deactivateQuery = @"
                         UPDATE supply_entry 

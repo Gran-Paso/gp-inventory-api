@@ -67,7 +67,7 @@ public class SupplyDto
     public DateTime UpdatedAt { get; set; }
     
     // Stock information
-    public int CurrentStock { get; set; } = 0;
+    public decimal CurrentStock { get; set; } = 0;
     public StockStatus StockStatus { get; set; } = StockStatus.OutOfStock;
     
     // Cost information

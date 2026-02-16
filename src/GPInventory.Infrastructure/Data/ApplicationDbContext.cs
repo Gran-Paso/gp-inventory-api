@@ -86,8 +86,12 @@ public class ApplicationDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entity.Property(e => e.SupplyId).HasColumnName("supply_id");
-            entity.Property(e => e.UnitCost).HasColumnName("unit_cost");
-            entity.Property(e => e.Amount).HasColumnName("amount");
+            entity.Property(e => e.UnitCost)
+                .HasColumnName("unit_cost")
+                .HasPrecision(18, 4);
+            entity.Property(e => e.Amount)
+                .HasColumnName("amount")
+                .HasPrecision(18, 4);
             entity.Property(e => e.Tag).HasColumnName("tag").HasMaxLength(100);
             entity.Property(e => e.ProviderId).HasColumnName("provider_id");
             entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");

@@ -166,8 +166,8 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 var supplyEntry = new SupplyEntry
                 {
                     Id = supplyReader.GetInt32("id"),
-                    UnitCost = supplyReader.GetInt32("unit_cost"),
-                    Amount = supplyReader.GetInt32("amount"),
+                    UnitCost = supplyReader.GetDecimal("unit_cost"),
+                    Amount = supplyReader.GetDecimal("amount"),
                     ProviderId = supplyReader.GetInt32("provider_id"),
                     SupplyId = supplyReader.GetInt32("supply_id"),
                     ProcessDoneId = supplyReader["process_done_id"] as int?,

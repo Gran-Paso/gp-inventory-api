@@ -111,8 +111,8 @@ public class SupplyEntryService : ISupplyEntryService
         // Calculate stock based on ProcessDoneId
         // Entradas: process_done_id IS NULL (incoming stock) - amounts positivos
         // Salidas: process_done_id IS NOT NULL (outgoing stock used in processes) - amounts negativos
-        var totalIncoming = supplyEntries.Where(se => se.ProcessDoneId == null).Sum(se => (decimal)se.Amount);
-        var totalOutgoing = supplyEntries.Where(se => se.ProcessDoneId != null).Sum(se => (decimal)se.Amount);
+        var totalIncoming = supplyEntries.Where(se => se.ProcessDoneId == null).Sum(se => se.Amount);
+        var totalOutgoing = supplyEntries.Where(se => se.ProcessDoneId != null).Sum(se => se.Amount);
         var currentStock = totalIncoming + totalOutgoing; // totalOutgoing ya incluye valores negativos
         
         // Get unit measure separately to avoid EF Core auto-detection issues
@@ -270,7 +270,7 @@ public class SupplyEntryService : ISupplyEntryService
         {
             Id = created.Id,
             UnitCost = created.UnitCost,
-            Amount = (decimal)created.Amount, // Convert int to decimal
+            Amount = created.Amount,
             ProviderId = created.ProviderId,
             SupplyId = created.SupplyId,
             ProcessDoneId = created.ProcessDoneId,
@@ -321,7 +321,7 @@ public class SupplyEntryService : ISupplyEntryService
             throw new InvalidOperationException($"SupplyEntry with id {id} not found");
 
         supplyEntry.UnitCost = updateDto.UnitCost;
-        supplyEntry.Amount = (int)updateDto.Amount; // Convert decimal to int
+        supplyEntry.Amount = updateDto.Amount;
         supplyEntry.ProviderId = updateDto.ProviderId;
         
         // Actualizar Tag si está presente en el DTO
@@ -384,7 +384,7 @@ public class SupplyEntryService : ISupplyEntryService
         {
             Id = supplyEntry.Id,
             UnitCost = supplyEntry.UnitCost,
-            Amount = (decimal)supplyEntry.Amount, // Convert int to decimal
+            Amount = supplyEntry.Amount,
             Tag = supplyEntry.Tag,
             ProviderId = supplyEntry.ProviderId,
             SupplyId = supplyEntry.SupplyId,

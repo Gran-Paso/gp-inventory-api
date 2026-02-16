@@ -180,6 +180,9 @@ public class ComponentInventoryController : ControllerBase
                 // Usar las cantidades proporcionadas por el usuario
                 foreach (var consumption in dto.IngredientConsumptions)
                 {
+                    if (consumption.Quantity <= 0)
+                        continue; // No consumir si no se requiere stock
+
                     if (consumption.ItemType == "supply")
                     {
                         // Consumir insumo usando FIFO (entrada negativa con referencia al padre)
@@ -207,6 +210,8 @@ public class ComponentInventoryController : ControllerBase
                 foreach (var ingredient in component.Supplies)
                 {
                     var quantityToConsume = ingredient.Quantity * dto.ProducedAmount;
+                    if (quantityToConsume <= 0)
+                        continue; // No consumir si la receta indica cero
 
                     if (ingredient.ItemType == "supply" && ingredient.SupplyId.HasValue)
                     {
@@ -318,6 +323,12 @@ public class ComponentInventoryController : ControllerBase
             TotalCost = 0
         };
 
+        if (quantityToConsume <= 0)
+        {
+            result.HasSufficientStock = true;
+            return result;
+        }
+
         var remainingQuantity = quantityToConsume;
         var availableEntries = await _supplyEntryRepository.GetAvailableEntriesBySupplyIdAsync(supplyId);
 
@@ -346,7 +357,7 @@ public class ComponentInventoryController : ControllerBase
             remainingQuantity -= consumeFromThis;
         }
 
-        result.HasSufficientStock = remainingQuantity == 0;
+        result.HasSufficientStock = remainingQuantity <= 0;
         return result;
     }
 
@@ -362,6 +373,12 @@ public class ComponentInventoryController : ControllerBase
             LotDetails = new List<FifoLotDetailDto>(),
             TotalCost = 0
         };
+
+        if (quantityToConsume <= 0)
+        {
+            result.HasSufficientStock = true;
+            return result;
+        }
 
         var remainingQuantity = quantityToConsume;
         var availableProductions = await _componentProductionRepository.GetAvailableProductionsByComponentIdAsync(componentId);
@@ -431,7 +448,7 @@ public class ComponentInventoryController : ControllerBase
             }
         // ⭐ La conexión se cierra automáticamente por el using statement
 
-        result.HasSufficientStock = remainingQuantity == 0;
+        result.HasSufficientStock = remainingQuantity <= 0;
         return result;
     }
 
@@ -462,9 +479,9 @@ public class ComponentInventoryController : ControllerBase
                     SELECT 
                         se.id as consumption_id,
                         se.supply_entry_id as source_entry_id,
-                        CAST(ABS(se.amount) AS DECIMAL(18,2)) as quantity_consumed,
+                        CAST(ABS(se.amount) AS DECIMAL(18,4)) as quantity_consumed,
                         se.unit_cost,
-                        CAST(parent.amount AS DECIMAL(18,2)) as original_quantity,
+                        CAST(parent.amount AS DECIMAL(18,4)) as original_quantity,
                         s.id as supply_id,
                         s.name as supply_name,
                         um.symbol as unit_measure_symbol,
@@ -579,6 +596,9 @@ public class ComponentInventoryController : ControllerBase
     /// </summary>
     private async Task<decimal> ConsumeSupplyWithFIFOAsync(int supplyId, decimal quantityToConsume, int? createdByUserId = null, int? componentProductionId = null)
     {
+        if (quantityToConsume <= 0)
+            return 0m; // Nada que consumir
+
         var remainingQuantity = quantityToConsume;
         decimal totalCost = 0m;
 
@@ -605,7 +625,7 @@ public class ComponentInventoryController : ControllerBase
             // Crear supply_entry negativo con referencia al stock original usando el constructor correcto
             var supplyEntry = new SupplyEntry(
                 availableEntry.UnitCost,           // Usar el costo del stock original
-                -(int)consumeFromThisEntry,        // Cantidad negativa
+                -consumeFromThisEntry,             // Cantidad negativa
                 availableEntry.ProviderId,         // Usar el mismo proveedor
                 supplyId,                          // SupplyId
                 null,                              // ProcessDoneId (null para producción de componentes)
@@ -618,7 +638,7 @@ public class ComponentInventoryController : ControllerBase
 
             // ⭐ VALIDACIÓN CRÍTICA: Si esta entrada se queda completamente vacía, marcarla como inactiva
             var remainingInEntry = availableEntry.Amount - consumeFromThisEntry;
-            if (remainingInEntry == 0)
+            if (remainingInEntry <= 0)
             {
                 // Obtener la entrada original para actualizar su estado
                 var originalEntry = await _supplyEntryRepository.GetByIdAsync(availableEntry.Id);
@@ -655,6 +675,9 @@ public class ComponentInventoryController : ControllerBase
     /// </summary>
     private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, int storeId, string? notes = null, int? createdByUserId = null)
     {
+        if (quantityToConsume <= 0)
+            return 0m;
+
         var remainingQuantity = quantityToConsume;
         decimal totalCost = 0m;
 

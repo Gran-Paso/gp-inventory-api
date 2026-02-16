@@ -10,7 +10,8 @@ public class SupplyEntry : BaseEntity
     public decimal UnitCost { get; set; }
     
     [Required]
-    public int Amount { get; set; }
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal Amount { get; set; }
     
     [StringLength(100)]
     public string? Tag { get; set; }
@@ -50,7 +51,7 @@ public class SupplyEntry : BaseEntity
                       int providerId, int supplyId, int? processDoneId = null, int? createdByUserId = null)
     {
         UnitCost = unitCost;
-        Amount = (int)amount; // Cast decimal to int
+        Amount = amount;
         ProviderId = providerId;
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;
@@ -66,7 +67,7 @@ public class SupplyEntry : BaseEntity
                       int? componentProductionId = null)
     {
         UnitCost = unitCost;
-        Amount = (int)amount;
+        Amount = amount;
         ProviderId = providerId;
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;

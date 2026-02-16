@@ -515,7 +515,7 @@ public class ProcessDoneService : IProcessDoneService
             // Crear supply_entry negativo con referencia al stock original
             var supplyEntry = new SupplyEntry(
                 availableEntry.UnitCost,           // Usar el costo del stock original
-                -(int)consumeFromThisEntry,        // Cantidad negativa
+                -consumeFromThisEntry,             // Cantidad negativa
                 1,                                 // ProviderId por defecto
                 supplyUsage.SupplyId,
                 processDoneId,
@@ -527,7 +527,7 @@ public class ProcessDoneService : IProcessDoneService
             
             // Si esta entrada se queda completamente vacía, marcarla para desactivar
             var remainingInEntry = availableEntry.Amount - consumeFromThisEntry;
-            if (remainingInEntry == 0)
+            if (remainingInEntry <= 0)
             {
                 // Obtener la entrada original para actualizar su estado
                 var originalEntry = await _supplyEntryRepository.GetByIdAsync(availableEntry.Id);

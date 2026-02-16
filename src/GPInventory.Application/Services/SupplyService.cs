@@ -174,7 +174,7 @@ public class SupplyService : ISupplyService
 
     private static SupplyDto MapToDto(Supply supply)
     {
-        var currentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0;
+        var currentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0m;
         
         return new SupplyDto
         {
@@ -201,7 +201,7 @@ public class SupplyService : ISupplyService
             CurrentStock = currentStock,
             
             // Calculate stock status based on current stock and minimum threshold
-            StockStatus = StockHelper.CalculateStockStatus(currentStock, supply.MinimumStock),
+            StockStatus = StockHelper.CalculateStockStatus(currentStock, (decimal)supply.MinimumStock),
             
             // Set unit cost from last supply entry if available, otherwise from FixedExpense
             UnitCost = GetLastUnitCost(supply),
@@ -257,7 +257,7 @@ public class SupplyService : ISupplyService
             {
                 Id = se.Id,
                 UnitCost = se.UnitCost,
-                Amount = (decimal)se.Amount,
+                Amount = se.Amount,
                 ProviderId = se.ProviderId,
                 SupplyId = se.SupplyId,
                 ProcessDoneId = se.ProcessDoneId,

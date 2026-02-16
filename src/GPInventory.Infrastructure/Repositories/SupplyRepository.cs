@@ -231,7 +231,7 @@ public class SupplyRepository : ISupplyRepository
 
         // Load SupplyEntries using simple SQL to avoid EF conflicts
         var supplyEntries = new List<SupplyEntry>();
-        var totalStock = 0;
+        var totalStock = 0m;
 
         try
         {
@@ -262,7 +262,7 @@ public class SupplyRepository : ISupplyRepository
 
             while (await reader.ReadAsync())
             {
-                var amount = Convert.ToInt32(reader.GetValue(2)); // se.Amount
+                var amount = Convert.ToDecimal(reader.GetValue(2));
 
                 // Solo sumar al stock las entradas positivas (stock disponible)
                 // Las entradas negativas son consumos y no se suman al stock total
