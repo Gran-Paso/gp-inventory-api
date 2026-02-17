@@ -263,8 +263,8 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         await connection.OpenAsync();
 
         var query = @"
-            INSERT INTO supply_entry (unit_cost, amount, tag, provider_id, supply_id, process_done_id, supply_entry_id, created_by_user_id, active, created_at, updated_at)
-            VALUES (@unitCost, @amount, @tag, @providerId, @supplyId, @processDoneId, @supplyEntryId, @createdByUserId, @active, @createdAt, @updatedAt);
+            INSERT INTO supply_entry (unit_cost, amount, tag, provider_id, supply_id, process_done_id, supply_entry_id, created_by_user_id, component_production_id, active, created_at, updated_at)
+            VALUES (@unitCost, @amount, @tag, @providerId, @supplyId, @processDoneId, @supplyEntryId, @createdByUserId, @componentProductionId, @active, @createdAt, @updatedAt);
             SELECT LAST_INSERT_ID();";
 
         using var command = new MySqlCommand(query, connection);
@@ -278,6 +278,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         command.Parameters.AddWithValue("@processDoneId", supplyEntry.ProcessDoneId.HasValue ? supplyEntry.ProcessDoneId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@supplyEntryId", supplyEntry.ReferenceToSupplyEntry.HasValue ? supplyEntry.ReferenceToSupplyEntry.Value : DBNull.Value); // ⭐ AUTOREFERENCIA
         command.Parameters.AddWithValue("@createdByUserId", supplyEntry.CreatedByUserId.HasValue ? supplyEntry.CreatedByUserId.Value : DBNull.Value);
+        command.Parameters.AddWithValue("@componentProductionId", supplyEntry.ComponentProductionId.HasValue ? supplyEntry.ComponentProductionId.Value : DBNull.Value); // ⭐ REFERENCIA A PRODUCCIÓN DE COMPONENTE
         // Usar IsActive directamente de la entidad (ya configurado por el constructor)
         command.Parameters.AddWithValue("@active", supplyEntry.IsActive);
         command.Parameters.AddWithValue("@createdAt", now);
@@ -439,7 +440,7 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 Id = reader.GetInt32(0), // id
                 SupplyId = reader.GetInt32(1), // supply_id
                 UnitCost = reader.GetDecimal(2), // unit_cost (decimal)
-                Amount = reader.GetInt32(3), // amount (int)
+                Amount = reader.GetDecimal(3), // amount (decimal) ⚠️ CORREGIDO: antes era GetInt32
                 ProviderId = reader.GetInt32(4), // provider_id
                 ProcessDoneId = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5), // process_done_id
                 CreatedAt = reader.GetDateTime(6), // created_at

@@ -9,6 +9,12 @@ public class SupplyEntry : BaseEntity
     [Column(TypeName = "decimal(18,4)")]
     public decimal UnitCost { get; set; }
     
+    /// <summary>
+    /// Pre-calculated absolute cost (ABS(amount * unit_cost)) to preserve decimal precision
+    /// </summary>
+    [Column(TypeName = "decimal(18,4)")]
+    public decimal? TotalCost { get; set; }
+    
     [Required]
     [Column(TypeName = "decimal(18,4)")]
     public decimal Amount { get; set; }
@@ -48,7 +54,7 @@ public class SupplyEntry : BaseEntity
     }
 
     public SupplyEntry(decimal unitCost, decimal amount, 
-                      int providerId, int supplyId, int? processDoneId = null, int? createdByUserId = null)
+                      int providerId, int supplyId, int? processDoneId = null, int? createdByUserId = null, decimal? totalCost = null)
     {
         UnitCost = unitCost;
         Amount = amount;
@@ -56,6 +62,7 @@ public class SupplyEntry : BaseEntity
         SupplyId = supplyId;
         ProcessDoneId = processDoneId;
         CreatedByUserId = createdByUserId;
+        TotalCost = totalCost;
         // Para entradas originales (positivas), IsActive = true por defecto desde BaseEntity
         IsActive = amount > 0;
     }
@@ -64,7 +71,7 @@ public class SupplyEntry : BaseEntity
     public SupplyEntry(decimal unitCost, decimal amount, 
                       int providerId, int supplyId, int? processDoneId, 
                       int referencedSupplyEntryId, int? createdByUserId = null, 
-                      int? componentProductionId = null)
+                      int? componentProductionId = null, decimal? totalCost = null)
     {
         UnitCost = unitCost;
         Amount = amount;
@@ -74,6 +81,7 @@ public class SupplyEntry : BaseEntity
         ComponentProductionId = componentProductionId; // ⭐ Guardar referencia a la producción de componente
         ReferenceToSupplyEntry = referencedSupplyEntryId; // ⭐ Guardar la referencia
         CreatedByUserId = createdByUserId;
+        TotalCost = totalCost; // ⭐ Guardar costo pre-calculado para preservar precisión
         // Las entradas hijas (consumos) también deben estar activas por defecto
         IsActive = true;
     }

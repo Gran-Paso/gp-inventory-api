@@ -198,7 +198,8 @@ public class ComponentInventoryController : ControllerBase
                             dto.BusinessId,
                             dto.StoreId,
                             $"Consumo por producción de componente: {component.Name}",
-                            dto.CreatedByUserId
+                            dto.CreatedByUserId,
+                            created.Id
                         );
                         totalCost += componentCost;
                     }
@@ -228,7 +229,8 @@ public class ComponentInventoryController : ControllerBase
                             dto.BusinessId,
                             dto.StoreId,
                             $"Consumo por producción de componente: {component.Name}",
-                            dto.CreatedByUserId
+                            dto.CreatedByUserId,
+                            created.Id
                         );
                         totalCost += componentCost;
                     }
@@ -236,6 +238,7 @@ public class ComponentInventoryController : ControllerBase
             }
 
             // Actualizar el costo total de la producción
+            _logger.LogInformation("[COST_DEBUG] 💰 Producción {prodId} - Costo total calculado: ${cost}", created.Id, totalCost);
             created.Cost = totalCost;
             await _componentProductionRepository.UpdateAsync(created);
 
@@ -481,6 +484,7 @@ public class ComponentInventoryController : ControllerBase
                         se.supply_entry_id as source_entry_id,
                         CAST(ABS(se.amount) AS DECIMAL(18,4)) as quantity_consumed,
                         se.unit_cost,
+                        COALESCE(se.total_cost, ABS(se.amount * se.unit_cost)) as total_cost,
                         CAST(parent.amount AS DECIMAL(18,4)) as original_quantity,
                         s.id as supply_id,
                         s.name as supply_name,
@@ -510,17 +514,18 @@ public class ComponentInventoryController : ControllerBase
                         SourceEntryId = supplyReader.GetInt32(1),
                         QuantityConsumed = supplyReader.GetDecimal(2),
                         UnitCost = supplyReader.GetDecimal(3),
-                        OriginalQuantity = supplyReader.GetDecimal(4),
-                        SupplyId = supplyReader.GetInt32(5),
-                        SupplyName = supplyReader.GetString(6),
-                        UnitMeasureSymbol = supplyReader.GetString(7),
-                        ConsumedAt = supplyReader.GetDateTime(8)
+                        TotalCost = supplyReader.GetDecimal(4),
+                        OriginalQuantity = supplyReader.GetDecimal(5),
+                        SupplyId = supplyReader.GetInt32(6),
+                        SupplyName = supplyReader.GetString(7),
+                        UnitMeasureSymbol = supplyReader.GetString(8),
+                        ConsumedAt = supplyReader.GetDateTime(9)
                     });
                 }
                 await supplyReader.CloseAsync();
 
                 // 2. Obtener consumos de componentes (component_production negativos vinculados a esta producción)
-                // ⭐ Usar timestamp exacto con ventana de ±2 segundos para vincular consumos a la producción
+                // ⭐ Buscar en las notas el tag [PARENT_PRODUCTION:X] para vincular consumos
                 var componentQuery = @"
                     SELECT 
                         cp_consumption.id as consumption_id,
@@ -535,12 +540,9 @@ public class ComponentInventoryController : ControllerBase
                     FROM component_production cp_consumption
                     JOIN component_production cp_source ON cp_consumption.component_production_id = cp_source.id
                     JOIN components c ON cp_consumption.component_id = c.id
-                    JOIN component_production cp_target ON cp_consumption.created_at >= DATE_SUB(cp_target.created_at, INTERVAL 10 SECOND)
-                        AND cp_consumption.created_at <= cp_target.created_at
                     JOIN unit_measures um on c.unit_measure_id = um.id
                     WHERE cp_consumption.produced_amount < 0
-                    AND cp_target.id = @productionId
-                    AND cp_target.produced_amount > 0
+                    AND cp_consumption.notes LIKE CONCAT('%[PARENT_PRODUCTION:', @productionId, ']%')
                     ORDER BY cp_consumption.created_at;";
 
                 using var componentCmd = connection.CreateCommand();
@@ -563,6 +565,7 @@ public class ComponentInventoryController : ControllerBase
                         SourceProductionId = componentReader.GetInt32(1),
                         QuantityConsumed = quantityConsumed,
                         UnitCost = unitCost,
+                        TotalCost = totalCost,
                         OriginalQuantity = componentReader.GetDecimal(4),
                         ComponentId = componentReader.GetInt32(5),
                         ComponentName = componentReader.GetString(6),
@@ -618,20 +621,27 @@ public class ComponentInventoryController : ControllerBase
             // ⭐ availableEntry.Amount ya contiene la cantidad disponible real (original - consumos)
             // Determinar cuánto consumir de esta entrada
             var consumeFromThisEntry = Math.Min(remainingQuantity, availableEntry.Amount);
+            
+            // ⭐ Redondear a 4 decimales para que coincida con DECIMAL(18,4) de la BD
+            consumeFromThisEntry = Math.Round(consumeFromThisEntry, 4);
 
-            // Calcular el costo de esta porción
-            totalCost += consumeFromThisEntry * availableEntry.UnitCost;
+            // Calcular el costo de esta porción con el valor redondeado
+            var costFromEntry = consumeFromThisEntry * availableEntry.UnitCost;
+            _logger.LogInformation("[COST_DEBUG] 📦 Supply Entry #{entryId}: {qty} × ${unit} = ${cost}, Total acum: ${total}", 
+                availableEntry.Id, consumeFromThisEntry, availableEntry.UnitCost, costFromEntry, totalCost + costFromEntry);
+            totalCost += costFromEntry;
 
             // Crear supply_entry negativo con referencia al stock original usando el constructor correcto
             var supplyEntry = new SupplyEntry(
-                availableEntry.UnitCost,           // Usar el costo del stock original
-                -consumeFromThisEntry,             // Cantidad negativa
-                availableEntry.ProviderId,         // Usar el mismo proveedor
-                supplyId,                          // SupplyId
-                null,                              // ProcessDoneId (null para producción de componentes)
-                availableEntry.Id,                 // ⭐ Referencia al stock original (supply_entry_id)
-                createdByUserId,                   // ⭐ Usuario responsable
-                componentProductionId              // ⭐ Referencia a la producción de componente
+                unitCost: availableEntry.UnitCost,
+                amount: -consumeFromThisEntry,
+                providerId: availableEntry.ProviderId,
+                supplyId: supplyId,
+                processDoneId: null,
+                referencedSupplyEntryId: availableEntry.Id,
+                createdByUserId: createdByUserId,
+                componentProductionId: componentProductionId,
+                totalCost: costFromEntry  // ⭐ Costo pre-calculado para preservar precisión
             );
 
             await _supplyEntryRepository.CreateAsync(supplyEntry);
@@ -660,10 +670,12 @@ public class ComponentInventoryController : ControllerBase
         }
 
         // Verificar que se pudo consumir toda la cantidad necesaria
-        if (remainingQuantity > 0)
+        // ⭐ Redondear a 4 decimales para evitar errores de precisión de punto flotante
+        var roundedRemaining = Math.Round(remainingQuantity, 4);
+        if (roundedRemaining > 0)
             throw new InvalidOperationException(
                 $"Stock insuficiente para el insumo ID {supplyId}. " +
-                $"Faltan {remainingQuantity} unidades"
+                $"Faltan {roundedRemaining} unidades"
             );
 
         return totalCost;
@@ -673,7 +685,7 @@ public class ComponentInventoryController : ControllerBase
     /// Consume componentes usando algoritmo FIFO con autoreferencia
     /// Retorna el costo total de los componentes consumidos
     /// </summary>
-    private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, int storeId, string? notes = null, int? createdByUserId = null)
+    private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, int storeId, string? notes = null, int? createdByUserId = null, int? parentProductionId = null)
     {
         if (quantityToConsume <= 0)
             return 0m;
@@ -747,9 +759,16 @@ public class ComponentInventoryController : ControllerBase
                 // Calcular costo unitario basado en la cantidad ORIGINAL del lote
                 var costPerUnit = production.originalAmount > 0 ? production.cost / production.originalAmount : 0;
                 var costFromThisProduction = costPerUnit * consumeFromThisProduction;
+                _logger.LogInformation("[COST_DEBUG] 🧩 Component Production #{prodId} - Consumo: {qty} × ${unit} = ${cost}, Total acum: ${total}", 
+                    production.id, consumeFromThisProduction, costPerUnit, costFromThisProduction, totalCost + costFromThisProduction);
                 totalCost += costFromThisProduction;
 
                 // Crear component_production negativo con referencia al lote original
+                // ⭐ Agregar referencia a la producción padre en las notas para trazabilidad
+                var notesWithParent = parentProductionId.HasValue 
+                    ? $"{notes ?? ""} [PARENT_PRODUCTION:{parentProductionId.Value}]".Trim()
+                    : notes;
+                
                 var componentConsumption = new ComponentProduction
                 {
                     ComponentId = componentId,
@@ -759,7 +778,7 @@ public class ComponentInventoryController : ControllerBase
                     ProducedAmount = -consumeFromThisProduction,
                     ProductionDate = DateTime.Now,
                     Cost = costFromThisProduction,
-                    Notes = notes,
+                    Notes = notesWithParent,
                     ComponentProductionId = production.id,
                     CreatedByUserId = createdByUserId,
                     IsActive = true,
@@ -791,10 +810,12 @@ public class ComponentInventoryController : ControllerBase
         }
 
         // Verificar que se pudo consumir toda la cantidad necesaria
-        if (remainingQuantity > 0)
+        // ⭐ Redondear a 4 decimales para evitar errores de precisión de punto flotante
+        var roundedRemaining = Math.Round(remainingQuantity, 4);
+        if (roundedRemaining > 0)
             throw new InvalidOperationException(
                 $"Stock insuficiente para el componente ID {componentId}. " +
-                $"Faltan {remainingQuantity} unidades"
+                $"Faltan {roundedRemaining} unidades"
             );
 
         return totalCost;
@@ -1052,6 +1073,7 @@ public class SupplyConsumptionDto
     public int SourceEntryId { get; set; }
     public decimal QuantityConsumed { get; set; }
     public decimal UnitCost { get; set; }
+    public decimal TotalCost { get; set; }
     public decimal OriginalQuantity { get; set; }
     public int SupplyId { get; set; }
     public string SupplyName { get; set; } = string.Empty;
@@ -1065,6 +1087,7 @@ public class ComponentConsumptionDto
     public int SourceProductionId { get; set; }
     public decimal QuantityConsumed { get; set; }
     public decimal UnitCost { get; set; }
+    public decimal TotalCost { get; set; }
     public decimal OriginalQuantity { get; set; }
     public int ComponentId { get; set; }
     public string ComponentName { get; set; } = string.Empty;

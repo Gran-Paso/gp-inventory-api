@@ -138,11 +138,23 @@ public class SupplyEntriesController : ControllerBase
     {
         try
         {
+            _logger.LogInformation("📋 [HISTORY] Obteniendo historial para supplyId={supplyId}, supplyEntryId={supplyEntryId}", supplyId, supplyEntryId);
             var history = await _supplyEntryService.GetSupplyHistoryAsync(supplyEntryId, supplyId);
-            return Ok(history);
+            
+            var historyList = history.ToList();
+            _logger.LogInformation("📋 [HISTORY] Encontradas {count} entradas", historyList.Count);
+            
+            foreach (var entry in historyList)
+            {
+                _logger.LogInformation("📋 [HISTORY] Entry ID={id}, Amount={amount:F10}, ReferenceToSupplyEntry={reference}, IsActive={active}", 
+                    entry.Id, entry.Amount, entry.ReferenceToSupplyEntry, entry.IsActive);
+            }
+            
+            return Ok(historyList);
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "❌ Error retrieving supply history");
             return StatusCode(500, $"Error retrieving supply history: {ex.Message}");
         }
     }
@@ -383,10 +395,184 @@ public class SupplyEntriesController : ControllerBase
             return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Consumir completamente el stock residual de un supply entry y cerrarlo
+    /// </summary>
+    [HttpPost("entry/{entryId}/close-residual")]
+    public async Task<ActionResult<object>> CloseResidualStock(int entryId, [FromBody] CloseResidualStockRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.Notes))
+            {
+                return BadRequest(new { message = "El motivo del cierre es obligatorio" });
+            }
+
+            var userId = GetUserIdFromClaims();
+
+            _logger.LogInformation("🔄 Cerrando stock residual del supply entry {entryId}. Motivo: {notes}", entryId, request.Notes);
+
+            await _context.Database.OpenConnectionAsync();
+            
+            try
+            {
+                using var connection = _context.Database.GetDbConnection();
+                
+                // Verificar que el entry existe y obtener información
+                var entryQuery = @"
+                    SELECT 
+                        se.id,
+                        se.amount,
+                        se.unit_cost,
+                        se.supply_id,
+                        se.provider_id,
+                        se.active
+                    FROM supply_entry se
+                    WHERE se.id = @entryId 
+                    AND se.amount > 0 
+                    AND se.active = 1
+                    AND se.supply_entry_id IS NULL";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = entryQuery;
+                var entryIdParam = cmd.CreateParameter();
+                entryIdParam.ParameterName = "@entryId";
+                entryIdParam.Value = entryId;
+                cmd.Parameters.Add(entryIdParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                
+                if (!await reader.ReadAsync())
+                {
+                    await reader.CloseAsync();
+                    return BadRequest(new { message = "Entry no encontrado o ya está cerrado" });
+                }
+
+                var originalAmount = reader.GetDecimal(1);
+                var unitCost = reader.GetDecimal(2);
+                var supplyId = reader.GetInt32(3);
+                var providerId = reader.GetInt32(4);
+
+                await reader.CloseAsync();
+
+                // Calcular cuánto se ha removido o usado de este entry
+                var removalsQuery = @"
+                    SELECT COALESCE(SUM(ABS(amount)), 0) as total_removed
+                    FROM supply_entry
+                    WHERE supply_entry_id = @entryId 
+                    AND amount < 0
+                    AND active = 1";
+
+                using var removalCmd = connection.CreateCommand();
+                removalCmd.CommandText = removalsQuery;
+                var removalEntryIdParam = removalCmd.CreateParameter();
+                removalEntryIdParam.ParameterName = "@entryId";
+                removalEntryIdParam.Value = entryId;
+                removalCmd.Parameters.Add(removalEntryIdParam);
+
+                var removedAmountObj = await removalCmd.ExecuteScalarAsync();
+                var removedAmount = Convert.ToDecimal(removedAmountObj ?? 0);
+
+                // Calcular el stock disponible real (este es el residual)
+                var residualAmount = originalAmount - removedAmount;
+
+                _logger.LogInformation("📦 Entry {entryId} - Original: {original}, Ya removido: {removed}, Residual a cerrar: {residual}", 
+                    entryId, originalAmount, removedAmount, residualAmount);
+
+                if (residualAmount <= 0)
+                {
+                    return BadRequest(new { message = "No hay stock residual para cerrar en esta entrada" });
+                }
+
+                // Crear registro negativo por el monto exacto del residual
+                var closeResidualQuery = @"
+                    INSERT INTO supply_entry (amount, unit_cost, supply_id, provider_id, supply_entry_id, tag, active, created_at, updated_at, created_by_user_id)
+                    VALUES (@amount, @unitCost, @supplyId, @providerId, @supplyEntryId, @tag, 1, NOW(), NOW(), @createdByUserId)";
+
+                using var insertCmd = connection.CreateCommand();
+                insertCmd.CommandText = closeResidualQuery;
+                
+                var amountParam = insertCmd.CreateParameter();
+                amountParam.ParameterName = "@amount";
+                amountParam.Value = -residualAmount; // Consumir exactamente todo el residual
+                insertCmd.Parameters.Add(amountParam);
+
+                var costParam = insertCmd.CreateParameter();
+                costParam.ParameterName = "@unitCost";
+                costParam.Value = unitCost;
+                insertCmd.Parameters.Add(costParam);
+
+                var supplyIdParam = insertCmd.CreateParameter();
+                supplyIdParam.ParameterName = "@supplyId";
+                supplyIdParam.Value = supplyId;
+                insertCmd.Parameters.Add(supplyIdParam);
+
+                var providerIdParam = insertCmd.CreateParameter();
+                providerIdParam.ParameterName = "@providerId";
+                providerIdParam.Value = providerId;
+                insertCmd.Parameters.Add(providerIdParam);
+
+                var supplyEntryIdParam = insertCmd.CreateParameter();
+                supplyEntryIdParam.ParameterName = "@supplyEntryId";
+                supplyEntryIdParam.Value = entryId;
+                insertCmd.Parameters.Add(supplyEntryIdParam);
+
+                var tagParam = insertCmd.CreateParameter();
+                tagParam.ParameterName = "@tag";
+                tagParam.Value = $"CIERRE RESIDUAL: {request.Notes}";
+                insertCmd.Parameters.Add(tagParam);
+
+                var createdByUserIdParam = insertCmd.CreateParameter();
+                createdByUserIdParam.ParameterName = "@createdByUserId";
+                createdByUserIdParam.Value = (object)userId! ?? DBNull.Value;
+                insertCmd.Parameters.Add(createdByUserIdParam);
+
+                await insertCmd.ExecuteNonQueryAsync();
+
+                // Desactivar el entry padre (cerrar la entrada completamente)
+                var deactivateQuery = @"
+                    UPDATE supply_entry 
+                    SET active = 0, updated_at = NOW()
+                    WHERE id = @entryId";
+
+                using var deactivateCmd = connection.CreateCommand();
+                deactivateCmd.CommandText = deactivateQuery;
+                var deactivateEntryIdParam = deactivateCmd.CreateParameter();
+                deactivateEntryIdParam.ParameterName = "@entryId";
+                deactivateEntryIdParam.Value = entryId;
+                deactivateCmd.Parameters.Add(deactivateEntryIdParam);
+
+                await deactivateCmd.ExecuteNonQueryAsync();
+                
+                _logger.LogInformation("✅ Entry {entryId} cerrado completamente. Residual de {residual} unidades consumido", entryId, residualAmount);
+
+                return Ok(new { 
+                    message = "Stock residual cerrado exitosamente",
+                    residualAmount = residualAmount,
+                    entryId = entryId
+                });
+            }
+            finally
+            {
+                await _context.Database.CloseConnectionAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error cerrando stock residual del supply entry {entryId}", entryId);
+            return StatusCode(500, new { message = "Error interno del servidor", error = ex.Message });
+        }
+    }
 }
 
 public class RemoveSupplyStockRequest
 {
     public decimal Amount { get; set; }
+    public string Notes { get; set; } = string.Empty;
+}
+
+public class CloseResidualStockRequest
+{
     public string Notes { get; set; } = string.Empty;
 }

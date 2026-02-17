@@ -174,7 +174,11 @@ public class SupplyService : ISupplyService
 
     private static SupplyDto MapToDto(Supply supply)
     {
-        var currentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0m;
+        // ⭐ CRITICAL FIX: Solo sumar entradas activas para calcular el stock real disponible
+        // Las entradas inactivas (active=0) ya se consumieron completamente
+        var currentStock = supply.SupplyEntries?
+            .Where(se => se.IsActive)
+            .Sum(se => se.Amount) ?? 0m;
         
         return new SupplyDto
         {

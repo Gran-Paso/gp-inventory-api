@@ -89,6 +89,9 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.UnitCost)
                 .HasColumnName("unit_cost")
                 .HasPrecision(18, 4);
+            entity.Property(e => e.TotalCost)
+                .HasColumnName("total_cost")
+                .HasPrecision(18, 4);
             entity.Property(e => e.Amount)
                 .HasColumnName("amount")
                 .HasPrecision(18, 4);
