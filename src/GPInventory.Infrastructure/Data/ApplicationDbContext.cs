@@ -610,7 +610,6 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");
             entity.Property(e => e.BusinessId).HasColumnName("business_id");
-            entity.Property(e => e.StoreId).HasColumnName("store_id");
             entity.Property(e => e.ProducedAmount).HasColumnName("produced_amount");
             entity.Property(e => e.ProductionDate).HasColumnName("production_date");
             entity.Property(e => e.ExpirationDate).HasColumnName("expiration_date");
@@ -636,11 +635,6 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(cp => cp.Business)
                 .WithMany()
                 .HasForeignKey(cp => cp.BusinessId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(cp => cp.Store)
-                .WithMany()
-                .HasForeignKey(cp => cp.StoreId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Auto-referencia FIFO: producción padre

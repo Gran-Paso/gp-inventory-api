@@ -6,7 +6,6 @@ public class ComponentProduction
     public int ComponentId { get; set; }
     public int? ProcessDoneId { get; set; }
     public int BusinessId { get; set; }
-    public int StoreId { get; set; }
     public decimal ProducedAmount { get; set; }
     public DateTime? ProductionDate { get; set; }
     public DateTime? ExpirationDate { get; set; }
@@ -23,6 +22,5 @@ public class ComponentProduction
     public virtual Component Component { get; set; } = null!;
     public virtual ProcessDone? ProcessDone { get; set; }
     public virtual Business? Business { get; set; }
-    public virtual Store? Store { get; set; }
     public virtual ComponentProduction? ParentProduction { get; set; } // Producción padre (FIFO)
 }

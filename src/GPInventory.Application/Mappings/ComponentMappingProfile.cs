@@ -59,8 +59,7 @@ public class ComponentMappingProfile : Profile
             .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
             .ForMember(dest => dest.Component, opt => opt.Ignore())
             .ForMember(dest => dest.ProcessDone, opt => opt.Ignore())
-            .ForMember(dest => dest.Business, opt => opt.Ignore())
-            .ForMember(dest => dest.Store, opt => opt.Ignore());
+            .ForMember(dest => dest.Business, opt => opt.Ignore());
         
         CreateMap<UpdateComponentProductionDto, ComponentProduction>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
@@ -71,8 +70,7 @@ public class ComponentMappingProfile : Profile
             .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
             .ForMember(dest => dest.Component, opt => opt.Ignore())
             .ForMember(dest => dest.ProcessDone, opt => opt.Ignore())
-            .ForMember(dest => dest.Business, opt => opt.Ignore())
-            .ForMember(dest => dest.Store, opt => opt.Ignore());
+            .ForMember(dest => dest.Business, opt => opt.Ignore());
         
         // SupplyCategory mapping
         CreateMap<SupplyCategory, SupplyCategoryDto>();

@@ -265,7 +265,6 @@ public class ComponentInventoryController : ControllerBase
                 ComponentId = dto.ComponentId,
                 ProcessDoneId = dto.ProcessDoneId,
                 BusinessId = dto.BusinessId,
-                StoreId = dto.StoreId,
                 ProducedAmount = dto.ProducedAmount,
                 ProductionDate = dto.ProductionDate ?? DateTime.Now,
                 ExpirationDate = dto.ExpirationDate,
@@ -301,7 +300,6 @@ public class ComponentInventoryController : ControllerBase
                             consumption.ItemId,
                             consumption.Quantity,
                             dto.BusinessId,
-                            dto.StoreId,
                             $"Consumo por producción de componente: {component.Name}",
                             dto.CreatedByUserId,
                             created.Id
@@ -332,7 +330,6 @@ public class ComponentInventoryController : ControllerBase
                             ingredient.SubComponentId.Value,
                             quantityToConsume,
                             dto.BusinessId,
-                            dto.StoreId,
                             $"Consumo por producción de componente: {component.Name}",
                             dto.CreatedByUserId,
                             created.Id
@@ -790,7 +787,7 @@ public class ComponentInventoryController : ControllerBase
     /// Consume componentes usando algoritmo FIFO con autoreferencia
     /// Retorna el costo total de los componentes consumidos
     /// </summary>
-    private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, int storeId, string? notes = null, int? createdByUserId = null, int? parentProductionId = null)
+    private async Task<decimal> ConsumeComponentWithFIFOAsync(int componentId, decimal quantityToConsume, int businessId, string? notes = null, int? createdByUserId = null, int? parentProductionId = null)
     {
         if (quantityToConsume <= 0)
             return 0m;
@@ -806,7 +803,6 @@ public class ComponentInventoryController : ControllerBase
                 parent.id,
                 parent.component_id,
                 parent.business_id,
-                parent.store_id,
                 parent.produced_amount as original_amount,
                 parent.cost,
                 parent.produced_amount + COALESCE(
@@ -836,7 +832,7 @@ public class ComponentInventoryController : ControllerBase
             param.Value = componentId;
             cmd.Parameters.Add(param);
 
-            var availableProductions = new List<(int id, int componentId, int businessId, int storeId, decimal originalAmount, decimal cost, decimal availableAmount)>();
+            var availableProductions = new List<(int id, int componentId, int businessId, decimal originalAmount, decimal cost, decimal availableAmount)>();
             
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -845,10 +841,9 @@ public class ComponentInventoryController : ControllerBase
                     reader.GetInt32(0),  // id
                     reader.GetInt32(1),  // component_id
                     reader.GetInt32(2),  // business_id
-                    reader.GetInt32(3),  // store_id
-                    reader.GetDecimal(4), // original_amount
-                    reader.GetDecimal(5), // cost
-                    reader.GetDecimal(6)  // available_amount
+                    reader.GetDecimal(3), // original_amount
+                    reader.GetDecimal(4), // cost
+                    reader.GetDecimal(5)  // available_amount
                 ));
             }
 
@@ -879,7 +874,6 @@ public class ComponentInventoryController : ControllerBase
                     ComponentId = componentId,
                     ProcessDoneId = null,
                     BusinessId = businessId,
-                    StoreId = storeId,
                     ProducedAmount = -consumeFromThisProduction,
                     ProductionDate = DateTime.Now,
                     Cost = costFromThisProduction,
@@ -952,7 +946,6 @@ public class ComponentInventoryController : ControllerBase
                         cp.produced_amount,
                         cp.component_id,
                         cp.business_id,
-                        cp.store_id,
                         cp.is_active
                     FROM component_production cp
                     WHERE cp.id = @productionId 
@@ -978,7 +971,6 @@ public class ComponentInventoryController : ControllerBase
                 var originalAmount = reader.GetDecimal(1);
                 var componentId = reader.GetInt32(2);
                 var businessId = reader.GetInt32(3);
-                var storeId = reader.GetInt32(4);
 
                 await reader.CloseAsync();
 
@@ -1015,7 +1007,6 @@ public class ComponentInventoryController : ControllerBase
                     INSERT INTO component_production (
                         component_id, 
                         business_id, 
-                        store_id, 
                         produced_amount, 
                         component_production_id, 
                         is_active, 
@@ -1028,7 +1019,6 @@ public class ComponentInventoryController : ControllerBase
                     VALUES (
                         @componentId, 
                         @businessId, 
-                        @storeId, 
                         @amount, 
                         @componentProductionId, 
                         1, 
@@ -1056,11 +1046,6 @@ public class ComponentInventoryController : ControllerBase
                 businessIdParam.ParameterName = "@businessId";
                 businessIdParam.Value = businessId;
                 insertCmd.Parameters.Add(businessIdParam);
-
-                var storeIdParam = insertCmd.CreateParameter();
-                storeIdParam.ParameterName = "@storeId";
-                storeIdParam.Value = storeId;
-                insertCmd.Parameters.Add(storeIdParam);
 
                 var componentProductionIdParam = insertCmd.CreateParameter();
                 componentProductionIdParam.ParameterName = "@componentProductionId";
@@ -1140,7 +1125,6 @@ public class CreateComponentProductionDto
     public int ComponentId { get; set; }
     public int? ProcessDoneId { get; set; }
     public int BusinessId { get; set; }
-    public int StoreId { get; set; }
     public decimal ProducedAmount { get; set; }
     public DateTime? ProductionDate { get; set; }
     public DateTime? ExpirationDate { get; set; }

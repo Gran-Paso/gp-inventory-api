@@ -100,8 +100,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 p.description as process_description,
                 p.product_id,
                 p.production_time,
-                p.time_unit_id,
-                p.store_id
+                p.time_unit_id
             FROM process_done pd
             LEFT JOIN processes p ON pd.process_id = p.id
             WHERE pd.id = @id";
@@ -138,8 +137,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                     Description = reader["process_description"] as string,
                     ProductId = reader.GetInt32("product_id"),
                     ProductionTime = reader.GetInt32("production_time"),
-                    TimeUnitId = reader.GetInt32("time_unit_id"),
-                    StoreId = reader.GetInt32("store_id")
+                    TimeUnitId = reader.GetInt32("time_unit_id")
                 };
             }
         }
