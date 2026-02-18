@@ -125,11 +125,11 @@ public class ProcessRepository : IProcessRepository
                 if (storeIds != null && storeIds.Length > 0)
                 {
                     var storeIdsList = string.Join(",", storeIds);
-                    whereConditions.Add($"p.store_id IN ({storeIdsList})");
+                    whereConditions.Add($"(p.store_id IN ({storeIdsList}) OR p.store_id IS NULL)");
                 }
                 if (businessId.HasValue)
                 {
-                    whereConditions.Add("s.id_business = @businessId");
+                    whereConditions.Add("(s.id_business = @businessId OR p.store_id IS NULL)");
                 }
 
                 var whereClause = whereConditions.Count > 0 ? "WHERE " + string.Join(" AND ", whereConditions) : "";
@@ -184,7 +184,7 @@ public class ProcessRepository : IProcessRepository
                             ProductId = reader.GetInt32(3),
                             ProductionTime = reader.GetInt32(4),
                             TimeUnitId = reader.GetInt32(5),
-                            StoreId = reader.GetInt32(6),
+                            StoreId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
                             CreatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7),
                             UpdatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8),
                             IsActive = reader.IsDBNull(9) ? true : reader.GetBoolean(9)

@@ -1732,23 +1732,31 @@ public class SalesController : ControllerBase
                     if (parentStockRaw.Any())
                     {
                         var parentStockData = parentStockRaw.First();
-                        // Calcular el total usado de este lote incluyendo esta venta
-                        var saleDetailsForLot = await _context.SaleDetails
-                            .Where(sd => sd.StockId == stockId)
-                            .Select(sd => sd.Amount)
-                            .ToListAsync();
                         
-                        var totalUsedFromLot = saleDetailsForLot.Sum(amount => int.Parse(amount));
+                        // Calcular el total disponible del lote correctamente:
+                        // Stock inicial (amount) + suma de todos los movimientos negativos con stock_id apuntando a este lote
+                        var childMovementsQuery = await _context.Database.SqlQueryRaw<AmountResult>(
+                            @"SELECT COALESCE(SUM(amount), 0) as Value 
+                              FROM stock 
+                              WHERE stock_id = {0} AND amount < 0", stockId).ToListAsync();
                         
-                        // Sumar la cantidad que se está vendiendo ahora
-                        totalUsedFromLot += allocatedQty;
+                        var totalUsedFromLot = childMovementsQuery.Any() ? Math.Abs(childMovementsQuery.First().Value) : 0;
                         
-                        // Si se agotó el lote completamente, marcarlo como inactivo usando SQL directo
-                        if (totalUsedFromLot >= parentStockData.Amount)
+                        // Calcular stock disponible = stock inicial - total usado
+                        var availableStock = parentStockData.Amount - totalUsedFromLot;
+                        
+                        // Solo desactivar si el stock disponible es <= 0
+                        if (availableStock <= 0)
                         {
                             await _context.Database.ExecuteSqlRawAsync(
                                 "UPDATE stock SET active = 0 WHERE id = {0}", stockId);
-                            _logger.LogInformation("🔄 Stock lote #{stockId} agotado completamente, marcado como inactivo", stockId);
+                            _logger.LogInformation("🔄 Stock lote #{stockId} agotado completamente (inicial: {initial}, usado: {used}), marcado como inactivo", 
+                                stockId, parentStockData.Amount, totalUsedFromLot);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("✅ Stock lote #{stockId} aún tiene disponible: {available} de {initial}", 
+                                stockId, availableStock, parentStockData.Amount);
                         }
                     }
                     
@@ -2022,6 +2030,14 @@ public class StoreWithBusinessResult
     public int BusinessId { get; set; }
     public bool Active { get; set; }
     public string? BusinessCompanyName { get; set; }
+}
+
+/// <summary>
+/// Clase para mapear resultados de SUM(amount) en consultas SQL
+/// </summary>
+public class AmountResult
+{
+    public decimal Value { get; set; }
 }
 
 public class Item

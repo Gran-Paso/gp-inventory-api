@@ -168,10 +168,16 @@ public class SupplyEntryRepository : ISupplyEntryRepository
         // Use ADO.NET directly to bypass EF Core navigation issues
         using var command = _context.Database.GetDbConnection().CreateCommand();
         command.CommandText = @"
-            SELECT id, amount, tag, created_at, process_done_id, provider_id, supply_id, unit_cost, updated_at, created_by_user_id
-            FROM supply_entry 
-            WHERE process_done_id = @processDoneId
-            ORDER BY created_at DESC";
+            SELECT 
+                se.id, se.amount, se.tag, se.created_at, se.process_done_id, 
+                se.provider_id, se.supply_id, se.unit_cost, se.updated_at, se.created_by_user_id,
+                s.name as supply_name, s.unit_measure_id,
+                um.name as unit_measure_name, um.symbol as unit_measure_symbol
+            FROM supply_entry se
+            LEFT JOIN supplies s ON se.supply_id = s.id
+            LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+            WHERE se.process_done_id = @processDoneId
+            ORDER BY se.created_at DESC";
 
         var parameter = command.CreateParameter();
         parameter.ParameterName = "@processDoneId";
@@ -194,10 +200,33 @@ public class SupplyEntryRepository : ISupplyEntryRepository
                 ProcessDoneId = reader.IsDBNull(4) ? null : reader.GetInt32(4), // process_done_id
                 ProviderId = reader.GetInt32(5), // provider_id
                 SupplyId = reader.GetInt32(6), // supply_id
-                UnitCost = reader.GetDecimal(7), // unit_cost - ⭐ CORREGIDO: GetDecimal para preservar decimales
+                UnitCost = reader.GetDecimal(7), // unit_cost
                 UpdatedAt = reader.GetDateTime(8), // updated_at
                 CreatedByUserId = reader.IsDBNull(9) ? null : reader.GetInt32(9) // created_by_user_id
             };
+            
+            // Manually populate Supply navigation property if data exists
+            if (!reader.IsDBNull(10)) // supply_name exists
+            {
+                supplyEntry.Supply = new Supply
+                {
+                    Id = reader.GetInt32(6), // supply_id
+                    Name = reader.GetString(10), // supply_name
+                    UnitMeasureId = reader.IsDBNull(11) ? 0 : reader.GetInt32(11) // unit_measure_id
+                };
+                
+                // Populate UnitMeasure if exists
+                if (!reader.IsDBNull(12)) // unit_measure_name exists
+                {
+                    supplyEntry.Supply.UnitMeasure = new UnitMeasure
+                    {
+                        Id = supplyEntry.Supply.UnitMeasureId,
+                        Name = reader.GetString(12), // unit_measure_name
+                        Symbol = reader.IsDBNull(13) ? null : reader.GetString(13) // unit_measure_symbol
+                    };
+                }
+            }
+            
             results.Add(supplyEntry);
         }
 

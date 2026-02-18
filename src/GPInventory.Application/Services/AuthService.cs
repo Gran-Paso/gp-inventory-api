@@ -66,7 +66,7 @@ public class AuthService : IAuthService
         {
             AccessToken = token,
             RefreshToken = "", // Se generará en el controller
-            ExpiresAt = DateTime.UtcNow.AddHours(8),
+            ExpiresAt = DateTime.UtcNow.AddDays(7), // Token válido por 7 días
             User = userDto,
             Permissions = new List<string>()
         };
@@ -133,7 +133,7 @@ public class AuthService : IAuthService
             {
                 AccessToken = token,
                 RefreshToken = "", // Se generará en el controller
-                ExpiresAt = DateTime.UtcNow.AddHours(8),
+                ExpiresAt = DateTime.UtcNow.AddDays(7), // Token válido por 7 días
                 User = userDto,
                 Permissions = new List<string>()
             };
@@ -181,7 +181,7 @@ public class AuthService : IAuthService
         {
             AccessToken = token,
             RefreshToken = "", // Se generará en el controller
-            ExpiresAt = DateTime.UtcNow.AddHours(8),
+            ExpiresAt = DateTime.UtcNow.AddDays(7), // Token válido por 7 días
             User = userDto,
             Permissions = new List<string>()
         };
@@ -327,7 +327,7 @@ public class AuthService : IAuthService
         {
             AccessToken = token,
             RefreshToken = "", // Se generará en el controller
-            ExpiresAt = DateTime.UtcNow.AddHours(8),
+            ExpiresAt = DateTime.UtcNow.AddDays(7), // Token válido por 7 días
             User = userDto,
             Permissions = new List<string>()
         };

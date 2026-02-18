@@ -138,6 +138,111 @@ public class ComponentInventoryController : ControllerBase
     }
 
     /// <summary>
+    /// Obtener todas las producciones de componentes asociadas a un ProcessDone
+    /// </summary>
+    [HttpGet("by-process-done/{processDoneId}")]
+    public async Task<ActionResult<IEnumerable<ComponentProductionDto>>> GetComponentProductionsByProcessDone(int processDoneId)
+    {
+        try
+        {
+            await _context.Database.OpenConnectionAsync();
+
+            try
+            {
+                using var connection = _context.Database.GetDbConnection();
+
+                var query = @"
+                    SELECT 
+                        cp.id,
+                        cp.component_id,
+                        c.name as component_name,
+                        s.symbol,
+                        cp.produced_amount,
+                        cp.production_date,
+                        cp.expiration_date,
+                        cp.batch_number,
+                        cp.cost,
+                        cp.notes,
+                        cp.created_by_user_id,
+                        cp.is_active,
+                        cp.created_at,
+                        cp.component_production_id
+                    FROM component_production cp
+                    LEFT JOIN components c ON cp.component_id = c.id
+                    JOIN unit_measures s ON c.unit_measure_id = s.id
+                    WHERE cp.process_done_id = @processDoneId";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = query;
+                var param = cmd.CreateParameter();
+                param.ParameterName = "@processDoneId";
+                param.Value = processDoneId;
+                cmd.Parameters.Add(param);
+
+                var productions = new List<ComponentProductionDto>();
+                var userIds = new List<int>();
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var createdByUserId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
+                    if (createdByUserId.HasValue)
+                    {
+                        userIds.Add(createdByUserId.Value);
+                    }
+
+                    productions.Add(new ComponentProductionDto
+                    {
+                        Id = reader.GetInt32(0),
+                        ComponentId = reader.GetInt32(1),
+                        ComponentName = reader.IsDBNull(2) ? $"Component {reader.GetInt32(1)}" : reader.GetString(2),
+                        ComponentUnitMeasureSymbol = reader.IsDBNull(3) ? null : reader.GetString(3),
+                        ProducedAmount = reader.GetDecimal(4),
+                        ProductionDate = reader.IsDBNull(5) ? DateTime.MinValue : reader.GetDateTime(5),
+                        ExpirationDate = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                        BatchNumber = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        Cost = reader.IsDBNull(8) ? null : reader.GetDecimal(8),
+                        Notes = reader.IsDBNull(9) ? null : reader.GetString(9),
+                        CreatedByUserId = createdByUserId,
+                        Active = reader.GetBoolean(11),
+                        CreatedAt = reader.GetDateTime(12),
+                        ComponentProductionId = reader.IsDBNull(13) ? null : reader.GetInt32(13)
+                    });
+                }
+                await reader.CloseAsync();
+
+                // Load user names
+                if (userIds.Any())
+                {
+                    var users = await _userRepository.GetUserNamesByIdsAsync(userIds.Distinct().ToList());
+                    foreach (var production in productions)
+                    {
+                        if (production.CreatedByUserId.HasValue && users.TryGetValue(production.CreatedByUserId.Value, out var userName))
+                        {
+                            production.CreatedByUserName = userName;
+                        }
+                    }
+                }
+
+                await _context.Database.CloseConnectionAsync();
+
+                return Ok(productions);
+            }
+            catch (Exception ex)
+            {
+                await _context.Database.CloseConnectionAsync();
+                _logger.LogError(ex, "Error al obtener las producciones de componentes para ProcessDone {ProcessDoneId}", processDoneId);
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error al obtener las producciones de componentes para ProcessDone {ProcessDoneId}", processDoneId);
+            return StatusCode(500, new { message = "Error al obtener las producciones de componentes", error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Registrar una nueva producción de componente
     /// </summary>
     [HttpPost("production")]
