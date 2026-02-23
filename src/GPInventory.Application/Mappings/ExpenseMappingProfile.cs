@@ -14,7 +14,11 @@ public class ExpenseMappingProfile : Profile
         CreateMap<Expense, ExpenseDto>();
         CreateMap<CreateExpenseDto, Expense>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId));
+            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId))
+            .ForMember(dest => dest.ReceiptTypeId, opt => opt.MapFrom(src => src.ReceiptTypeId))
+            .ForMember(dest => dest.AmountNet, opt => opt.MapFrom(src => src.AmountNet))
+            .ForMember(dest => dest.AmountIva, opt => opt.MapFrom(src => src.AmountIva))
+            .ForMember(dest => dest.AmountTotal, opt => opt.MapFrom(src => src.AmountTotal));
         
         CreateMap<UpdateExpenseDto, Expense>()
             .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));

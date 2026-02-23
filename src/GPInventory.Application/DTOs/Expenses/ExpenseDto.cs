@@ -11,18 +11,55 @@ public class ExpenseListItemDto
     public int Id { get; set; }
     public DateTime Date { get; set; }
     public decimal Amount { get; set; }
+    
+    [JsonPropertyName("amount_net")]
+    public decimal? AmountNet { get; set; }
+    
+    [JsonPropertyName("amount_iva")]
+    public decimal? AmountIva { get; set; }
+    
+    [JsonPropertyName("amount_total")]
+    public decimal? AmountTotal { get; set; }
+    
+    [JsonPropertyName("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; }
+    
     public string Description { get; set; } = string.Empty;
+    
+    [JsonPropertyName("is_fixed")]
     public bool? IsFixed { get; set; }
+    
+    [JsonPropertyName("business_id")]
     public int BusinessId { get; set; }
+    
+    [JsonPropertyName("expense_type_id")]
     public int? ExpenseTypeId { get; set; }
+    
+    [JsonPropertyName("category_name")]
     public string? CategoryName { get; set; }
+    
+    [JsonPropertyName("subcategory_name")]
     public string? SubcategoryName { get; set; }
+    
+    [JsonPropertyName("has_provider")]
     public bool HasProvider { get; set; }
+    
+    [JsonPropertyName("provider_name")]
     public string? ProviderName { get; set; }
+    
+    [JsonPropertyName("paid_installments")]
     public int? PaidInstallments { get; set; }
+    
+    [JsonPropertyName("total_installments")]
     public int? TotalInstallments { get; set; }
+    
+    [JsonPropertyName("has_overdue_installments")]
     public bool? HasOverdueInstallments { get; set; }
+    
+    [JsonPropertyName("payment_plan_id")]
     public int? PaymentPlanId { get; set; }
+    
+    [JsonPropertyName("next_installment_due_date")]
     public DateTime? NextInstallmentDueDate { get; set; }
 }
 
@@ -35,6 +72,20 @@ public class CreateExpenseDto
     [Required]
     [Range(0, double.MaxValue, ErrorMessage = "El monto no puede ser negativo")]
     public decimal Amount { get; set; }
+
+    // IVA fields for invoices with tax (Factura Afecta)
+    [JsonPropertyName("amount_net")]
+    public decimal? AmountNet { get; set; }
+
+    [JsonPropertyName("amount_iva")]
+    public decimal? AmountIva { get; set; }
+
+    [JsonPropertyName("amount_total")]
+    public decimal? AmountTotal { get; set; }
+
+    // Receipt type: 1=Boleta, 2=Factura Exenta, 3=Factura Afecta, 4=Sin Documento
+    [JsonPropertyName("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; }
 
     [Required]
     [StringLength(500, ErrorMessage = "La descripción no puede exceder 500 caracteres")]
@@ -103,6 +154,17 @@ public class ExpenseDto
     [JsonPropertyName("subcategory_id")]
     public int SubcategoryId { get; set; }
     public decimal Amount { get; set; }
+    
+    // IVA fields
+    [JsonPropertyName("amount_net")]
+    public decimal? AmountNet { get; set; }
+    
+    [JsonPropertyName("amount_iva")]
+    public decimal? AmountIva { get; set; }
+    
+    [JsonPropertyName("amount_total")]
+    public decimal? AmountTotal { get; set; }
+    
     public string Description { get; set; } = string.Empty;
     [JsonPropertyName("is_fixed")]
     public bool? IsFixed { get; set; }
@@ -123,6 +185,17 @@ public class ExpenseWithDetailsDto
     public int Id { get; set; }
     public DateTime Date { get; set; }
     public decimal Amount { get; set; }
+    
+    // IVA fields
+    [JsonPropertyName("amount_net")]
+    public decimal? AmountNet { get; set; }
+    
+    [JsonPropertyName("amount_iva")]
+    public decimal? AmountIva { get; set; }
+    
+    [JsonPropertyName("amount_total")]
+    public decimal? AmountTotal { get; set; }
+    
     public string Description { get; set; } = string.Empty;
     [JsonPropertyName("is_fixed")]
     public bool? IsFixed { get; set; }

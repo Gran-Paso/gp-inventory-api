@@ -18,6 +18,20 @@ public class Expense
     [Column(TypeName = "decimal(18,2)")]
     public decimal Amount { get; set; }
 
+    // IVA fields for invoices with tax (Factura Afecta - receipt_type_id = 3)
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? AmountNet { get; set; } // Monto neto (sin IVA)
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? AmountIva { get; set; } // Monto IVA (19%)
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? AmountTotal { get; set; } // Monto total (neto + IVA o monto único)
+
+    // Receipt type: 1=Boleta, 2=Factura Exenta, 3=Factura Afecta, 4=Sin Documento
+    [Column("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; }
+
     [Required]
     [StringLength(500)]
     public string Description { get; set; } = string.Empty;

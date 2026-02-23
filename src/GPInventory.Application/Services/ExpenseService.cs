@@ -228,6 +228,10 @@ public class ExpenseService : IExpenseService
                     Id = e.Id,
                     Date = e.Date,
                     Amount = e.Amount,
+                    AmountNet = e.AmountNet,
+                    AmountIva = e.AmountIva,
+                    AmountTotal = e.AmountTotal,
+                    ReceiptTypeId = e.ReceiptTypeId,
                     Description = e.Description,
                     IsFixed = e.IsFixed,
                     BusinessId = e.BusinessId,
@@ -423,7 +427,7 @@ public class ExpenseService : IExpenseService
                     await _paymentInstallmentRepository.CreateAsync(installment);
                 }
                 
-                Console.WriteLine($"Created {createExpenseDto.InstallmentsCount.Value} installments for payment type {createExpenseDto.PaymentTypeId.Value}");
+                Console.WriteLine($"Created {createExpenseDto.InstallmentsCount.Value} installments for payment type {paymentTypeId}");
             }
             
             return _mapper.Map<ExpenseDto>(createdExpense);

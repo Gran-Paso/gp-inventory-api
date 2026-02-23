@@ -188,6 +188,38 @@ public class ComponentService : IComponentService
         return _mapper.Map<ComponentWithSuppliesDto>(updated);
     }
 
+    public async Task<ComponentWithSuppliesDto> UpdateSuppliesWithYieldAsync(int componentId, List<CreateComponentSupplyDto> supplies, decimal yieldAmount)
+    {
+        var component = await _repository.GetByIdAsync(componentId);
+        if (component == null)
+            throw new KeyNotFoundException($"Component with id {componentId} not found");
+
+        // Validar referencias circulares
+        var isValid = await ValidateSuppliesAsync(componentId, supplies);
+        if (!isValid)
+            throw new InvalidOperationException("Circular reference detected in component supplies");
+
+        // Actualizar el yieldAmount del componente
+        component.YieldAmount = yieldAmount;
+        component.UpdatedAt = DateTime.UtcNow;
+        await _repository.UpdateAsync(component);
+
+        // Eliminar todos los supplies existentes
+        await _repository.DeleteAllSuppliesByComponentIdAsync(componentId);
+
+        // Crear nuevos supplies
+        foreach (var supplyDto in supplies)
+        {
+            var supply = _mapper.Map<ComponentSupply>(supplyDto);
+            supply.ComponentId = componentId;
+            await _repository.CreateSupplyAsync(supply);
+        }
+
+        // Retornar componente con supplies actualizados
+        var updated = await _repository.GetByIdWithSuppliesAsync(componentId);
+        return _mapper.Map<ComponentWithSuppliesDto>(updated);
+    }
+
     // Production management
     public async Task<ComponentProductionDto> CreateProductionAsync(CreateComponentProductionDto dto)
     {
@@ -264,6 +296,8 @@ public class ComponentService : IComponentService
             Type = "component",
             Quantity = component.YieldAmount,
             Level = level,
+            UnitMeasureId = component.UnitMeasureId,
+            UnitMeasureSymbol = component.UnitMeasureSymbol, // Use display property instead of navigation property
             Children = new List<BOMTreeNodeDto>()
         };
 
@@ -278,6 +312,8 @@ public class ComponentService : IComponentService
                     Type = "supply",
                     Quantity = supply.Quantity,
                     Level = level + 1,
+                    UnitMeasureId = supply.Supply?.UnitMeasureId,
+                    UnitMeasureSymbol = supply.Supply?.UnitMeasure?.Symbol, // This is already loaded by GetSuppliesByComponentIdAsync
                     Children = new List<BOMTreeNodeDto>()
                 });
             }

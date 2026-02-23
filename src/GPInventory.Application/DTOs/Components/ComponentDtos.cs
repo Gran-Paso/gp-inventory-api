@@ -82,6 +82,12 @@ public class CreateComponentSupplyDto
     public bool IsOptional { get; set; }
 }
 
+public class UpdateComponentRecipeDto
+{
+    public decimal YieldAmount { get; set; }
+    public List<CreateComponentSupplyDto> Supplies { get; set; } = new();
+}
+
 public class UpdateComponentDto
 {
     public string? Name { get; set; }
@@ -144,6 +150,8 @@ public class BOMTreeNodeDto
     public string Type { get; set; } = "supply"; // 'supply' | 'component'
     public decimal Quantity { get; set; }
     public int Level { get; set; }
+    public int? UnitMeasureId { get; set; }
+    public string? UnitMeasureSymbol { get; set; }
     public decimal? Cost { get; set; }
     public List<BOMTreeNodeDto> Children { get; set; } = new();
 }
