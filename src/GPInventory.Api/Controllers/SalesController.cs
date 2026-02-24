@@ -1697,7 +1697,7 @@ public class SalesController : ControllerBase
                         DateTimeHelper.GetChileNow(),
                         11, // FlowType "Venta"
                         -allocatedQty, // Cantidad negativa para salida
-                        costValue.HasValue ? (object)costValue.Value : DBNull.Value,
+                        costValue.HasValue ? (object)costValue.Value : 0,
                         request.StoreId,
                         sale.Id,
                         stockId, // ✅ stock_id apunta al lote padre del cual se saca el inventario
