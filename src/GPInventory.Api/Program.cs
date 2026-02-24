@@ -108,7 +108,9 @@ builder.Services.AddCors(options =>
                 "https://dev.expenses.granpasochile.cl",   // GP Expenses Dev
                 "https://dev.factory.granpasochile.cl",    // GP Factory Dev
                 "https://dev.auth.granpasochile.cl",       // GP Auth Dev
-                "https://dev.admin.granpasochile.cl"       // GP Admin Dev
+                "https://dev.admin.granpasochile.cl",      // GP Admin Dev
+                // ngrok tunnels (desarrollo local con HTTPS)
+                "https://2d45-186-78-39-127.ngrok-free.app"
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
@@ -186,6 +188,10 @@ builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepo
 builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
 builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();
 
+// Bank integration (Fintoc) repositories
+builder.Services.AddScoped<IBankConnectionRepository, BankConnectionRepository>();
+builder.Services.AddScoped<IBankTransactionRepository, BankTransactionRepository>();
+
 // Payment repositories
 builder.Services.AddScoped<IPaymentCatalogRepository, PaymentCatalogRepository>();
 builder.Services.AddScoped<IPaymentPlanRepository, PaymentPlanRepository>();
@@ -216,6 +222,10 @@ builder.Services.AddScoped<IProductAuditService, ProductAuditService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
 builder.Services.AddScoped<IBudgetService, BudgetService>();
+
+// Bank integration (Fintoc) services
+builder.Services.AddHttpClient<IFintocService, FintocService>();
+builder.Services.AddScoped<IBankService, BankService>();
 
 // Payment services
 builder.Services.AddScoped<IPaymentCatalogService, PaymentCatalogService>();

@@ -54,6 +54,10 @@ public class ApplicationDbContext : DbContext
     // Gran Paso entities
     public DbSet<Prospect> Prospects { get; set; }
 
+    // Bank integration (Fintoc)
+    public DbSet<BankConnection> BankConnections { get; set; }
+    public DbSet<BankTransaction> BankTransactions { get; set; }
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Configure basic conventions
@@ -153,6 +157,11 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ExpenseTypeConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseConfiguration());
         modelBuilder.ApplyConfiguration(new FixedExpenseConfiguration());
+
+        // Apply Bank integration configurations
+        modelBuilder.ApplyConfiguration(new BankEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new BankConnectionConfiguration());
+        modelBuilder.ApplyConfiguration(new BankTransactionConfiguration());
 
         // Business configuration
         modelBuilder.Entity<Business>(entity =>
