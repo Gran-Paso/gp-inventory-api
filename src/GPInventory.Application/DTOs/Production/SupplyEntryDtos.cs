@@ -38,6 +38,9 @@ public class CreateSupplyEntryDto
     public int? ReferenceToSupplyEntry { get; set; }
     public int? CreatedByUserId { get; set; }
     
+    // Receipt type: 1=Boleta, 2=Factura Exenta, 3=Factura Afecta, 4=Sin Documento
+    public int? ReceiptTypeId { get; set; }
+    
     // Payment Plan fields (optional - for financing)
     public int? PaymentTypeId { get; set; }
     public int? InstallmentsCount { get; set; }

@@ -233,10 +233,19 @@ public class SupplyEntryService : ISupplyEntryService
                     subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
                 }
                 
+                // Calcular desglose IVA para Boleta (1) y Factura Afecta (3)
+                bool hasIva = createDto.ReceiptTypeId == 1 || createDto.ReceiptTypeId == 3;
+                decimal? amountNet = hasIva ? Math.Round(totalAmount / 1.19m) : null;
+                decimal? amountIva = hasIva ? totalAmount - amountNet!.Value : null;
+
                 var expenseDto = new CreateExpenseDto
                 {
                     SubcategoryId = subcategoryId,
                     Amount = totalAmount,
+                    AmountNet = amountNet,
+                    AmountIva = amountIva,
+                    AmountTotal = totalAmount,
+                    ReceiptTypeId = createDto.ReceiptTypeId,
                     Description = $"Compra de insumo: {supply.Name} - {createDto.Amount} unidades",
                     Date = DateTime.UtcNow,
                     BusinessId = supply.BusinessId,

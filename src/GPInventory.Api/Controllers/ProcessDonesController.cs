@@ -288,6 +288,8 @@ public class ProcessDonesController : ControllerBase
                 var processName = (await nameCmd.ExecuteScalarAsync())?.ToString() ?? "Proceso";
 
                 // Query principal para obtener las ejecuciones del proceso
+                // ⭐ La subconsulta correlacionada evita duplicados por el JOIN con component_production
+                //    (un process_done puede tener N filas en component_production si produce/consume varios)
                 var historyQuery = @"
                     SELECT 
                         pd.id,
@@ -298,13 +300,18 @@ public class ProcessDonesController : ControllerBase
                         pd.notes,
                         pd.cost,
                         u.name as responsible_user,
-                        c.name as product_name,
+                        (
+                            SELECT c2.name
+                            FROM component_production cp2
+                            INNER JOIN components c2 ON cp2.component_id = c2.id
+                            WHERE cp2.process_done_id = pd.id
+                              AND cp2.produced_amount > 0
+                            LIMIT 1
+                        ) as product_name,
                         COALESCE(m.status, 'pending') as manufacture_status,
                         m.id as manufacture_id
                     FROM process_done pd
                     LEFT JOIN user u ON pd.created_by_user_id = u.id
-                    LEFT JOIN component_production cp ON pd.id = cp.process_done_id
-                    LEFT JOIN components c ON cp.component_id = c.id
                     LEFT JOIN manufacture m ON pd.id = m.process_done_id
                     WHERE pd.process_id = @processId
                     AND pd.completed_at >= @startDate
