@@ -71,4 +71,8 @@ public class InstallmentsSummaryDto
     // Montos separados
     public decimal TotalPaidFromInstallments { get; set; }
     public decimal TotalPaidFromSinglePayments { get; set; }
+    
+    // Este mes
+    public decimal TotalPendingThisMonth { get; set; }
+    public int PendingInstallmentsThisMonth { get; set; }
 }

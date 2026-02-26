@@ -214,6 +214,7 @@ public class ExpenseRepository : IExpenseRepository
                 e.expense_type_id,
                 e.provider_id,
                 e.subcategory_id,
+                e.payment_plan_id,
                 sub.id as sub_id,
                 sub.name as subcategory_name,
                 sub.expense_category_id,
@@ -360,7 +361,8 @@ public class ExpenseRepository : IExpenseRepository
                     StoreId = reader.IsDBNull(reader.GetOrdinal("store_id")) ? null : reader.GetInt32(reader.GetOrdinal("store_id")),
                     ExpenseTypeId = reader.IsDBNull(reader.GetOrdinal("expense_type_id")) ? null : reader.GetInt32(reader.GetOrdinal("expense_type_id")),
                     ProviderId = reader.IsDBNull(reader.GetOrdinal("provider_id")) ? null : reader.GetInt32(reader.GetOrdinal("provider_id")),
-                    SubcategoryId = reader.GetInt32(reader.GetOrdinal("subcategory_id"))
+                    SubcategoryId = reader.GetInt32(reader.GetOrdinal("subcategory_id")),
+                    PaymentPlanId = reader.IsDBNull(reader.GetOrdinal("payment_plan_id")) ? null : reader.GetInt32(reader.GetOrdinal("payment_plan_id"))
                 };
 
                 // Cargar subcategory si existe

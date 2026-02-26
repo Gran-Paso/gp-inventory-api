@@ -10,5 +10,6 @@ public interface IPaymentInstallmentRepository
     Task<PaymentInstallment?> GetByIdAsync(int id);
     Task UpdateAsync(PaymentInstallment entity);
     Task DeleteAsync(int id);
+    Task DeleteByPaymentPlanIdAsync(int paymentPlanId);
     Task<IEnumerable<PaymentInstallment>> GetAllInstallmentsAsync(List<int>? businessIds = null);
 }

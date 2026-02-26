@@ -365,69 +365,96 @@ public class ExpenseService : IExpenseService
             Console.WriteLine($"CreateExpenseAsync - After manual assignment, expense.IsFixed: {expense.IsFixed}");
             
             var createdExpense = await _expenseRepository.AddAsync(expense);
+            int? createdPaymentPlanId = null;
             
             // Si viene con datos de cuotas, crear el payment plan
             // Cualquier gasto puede tener cuotas, no solo crédito o financiamiento
             if (createExpenseDto.InstallmentsCount.HasValue && createExpenseDto.InstallmentsCount.Value > 1)
             {
-                // Si no se especifica PaymentTypeId, usar 2 (Crédito) por defecto
-                var paymentTypeId = createExpenseDto.PaymentTypeId ?? 2;
-                
-                Console.WriteLine($"Creating payment plan for expense {createdExpense.Id} with {createExpenseDto.InstallmentsCount.Value} installments");
-                
-                var paymentPlan = new PaymentPlan
+                try
                 {
-                    ExpenseId = createdExpense.Id,
-                    PaymentTypeId = paymentTypeId,
-                    InstallmentsCount = createExpenseDto.InstallmentsCount.Value,
-                    ExpressedInUf = createExpenseDto.ExpressedInUf ?? false,
-                    BankEntityId = createExpenseDto.BankEntityId,
-                    StartDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow
-                };
-                
-                var createdPaymentPlan = await _paymentPlanRepository.CreateAsync(paymentPlan);
-                Console.WriteLine($"Payment plan created with ID: {createdPaymentPlan.Id}");
-                
-                // Actualizar el expense con el payment_plan_id usando SQL directo para asegurar persistencia
-                await _expenseRepository.UpdatePaymentPlanIdAsync(createdExpense.Id, createdPaymentPlan.Id);
-                Console.WriteLine($"Expense {createdExpense.Id} updated with PaymentPlanId: {createdPaymentPlan.Id}");
-                
-                // Actualizar también la entidad en memoria para mantener consistencia
-                createdExpense.PaymentPlanId = createdPaymentPlan.Id;
-                
-                // Crear las cuotas
-                decimal baseInstallmentAmount = Math.Floor(createdExpense.Amount / createExpenseDto.InstallmentsCount.Value);
-                decimal totalAssigned = 0;
-                var startDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow;
-                
-                for (int i = 1; i <= createExpenseDto.InstallmentsCount.Value; i++)
-                {
-                    decimal installmentAmount;
+                    // Si no se especifica PaymentTypeId, usar 2 (Crédito) por defecto
+                    var paymentTypeId = createExpenseDto.PaymentTypeId ?? 2;
                     
-                    // La última cuota ajusta para absorber cualquier diferencia de redondeo
-                    if (i == createExpenseDto.InstallmentsCount.Value)
-                    {
-                        installmentAmount = createdExpense.Amount - totalAssigned;
-                    }
-                    else
-                    {
-                        installmentAmount = baseInstallmentAmount;
-                        totalAssigned += installmentAmount;
-                    }
+                    Console.WriteLine($"Creating payment plan for expense {createdExpense.Id} with {createExpenseDto.InstallmentsCount.Value} installments");
                     
-                    var installment = new PaymentInstallment
+                    var paymentPlan = new PaymentPlan
                     {
-                        PaymentPlanId = createdPaymentPlan.Id,
-                        InstallmentNumber = i,
-                        AmountClp = installmentAmount,
-                        DueDate = startDate.AddMonths(i - 1),
-                        Status = "pendiente"
+                        ExpenseId = createdExpense.Id,
+                        PaymentTypeId = paymentTypeId,
+                        InstallmentsCount = createExpenseDto.InstallmentsCount.Value,
+                        ExpressedInUf = createExpenseDto.ExpressedInUf ?? false,
+                        BankEntityId = createExpenseDto.BankEntityId,
+                        StartDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow
                     };
                     
-                    await _paymentInstallmentRepository.CreateAsync(installment);
+                    var createdPaymentPlan = await _paymentPlanRepository.CreateAsync(paymentPlan);
+                    createdPaymentPlanId = createdPaymentPlan.Id;
+                    Console.WriteLine($"Payment plan created with ID: {createdPaymentPlan.Id}");
+                    
+                    // Actualizar el expense con el payment_plan_id usando SQL directo para asegurar persistencia
+                    await _expenseRepository.UpdatePaymentPlanIdAsync(createdExpense.Id, createdPaymentPlan.Id);
+                    Console.WriteLine($"Expense {createdExpense.Id} updated with PaymentPlanId: {createdPaymentPlan.Id}");
+                    
+                    // Actualizar también la entidad en memoria para mantener consistencia
+                    createdExpense.PaymentPlanId = createdPaymentPlan.Id;
+                    
+                    // Crear las cuotas
+                    decimal baseInstallmentAmount = Math.Floor(createdExpense.Amount / createExpenseDto.InstallmentsCount.Value);
+                    decimal totalAssigned = 0;
+                    var startDate = createExpenseDto.PaymentStartDate ?? DateTime.UtcNow;
+                    
+                    for (int i = 1; i <= createExpenseDto.InstallmentsCount.Value; i++)
+                    {
+                        decimal installmentAmount;
+                        
+                        // La última cuota ajusta para absorber cualquier diferencia de redondeo
+                        if (i == createExpenseDto.InstallmentsCount.Value)
+                        {
+                            installmentAmount = createdExpense.Amount - totalAssigned;
+                        }
+                        else
+                        {
+                            installmentAmount = baseInstallmentAmount;
+                            totalAssigned += installmentAmount;
+                        }
+                        
+                        var installment = new PaymentInstallment
+                        {
+                            PaymentPlanId = createdPaymentPlan.Id,
+                            InstallmentNumber = i,
+                            AmountClp = installmentAmount,
+                            DueDate = startDate.AddMonths(i - 1),
+                            Status = "pendiente"
+                        };
+                        
+                        await _paymentInstallmentRepository.CreateAsync(installment);
+                    }
+                    
+                    Console.WriteLine($"Created {createExpenseDto.InstallmentsCount.Value} installments for payment type {paymentTypeId}");
                 }
-                
-                Console.WriteLine($"Created {createExpenseDto.InstallmentsCount.Value} installments for payment type {paymentTypeId}");
+                catch (Exception planEx)
+                {
+                    // Rollback: eliminar cuotas, payment plan y expense creados
+                    Console.WriteLine($"[ROLLBACK] Error al crear payment plan/cuotas para expense {createdExpense.Id}: {planEx.Message}");
+                    try
+                    {
+                        if (createdPaymentPlanId.HasValue)
+                        {
+                            await _paymentInstallmentRepository.DeleteByPaymentPlanIdAsync(createdPaymentPlanId.Value);
+                            Console.WriteLine($"[ROLLBACK] Cuotas del plan {createdPaymentPlanId.Value} eliminadas.");
+                            await _paymentPlanRepository.DeleteAsync(createdPaymentPlanId.Value);
+                            Console.WriteLine($"[ROLLBACK] Payment plan {createdPaymentPlanId.Value} eliminado.");
+                        }
+                        await _expenseRepository.DeleteAsync(createdExpense.Id);
+                        Console.WriteLine($"[ROLLBACK] Expense {createdExpense.Id} eliminado.");
+                    }
+                    catch (Exception rollbackEx)
+                    {
+                        Console.WriteLine($"[ROLLBACK ERROR] No se pudo revertir completamente: {rollbackEx.Message}");
+                    }
+                    throw new ApplicationException($"Error al crear el plan de cuotas. El gasto no fue guardado: {planEx.Message}", planEx);
+                }
             }
             
             return _mapper.Map<ExpenseDto>(createdExpense);
@@ -492,11 +519,29 @@ public class ExpenseService : IExpenseService
             if (expense == null)
                 throw new KeyNotFoundException($"Gasto con ID {id} no encontrado");
 
+            // Si tiene payment plan, eliminar cuotas y plan primero (cascade manual)
+            int? paymentPlanId = expense.PaymentPlanId;
+            if (!paymentPlanId.HasValue)
+            {
+                // Intentar buscar por expense_id por si payment_plan_id no está en la entidad
+                var plans = await _paymentPlanRepository.GetByExpenseIdAsync(id);
+                paymentPlanId = plans.FirstOrDefault()?.Id;
+            }
+
+            if (paymentPlanId.HasValue)
+            {
+                Console.WriteLine($"DeleteExpenseAsync: eliminando cuotas del plan {paymentPlanId.Value}");
+                await _paymentInstallmentRepository.DeleteByPaymentPlanIdAsync(paymentPlanId.Value);
+                Console.WriteLine($"DeleteExpenseAsync: eliminando payment plan {paymentPlanId.Value}");
+                await _paymentPlanRepository.DeleteAsync(paymentPlanId.Value);
+            }
+
             await _expenseRepository.DeleteAsync(id);
+            Console.WriteLine($"DeleteExpenseAsync: expense {id} eliminado correctamente");
         }
         catch (KeyNotFoundException)
         {
-            throw; // Re-throw KeyNotFoundException as is
+            throw;
         }
         catch (Exception ex)
         {
@@ -948,28 +993,37 @@ public class ExpenseService : IExpenseService
             // Process this month expenses
             foreach (var expense in expensesList)
             {
-                // Verificar si tiene payment_plan
-                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
-                var paymentPlan = paymentPlans.FirstOrDefault();
+                // Determinar si tiene payment_plan usando PaymentPlanId del expense (ahora incluido en el SELECT)
+                // Fallback: buscar por expense_id en payment_plan si PaymentPlanId no está seteado
+                PaymentPlan? paymentPlan = null;
+                if (expense.PaymentPlanId.HasValue)
+                {
+                    paymentPlan = await _paymentPlanRepository.GetByIdAsync(expense.PaymentPlanId.Value);
+                }
+                if (paymentPlan == null)
+                {
+                    var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+                    paymentPlan = paymentPlans.FirstOrDefault();
+                }
                 
                 decimal amountToAdd = 0;
                 string detail = "";
                 
                 if (paymentPlan != null)
                 {
-                    // Tiene payment_plan - sumar solo cuotas PAGADAS que vencen este mes
+                    // Tiene payment_plan - sumar cuotas (pagadas O pendientes) que vencen este mes
                     var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
-                    var paidInstallmentsThisMonth = installments.Where(i => 
+                    var installmentsThisMonth = installments.Where(i => 
                         i.DueDate.Year == now.Year && 
-                        i.DueDate.Month == now.Month &&
-                        i.Status == "pagado"  // SOLO cuotas pagadas
+                        i.DueDate.Month == now.Month
+                        // Sin filtro de estado: se cuenta la cuota del mes independiente de si fue pagada
                     ).ToList();
                     
-                    // Solo agregar al breakdown si hay cuotas pagadas
-                    if (paidInstallmentsThisMonth.Any())
+                    if (installmentsThisMonth.Any())
                     {
-                        amountToAdd = paidInstallmentsThisMonth.Sum(i => i.AmountClp);
-                        detail = $"Cuotas mes ({paidInstallmentsThisMonth.Count})";
+                        amountToAdd = installmentsThisMonth.Sum(i => i.AmountClp);
+                        var installmentNum = installmentsThisMonth.First().InstallmentNumber;
+                        detail = $"Cuota {installmentNum}/{paymentPlan.InstallmentsCount}";
                         
                         totalThisMonth += amountToAdd;
                         
@@ -986,13 +1040,14 @@ public class ExpenseService : IExpenseService
                             expenseType = expense.ExpenseTypeId == 1 ? "Gasto" : expense.ExpenseTypeId == 2 ? "Costo" : "Inversión",
                             amount = amountToAdd,
                             detail = detail,
-                            hasPaymentPlan = paymentPlan != null
+                            hasPaymentPlan = true
                         });
                     }
+                    // Si no hay cuota para este mes (ej. el plan empieza el próximo mes) no se suma nada
                 }
                 else
                 {
-                    // No tiene payment_plan - usar monto completo
+                    // No tiene payment_plan - usar monto completo (pago único)
                     amountToAdd = expense.Amount;
                     detail = "Pago único";
                     
@@ -1011,7 +1066,7 @@ public class ExpenseService : IExpenseService
                         expenseType = expense.ExpenseTypeId == 1 ? "Gasto" : expense.ExpenseTypeId == 2 ? "Costo" : "Inversión",
                         amount = amountToAdd,
                         detail = detail,
-                        hasPaymentPlan = paymentPlan != null
+                        hasPaymentPlan = false
                     });
                 }
             }
@@ -1019,20 +1074,27 @@ public class ExpenseService : IExpenseService
             // Process last month expenses
             foreach (var expense in lastMonthExpenses)
             {
-                var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
-                var paymentPlan = paymentPlans.FirstOrDefault();
-                
-                if (paymentPlan != null)
+                PaymentPlan? paymentPlanLast = null;
+                if (expense.PaymentPlanId.HasValue)
                 {
-                    // Tiene payment_plan - sumar solo cuotas PAGADAS que vencían el mes pasado
-                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlan.Id);
-                    var paidInstallmentsLastMonth = installments.Where(i => 
+                    paymentPlanLast = await _paymentPlanRepository.GetByIdAsync(expense.PaymentPlanId.Value);
+                }
+                if (paymentPlanLast == null)
+                {
+                    var paymentPlans = await _paymentPlanRepository.GetByExpenseIdAsync(expense.Id);
+                    paymentPlanLast = paymentPlans.FirstOrDefault();
+                }
+                
+                if (paymentPlanLast != null)
+                {
+                    // Tiene payment_plan - sumar cuotas (pagadas O pendientes) que vencían el mes pasado
+                    var installments = await _paymentInstallmentRepository.GetByPaymentPlanIdAsync(paymentPlanLast.Id);
+                    var installmentsLastMonth = installments.Where(i => 
                         i.DueDate.Year == firstDayLastMonth.Year && 
-                        i.DueDate.Month == firstDayLastMonth.Month &&
-                        i.Status == "pagado"  // SOLO cuotas pagadas
+                        i.DueDate.Month == firstDayLastMonth.Month
                     ).ToList();
                     
-                    totalLastMonth += paidInstallmentsLastMonth.Sum(i => i.AmountClp);
+                    totalLastMonth += installmentsLastMonth.Sum(i => i.AmountClp);
                 }
                 else
                 {

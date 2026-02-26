@@ -128,6 +128,13 @@ public class PaymentInstallmentService : IPaymentInstallmentService
             i.DueDate.Date >= now.Date
         ).ToList();
         
+        // Cuotas no pagadas que vencen este mes (pendientes o vencidas dentro del mes)
+        var pendingThisMonth = installmentsList.Where(i =>
+            i.DueDate.Year == now.Year &&
+            i.DueDate.Month == now.Month &&
+            i.Status != "paid" && i.Status != "pagado"
+        ).ToList();
+        
         // Obtener todos los expenses
         var allExpenses = await _expenseRepository.GetExpensesWithDetailsAsync(
             businessId: null,
@@ -212,7 +219,10 @@ public class PaymentInstallmentService : IPaymentInstallmentService
             OverdueInstallmentsOnly = overdueInstallments.Count,
             // Montos separados
             TotalPaidFromInstallments = totalPaidFromInstallments,
-            TotalPaidFromSinglePayments = totalPaidFromSinglePayments
+            TotalPaidFromSinglePayments = totalPaidFromSinglePayments,
+            // Este mes
+            TotalPendingThisMonth = pendingThisMonth.Sum(i => i.AmountClp),
+            PendingInstallmentsThisMonth = pendingThisMonth.Count
         };
 
         return summary;
