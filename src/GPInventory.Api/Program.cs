@@ -12,6 +12,11 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configurar zona horaria América/Santiago para DateTime.Now
+var santiagoCtz = TimeZoneInfo.FindSystemTimeZoneById(
+    OperatingSystem.IsWindows() ? "Pacific SA Standard Time" : "America/Santiago");
+System.Environment.SetEnvironmentVariable("TZ", "America/Santiago");
+
 // Configure Kestrel to listen on all network interfaces
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
@@ -139,7 +144,8 @@ if (useInMemoryDatabase)
 else
 {
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseMySql(connectionString, ServerVersion.Parse("8.0.33-mysql")));
+        options.UseMySql(connectionString, ServerVersion.Parse("8.0.33-mysql"))
+               .AddInterceptors(new GPInventory.Infrastructure.Interceptors.TimeZoneInterceptor()));
 }
 
 // AutoMapper
