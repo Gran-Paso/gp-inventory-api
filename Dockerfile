@@ -24,9 +24,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
 # Instalar dependencias para la cultura es-ES (opcional pero recomendado)
-RUN apt-get update && apt-get install -y locales && \
+RUN apt-get update && apt-get install -y locales tzdata && \
     sed -i '/es_ES.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen && \
+    ln -sf /usr/share/zoneinfo/America/Santiago /etc/localtime && \
+    echo 'America/Santiago' > /etc/timezone && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -36,6 +38,7 @@ ENV ASPNETCORE_URLS=http://+:80
 ENV LANG=es_ES.UTF-8
 ENV LANGUAGE=es_ES:es
 ENV LC_ALL=es_ES.UTF-8
+ENV TZ=America/Santiago
 
 # Copiar archivos publicados
 COPY --from=build /app/publish .
