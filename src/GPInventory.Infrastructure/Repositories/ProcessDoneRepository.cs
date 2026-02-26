@@ -100,8 +100,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 p.description as process_description,
                 p.product_id,
                 p.production_time,
-                p.time_unit_id,
-                p.store_id
+                p.time_unit_id
             FROM process_done pd
             LEFT JOIN processes p ON pd.process_id = p.id
             WHERE pd.id = @id";
@@ -138,8 +137,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
                     Description = reader["process_description"] as string,
                     ProductId = reader.GetInt32("product_id"),
                     ProductionTime = reader.GetInt32("production_time"),
-                    TimeUnitId = reader.GetInt32("time_unit_id"),
-                    StoreId = reader.GetInt32("store_id")
+                    TimeUnitId = reader.GetInt32("time_unit_id")
                 };
             }
         }
@@ -166,8 +164,8 @@ public class ProcessDoneRepository : IProcessDoneRepository
                 var supplyEntry = new SupplyEntry
                 {
                     Id = supplyReader.GetInt32("id"),
-                    UnitCost = supplyReader.GetInt32("unit_cost"),
-                    Amount = supplyReader.GetInt32("amount"),
+                    UnitCost = supplyReader.GetDecimal("unit_cost"),
+                    Amount = supplyReader.GetDecimal("amount"),
                     ProviderId = supplyReader.GetInt32("provider_id"),
                     SupplyId = supplyReader.GetInt32("supply_id"),
                     ProcessDoneId = supplyReader["process_done_id"] as int?,
@@ -331,11 +329,10 @@ public class ProcessDoneRepository : IProcessDoneRepository
             );
             SELECT LAST_INSERT_ID();";
 
-        var connection = _context.Database.GetDbConnection();
-        var shouldCloseConnection = connection.State == System.Data.ConnectionState.Closed;
-        
-        if (shouldCloseConnection)
-            await connection.OpenAsync();
+        // ⭐ CRITICAL FIX: Crear nueva conexión independiente en lugar de usar la del DbContext
+        var connectionString = _context.Database.GetConnectionString();
+        using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
         
         try
         {
@@ -412,11 +409,7 @@ public class ProcessDoneRepository : IProcessDoneRepository
             Console.WriteLine($"Error in CreateAsync: {ex.Message}");
             throw;
         }
-        finally
-        {
-            if (shouldCloseConnection)
-                await connection.CloseAsync();
-        }
+        // ⭐ La conexión se cierra automáticamente por el using statement
     }
 
     public async Task<ProcessDone> UpdateAsync(ProcessDone processDone)

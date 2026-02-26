@@ -60,4 +60,19 @@ public class InstallmentsSummaryDto
     public int PendingInstallments { get; set; }
     public int PaidInstallments { get; set; }
     public int OverdueInstallments { get; set; }
+    public int SinglePaymentsCount { get; set; }
+    public int InstallmentsOnlyCount { get; set; }
+    
+    // Conteos separados sin incluir pagos únicos
+    public int PendingInstallmentsOnly { get; set; }
+    public int PaidInstallmentsOnly { get; set; }
+    public int OverdueInstallmentsOnly { get; set; }
+    
+    // Montos separados
+    public decimal TotalPaidFromInstallments { get; set; }
+    public decimal TotalPaidFromSinglePayments { get; set; }
+    
+    // Este mes
+    public decimal TotalPendingThisMonth { get; set; }
+    public int PendingInstallmentsThisMonth { get; set; }
 }

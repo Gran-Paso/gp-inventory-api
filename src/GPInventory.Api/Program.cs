@@ -12,6 +12,12 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure Kestrel to listen on all network interfaces
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.ListenAnyIP(8080); // Listen on 0.0.0.0:8080
+});
+
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -71,6 +77,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:3002",  // GP Expenses
                 "http://localhost:3003",  // GP Inventory  
                 "http://localhost:3004",  // GP Auth
+                "http://localhost:3005",  // GP Admin
                 "http://localhost:5175",  // Gran Paso website dev
                 "http://localhost:4173",  // Vite preview mode
                 "http://localhost:4174",  // Vite preview mode alternate
@@ -78,15 +85,32 @@ builder.Services.AddCors(options =>
                 "https://localhost:5173", 
                 "https://localhost:5174", // GP Factory HTTPS
                 "https://localhost:4173", // Vite preview HTTPS
-                "http://localhost:5000",
+                "http://localhost:8080",
                 "http://127.0.0.1:5173",  // Local IP variant
-                "http://127.0.0.1:5000",  // Local IP variant
+                "http://127.0.0.1:8080",  // Local IP variant
+                "http://localhost:8080", // Local network for mobile testing
+                // Producción
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
                 "https://factory.granpasochile.cl",    // GP Factory producción
                 "https://auth.granpasochile.cl",       // GP Auth producción
+                "https://admin.granpasochile.cl",      // GP Admin producción
                 "https://granpasochile.cl",            // Gran Paso website producción
-                "https://www.granpasochile.cl"         // Gran Paso website producción con www
+                "https://www.granpasochile.cl",        // Gran Paso website producción con www
+                // QA
+                "https://qa.inventory.granpasochile.cl",  // GP Inventory QA
+                "https://qa.expenses.granpasochile.cl",   // GP Expenses QA
+                "https://qa.factory.granpasochile.cl",    // GP Factory QA
+                "https://qa.auth.granpasochile.cl",       // GP Auth QA
+                "https://qa.admin.granpasochile.cl",      // GP Admin QA
+                // Dev
+                "https://dev.inventory.granpasochile.cl",  // GP Inventory Dev
+                "https://dev.expenses.granpasochile.cl",   // GP Expenses Dev
+                "https://dev.factory.granpasochile.cl",    // GP Factory Dev
+                "https://dev.auth.granpasochile.cl",       // GP Auth Dev
+                "https://dev.admin.granpasochile.cl",      // GP Admin Dev
+                // ngrok tunnels (desarrollo local con HTTPS)
+                "https://2d45-186-78-39-127.ngrok-free.app"
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
@@ -125,6 +149,10 @@ builder.Services.AddAutoMapper(typeof(AuthMappingProfile), typeof(NotificationMa
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey is not configured");
 
+// Deshabilitar el mapeo automático de claims para preservar los nombres originales
+Microsoft.IdentityModel.Logging.IdentityModelEventSource.ShowPII = true;
+System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -137,7 +165,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidAudience = jwtSettings["Audience"],
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.FromMinutes(5), // Tolerancia de 5 minutos
+            NameClaimType = "email" // Usar email como identificador principal
         };
     });
 
@@ -158,6 +187,10 @@ builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository
 builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepository>();
 builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
 builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();
+
+// Bank integration (Fintoc) repositories
+builder.Services.AddScoped<IBankConnectionRepository, BankConnectionRepository>();
+builder.Services.AddScoped<IBankTransactionRepository, BankTransactionRepository>();
 
 // Payment repositories
 builder.Services.AddScoped<IPaymentCatalogRepository, PaymentCatalogRepository>();
@@ -189,6 +222,10 @@ builder.Services.AddScoped<IProductAuditService, ProductAuditService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
 builder.Services.AddScoped<IBudgetService, BudgetService>();
+
+// Bank integration (Fintoc) services
+builder.Services.AddHttpClient<IFintocService, FintocService>();
+builder.Services.AddScoped<IBankService, BankService>();
 
 // Payment services
 builder.Services.AddScoped<IPaymentCatalogService, PaymentCatalogService>();
@@ -266,7 +303,24 @@ else
 app.UseHttpsRedirection();
 
 // Configure static files middleware for serving uploaded images
-app.UseStaticFiles();
+app.UseStaticFiles(); // Sirve archivos desde wwwroot
+
+// Configurar ruta para servir imágenes subidas desde /uploads
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(Directory.GetCurrentDirectory(), "uploads")),
+    RequestPath = "/uploads",
+    OnPrepareResponse = ctx =>
+    {
+        // Agregar headers CORS para imágenes
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET");
+        ctx.Context.Response.Headers.Append("Access-Control-Allow-Headers", "Content-Type");
+        // Cache de 1 día para imágenes
+        ctx.Context.Response.Headers.Append("Cache-Control", "public, max-age=86400");
+    }
+});
 
 app.UseAuthentication();
 app.UseAuthorization();

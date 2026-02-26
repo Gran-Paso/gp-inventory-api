@@ -53,10 +53,13 @@ public class ProcessService : IProcessService
 
     public async Task<ProcessDto> CreateProcessAsync(CreateProcessDto createProcessDto)
     {
-        // Verificar si ya existe un proceso con el mismo nombre en la tienda
-        var existingProcess = await _processRepository.GetByNameAsync(createProcessDto.Name, createProcessDto.StoreId);
-        if (existingProcess != null)
-            throw new InvalidOperationException($"A process with name '{createProcessDto.Name}' already exists in this store");
+        // Verificar si ya existe un proceso con el mismo nombre (en la tienda si se especifica)
+        if (createProcessDto.StoreId.HasValue)
+        {
+            var existingProcess = await _processRepository.GetByNameAsync(createProcessDto.Name, createProcessDto.StoreId.Value);
+            if (existingProcess != null)
+                throw new InvalidOperationException($"A process with name '{createProcessDto.Name}' already exists in this store");
+        }
 
         // Crear el proceso
         var process = new Process(
@@ -70,21 +73,29 @@ public class ProcessService : IProcessService
 
         var createdProcess = await _processRepository.CreateAsync(process);
 
-        // Crear las relaciones ProcessSupply
+        // Crear las relaciones ProcessSupply con validación de duplicados
         if (createProcessDto.ProcessSupplies.Any())
         {
+            var uniqueSupplyIds = new HashSet<int>();
             foreach (var supplyDto in createProcessDto.ProcessSupplies)
             {
+                if (!uniqueSupplyIds.Add(supplyDto.SupplyId))
+                    throw new InvalidOperationException($"Supply with ID {supplyDto.SupplyId} is already added to this process");
+                
                 var processSupply = new ProcessSupply(createdProcess.Id, supplyDto.SupplyId, supplyDto.Order);
                 createdProcess.ProcessSupplies.Add(processSupply);
             }
         }
 
-        // Crear las relaciones ProcessComponent
+        // Crear las relaciones ProcessComponent con validación de duplicados
         if (createProcessDto.ProcessComponents.Any())
         {
+            var uniqueComponentIds = new HashSet<int>();
             foreach (var componentDto in createProcessDto.ProcessComponents)
             {
+                if (!uniqueComponentIds.Add(componentDto.ComponentId))
+                    throw new InvalidOperationException($"Component with ID {componentDto.ComponentId} is already added to this process");
+                
                 var processComponent = new ProcessComponent(createdProcess.Id, componentDto.ComponentId, componentDto.Order);
                 createdProcess.ProcessComponents.Add(processComponent);
             }
@@ -106,10 +117,13 @@ public class ProcessService : IProcessService
         if (process == null)
             throw new KeyNotFoundException($"Process with ID {id} not found");
 
-        // Verificar si el nombre ya existe en otra proceso de la misma tienda
-        var existingProcess = await _processRepository.GetByNameAsync(updateProcessDto.Name, process.StoreId);
-        if (existingProcess != null && existingProcess.Id != id)
-            throw new InvalidOperationException($"A process with name '{updateProcessDto.Name}' already exists in this store");
+        // Verificar si el nombre ya existe en otra proceso de la misma tienda (si tiene tienda)
+        if (process.StoreId.HasValue)
+        {
+            var existingProcess = await _processRepository.GetByNameAsync(updateProcessDto.Name, process.StoreId.Value);
+            if (existingProcess != null && existingProcess.Id != id)
+                throw new InvalidOperationException($"A process with name '{updateProcessDto.Name}' already exists in this store");
+        }
 
         // Actualizar propiedades
         process.Name = updateProcessDto.Name;
@@ -117,16 +131,21 @@ public class ProcessService : IProcessService
         process.ProductionTime = updateProcessDto.ProductionTime;
         process.TimeUnitId = updateProcessDto.TimeUnitId;
 
-        // Actualizar ProcessSupplies (eliminar existentes y crear nuevos)
+        // Eliminar TODOS los ProcessSupplies y ProcessComponents existentes de la base de datos
+        await _processRepository.DeleteProcessRelationsAsync(process.Id);
+        
+        // Limpiar las colecciones en memoria
         process.ProcessSupplies.Clear();
+        process.ProcessComponents.Clear();
+        
+        // Agregar los nuevos ProcessSupplies (el orden puede haber cambiado)
         foreach (var supplyDto in updateProcessDto.ProcessSupplies)
         {
             var processSupply = new ProcessSupply(process.Id, supplyDto.SupplyId, supplyDto.Order);
             process.ProcessSupplies.Add(processSupply);
         }
-
-        // Actualizar ProcessComponents (eliminar existentes y crear nuevos)
-        process.ProcessComponents.Clear();
+        
+        // Agregar los nuevos ProcessComponents (el orden puede haber cambiado)
         foreach (var componentDto in updateProcessDto.ProcessComponents)
         {
             var processComponent = new ProcessComponent(process.Id, componentDto.ComponentId, componentDto.Order);

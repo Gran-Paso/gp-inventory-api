@@ -64,6 +64,19 @@ public class ComponentService : IComponentService
         
         // Calculate stock status
         dto.StockStatus = StockHelper.CalculateStockStatus(currentStock, dto.MinimumStock);
+        
+        // Get unit cost from last production, or calculate if no production exists
+        var lastProduction = await _productionRepository.GetLastProductionByComponentIdAsync(dto.Id);
+        if (lastProduction != null && lastProduction.ProducedAmount > 0)
+        {
+            // Use unit cost from last production: total cost / produced amount
+            dto.UnitCost = lastProduction.Cost / lastProduction.ProducedAmount;
+        }
+        else
+        {
+            // Fallback: calculate cost from recipe (sum of component supplies)
+            dto.UnitCost = await CalculateTotalCostAsync(dto.Id);
+        }
     }
 
     public async Task<ComponentDto> CreateAsync(CreateComponentDto dto)
@@ -175,6 +188,38 @@ public class ComponentService : IComponentService
         return _mapper.Map<ComponentWithSuppliesDto>(updated);
     }
 
+    public async Task<ComponentWithSuppliesDto> UpdateSuppliesWithYieldAsync(int componentId, List<CreateComponentSupplyDto> supplies, decimal yieldAmount)
+    {
+        var component = await _repository.GetByIdAsync(componentId);
+        if (component == null)
+            throw new KeyNotFoundException($"Component with id {componentId} not found");
+
+        // Validar referencias circulares
+        var isValid = await ValidateSuppliesAsync(componentId, supplies);
+        if (!isValid)
+            throw new InvalidOperationException("Circular reference detected in component supplies");
+
+        // Actualizar el yieldAmount del componente
+        component.YieldAmount = yieldAmount;
+        component.UpdatedAt = DateTime.UtcNow;
+        await _repository.UpdateAsync(component);
+
+        // Eliminar todos los supplies existentes
+        await _repository.DeleteAllSuppliesByComponentIdAsync(componentId);
+
+        // Crear nuevos supplies
+        foreach (var supplyDto in supplies)
+        {
+            var supply = _mapper.Map<ComponentSupply>(supplyDto);
+            supply.ComponentId = componentId;
+            await _repository.CreateSupplyAsync(supply);
+        }
+
+        // Retornar componente con supplies actualizados
+        var updated = await _repository.GetByIdWithSuppliesAsync(componentId);
+        return _mapper.Map<ComponentWithSuppliesDto>(updated);
+    }
+
     // Production management
     public async Task<ComponentProductionDto> CreateProductionAsync(CreateComponentProductionDto dto)
     {
@@ -251,6 +296,8 @@ public class ComponentService : IComponentService
             Type = "component",
             Quantity = component.YieldAmount,
             Level = level,
+            UnitMeasureId = component.UnitMeasureId,
+            UnitMeasureSymbol = component.UnitMeasureSymbol, // Use display property instead of navigation property
             Children = new List<BOMTreeNodeDto>()
         };
 
@@ -265,6 +312,8 @@ public class ComponentService : IComponentService
                     Type = "supply",
                     Quantity = supply.Quantity,
                     Level = level + 1,
+                    UnitMeasureId = supply.Supply?.UnitMeasureId,
+                    UnitMeasureSymbol = supply.Supply?.UnitMeasure?.Symbol, // This is already loaded by GetSuppliesByComponentIdAsync
                     Children = new List<BOMTreeNodeDto>()
                 });
             }
@@ -300,9 +349,13 @@ public class ComponentService : IComponentService
         {
             if (supply.ItemType == "supply" && supply.Supply != null)
             {
-                // TODO: Calcular costo promedio del supply desde supply_entries
-                // Por ahora usamos 0 como placeholder
-                decimal supplyCost = 0;
+                // Get cost from last supply entry
+                var lastEntry = supply.Supply.SupplyEntries
+                    ?.Where(se => se.Amount > 0)
+                    .OrderByDescending(se => se.CreatedAt)
+                    .FirstOrDefault();
+
+                decimal supplyCost = lastEntry?.UnitCost ?? supply.Supply.FixedExpense?.Amount ?? 0;
                 totalCost += supplyCost * supply.Quantity;
             }
             else if (supply.ItemType == "component" && supply.SubComponentId.HasValue)
@@ -310,7 +363,21 @@ public class ComponentService : IComponentService
                 var subComponent = await _repository.GetByIdWithSuppliesAsync(supply.SubComponentId.Value);
                 if (subComponent != null)
                 {
-                    var subCost = await CalculateCostRecursive(subComponent);
+                    // Get cost from last component production
+                    var lastProduction = await _productionRepository.GetLastProductionByComponentIdAsync(supply.SubComponentId.Value);
+                    
+                    decimal subCost;
+                    if (lastProduction != null && lastProduction.ProducedAmount > 0)
+                    {
+                        // Calculate unit cost: total cost / produced amount
+                        subCost = lastProduction.Cost / lastProduction.ProducedAmount;
+                    }
+                    else
+                    {
+                        // Fallback to recursive calculation if no production exists
+                        subCost = await CalculateCostRecursive(subComponent);
+                    }
+                    
                     totalCost += subCost * supply.Quantity;
                 }
             }

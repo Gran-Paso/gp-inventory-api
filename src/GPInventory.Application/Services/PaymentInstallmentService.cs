@@ -113,14 +113,26 @@ public class PaymentInstallmentService : IPaymentInstallmentService
         var now = DateTime.Now;
         
         // Calcular conteos basados en el estado real de las cuotas
-        var paidInstallments = installmentsList.Where(i => i.Status == "paid" || i.Status == "pagado").ToList();
+        // Aceptar tanto inglés como español para los estados
+        var paidInstallments = installmentsList.Where(i => 
+            i.Status == "paid" || i.Status == "pagado"
+        ).ToList();
+        
         var overdueInstallments = installmentsList.Where(i => 
-            (i.Status == "pending" || i.Status == "overdue") && 
+            (i.Status == "pendiente" || i.Status == "pending" || i.Status == "overdue") && 
             i.DueDate.Date < now.Date
         ).ToList();
+        
         var pendingInstallments = installmentsList.Where(i => 
-            (i.Status == "pending") && 
+            (i.Status == "pendiente" || i.Status == "pending") && 
             i.DueDate.Date >= now.Date
+        ).ToList();
+        
+        // Cuotas no pagadas que vencen este mes (pendientes o vencidas dentro del mes)
+        var pendingThisMonth = installmentsList.Where(i =>
+            i.DueDate.Year == now.Year &&
+            i.DueDate.Month == now.Month &&
+            i.Status != "paid" && i.Status != "pagado"
         ).ToList();
         
         // Obtener todos los expenses
@@ -137,6 +149,8 @@ public class PaymentInstallmentService : IPaymentInstallmentService
         decimal totalOverdue = 0;
         decimal totalCommitted = 0;
         int singlePaymentsCount = 0;
+        decimal totalPaidFromSinglePayments = 0;
+        decimal totalPaidFromInstallments = 0;
         
         foreach (var expense in allExpenses)
         {
@@ -146,6 +160,7 @@ public class PaymentInstallmentService : IPaymentInstallmentService
             {
                 // Pago único - contar como pagado
                 totalPaid += expense.Amount;
+                totalPaidFromSinglePayments += expense.Amount;
                 totalCommitted += expense.Amount;
                 singlePaymentsCount++;
             }
@@ -157,12 +172,16 @@ public class PaymentInstallmentService : IPaymentInstallmentService
                 var installmentsPlan = installments.ToList();
                 
                 // Verificar el estado del plan
-                var paidCount = installmentsPlan.Count(i => i.Status == "paid" || i.Status == "pagado");
+                var paidCount = installmentsPlan.Count(i => 
+                    i.Status == "paid" || i.Status == "pagado"
+                );
                 var overdueCount = installmentsPlan.Count(i => 
-                    (i.Status == "pending" || i.Status == "overdue") && i.DueDate.Date < now.Date
+                    (i.Status == "pendiente" || i.Status == "pending" || i.Status == "overdue") && 
+                    i.DueDate.Date < now.Date
                 );
                 var pendingCount = installmentsPlan.Count(i => 
-                    (i.Status == "pending") && i.DueDate.Date >= now.Date
+                    (i.Status == "pendiente" || i.Status == "pending") && 
+                    i.DueDate.Date >= now.Date
                 );
                 
                 // Calcular proporciones basadas en el monto original del expense
@@ -172,7 +191,9 @@ public class PaymentInstallmentService : IPaymentInstallmentService
                     decimal overduePortion = (decimal)overdueCount / installmentsPlan.Count;
                     decimal pendingPortion = (decimal)pendingCount / installmentsPlan.Count;
                     
-                    totalPaid += expense.Amount * paidPortion;
+                    decimal paidAmount = expense.Amount * paidPortion;
+                    totalPaid += paidAmount;
+                    totalPaidFromInstallments += paidAmount;
                     totalOverdue += expense.Amount * overduePortion;
                     totalPending += expense.Amount * pendingPortion;
                 }
@@ -189,7 +210,19 @@ public class PaymentInstallmentService : IPaymentInstallmentService
             OverdueInstallments = overdueInstallments.Count,
             TotalPending = totalPending,
             TotalPaid = totalPaid,
-            TotalOverdue = totalOverdue
+            TotalOverdue = totalOverdue,
+            SinglePaymentsCount = singlePaymentsCount,
+            InstallmentsOnlyCount = installmentsList.Count,
+            // Conteos separados (solo cuotas, sin pagos únicos)
+            PendingInstallmentsOnly = pendingInstallments.Count,
+            PaidInstallmentsOnly = paidInstallments.Count,
+            OverdueInstallmentsOnly = overdueInstallments.Count,
+            // Montos separados
+            TotalPaidFromInstallments = totalPaidFromInstallments,
+            TotalPaidFromSinglePayments = totalPaidFromSinglePayments,
+            // Este mes
+            TotalPendingThisMonth = pendingThisMonth.Sum(i => i.AmountClp),
+            PendingInstallmentsThisMonth = pendingThisMonth.Count
         };
 
         return summary;

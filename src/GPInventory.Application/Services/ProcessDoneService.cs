@@ -12,6 +12,7 @@ public class ProcessDoneService : IProcessDoneService
     private readonly IStockRepository _stockRepository;
     private readonly IComponentProductionRepository _componentProductionRepository;
     private readonly IManufactureRepository _manufactureRepository;
+    private readonly IUserRepository _userRepository;
 
     public ProcessDoneService(
         IProcessDoneRepository processDoneRepository, 
@@ -19,7 +20,8 @@ public class ProcessDoneService : IProcessDoneService
         ISupplyEntryRepository supplyEntryRepository, 
         IStockRepository stockRepository, 
         IComponentProductionRepository componentProductionRepository,
-        IManufactureRepository manufactureRepository)
+        IManufactureRepository manufactureRepository,
+        IUserRepository userRepository)
     {
         _processDoneRepository = processDoneRepository;
         _processRepository = processRepository;
@@ -27,6 +29,7 @@ public class ProcessDoneService : IProcessDoneService
         _stockRepository = stockRepository;
         _componentProductionRepository = componentProductionRepository;
         _manufactureRepository = manufactureRepository;
+        _userRepository = userRepository;
     }
 
     public async Task<ProcessDoneDto> GetProcessDoneByIdAsync(int id)
@@ -47,7 +50,12 @@ public class ProcessDoneService : IProcessDoneService
     public async Task<IEnumerable<ProcessDoneDto>> GetProcessDonesByProcessIdAsync(int processId)
     {
         var processDones = await _processDoneRepository.GetByProcessIdAsync(processId);
-        return processDones.Select(MapToDto);
+        var dtos = processDones.Select(MapToDto).ToList();
+        
+        // Enriquecer con nombres de usuarios
+        await EnrichWithUserNamesAsync(dtos);
+        
+        return dtos;
     }
 
     public async Task<ProcessDoneDto> CreateProcessDoneAsync(CreateProcessDoneDto createProcessDoneDto)
@@ -179,7 +187,6 @@ public class ProcessDoneService : IProcessDoneService
                 ComponentId = process.Product.Id,
                 ProcessDoneId = processDoneDto.Id,
                 BusinessId = process.Product.BusinessId,
-                StoreId = process.StoreId,
                 ProducedAmount = amountProduced,
                 ProductionDate = DateTime.UtcNow,
                 Cost = totalCost, // Usar el costo TOTAL de la manufactura (insumos + componentes)
@@ -204,6 +211,8 @@ public class ProcessDoneService : IProcessDoneService
         var processDone = await _processDoneRepository.GetByIdAsync(processDoneId);
         if (processDone == null) return;
         
+        Console.WriteLine($"[COST CALCULATION] ProcessDone ID: {processDoneId}, Amount: {processDone.Amount}");
+        
         // 1. Calcular costo de SUPPLIES
         var supplyEntries = await _supplyEntryRepository.GetByProcessDoneIdAsync(processDoneId);
         decimal totalSupplyCost = 0m;
@@ -212,9 +221,13 @@ public class ProcessDoneService : IProcessDoneService
         {
             if (supplyEntry.Amount < 0) // Solo consumos
             {
-                totalSupplyCost += Math.Abs(supplyEntry.Amount) * supplyEntry.UnitCost;
+                var entryCost = Math.Abs(supplyEntry.Amount) * supplyEntry.UnitCost;
+                Console.WriteLine($"[SUPPLY] ID: {supplyEntry.Id}, Amount: {supplyEntry.Amount}, UnitCost: {supplyEntry.UnitCost}, EntryCost: {entryCost}");
+                totalSupplyCost += entryCost;
             }
         }
+        
+        Console.WriteLine($"[COST CALCULATION] Total Supply Cost: {totalSupplyCost}");
         
         // 2. Calcular costo de COMPONENTES
         var componentProductions = await _componentProductionRepository.GetByProcessDoneIdAsync(processDoneId);
@@ -226,16 +239,23 @@ public class ProcessDoneService : IProcessDoneService
             {
                 if (componentProduction.ProducedAmount < 0) // Solo consumos
                 {
+                    Console.WriteLine($"[COMPONENT] ID: {componentProduction.Id}, ProducedAmount: {componentProduction.ProducedAmount}, Cost: {componentProduction.Cost}");
                     totalComponentCost += componentProduction.Cost;
                 }
             }
         }
         
+        Console.WriteLine($"[COST CALCULATION] Total Component Cost: {totalComponentCost}");
+        
         // 3. Costo TOTAL = supplies + componentes
         decimal totalCost = totalSupplyCost + totalComponentCost;
         
+        Console.WriteLine($"[COST CALCULATION] FINAL TOTAL COST: {totalCost}");
+        
         // 4. Actualizar ProcessDone con el costo TOTAL (no unitario)
         await _processDoneRepository.UpdateCostAsync(processDoneId, totalCost);
+        
+        Console.WriteLine($"[COST CALCULATION] Cost updated in database for ProcessDone {processDoneId}");
     }
 
     /// <summary>
@@ -281,6 +301,9 @@ public class ProcessDoneService : IProcessDoneService
         // Costo total = insumos + componentes
         decimal totalCost = totalSupplyCost + totalComponentCost;
 
+        // Calcular el costo UNITARIO para Manufacture (costo total / cantidad)
+        decimal unitCost = processDone.Amount > 0 ? totalCost / processDone.Amount : 0;
+
         // Crear el registro de Manufacture
         var manufacture = new Manufacture
         {
@@ -289,9 +312,9 @@ public class ProcessDoneService : IProcessDoneService
             BusinessId = process.Product.BusinessId,
             StoreId = storeId, // Asignar la tienda si se proporcionó
             Amount = processDone.Amount,
-            Cost = (int)Math.Round(totalCost),
+            Cost = (int)Math.Round(unitCost), // ⭐ Costo UNITARIO, no total
             Date = DateTime.UtcNow,
-            Notes = $"Producción del proceso: {process.Name}. Insumos: {totalSupplyCost:C}, Componentes: {totalComponentCost:C}, Total: {totalCost:C}",
+            Notes = $"Producción del proceso: {process.Name}. Total: ${totalCost:F0} ({processDone.Amount} unidades a ${unitCost:F0} c/u). Insumos: ${totalSupplyCost:F0}, Componentes: ${totalComponentCost:F0}",
             Status = storeId.HasValue ? "sent" : "pending", // Si tiene tienda, marcarlo como "sent"
             IsActive = !storeId.HasValue, // Si se envía directamente, IsActive = false; si queda en fábrica, IsActive = true
             CreatedByUserId = createdByUserId,
@@ -314,16 +337,19 @@ public class ProcessDoneService : IProcessDoneService
     /// </summary>
     private async Task CreateStockFromManufactureAsync(Manufacture manufacture, int storeId, int businessId)
     {
+        // ⭐ CRITICAL FIX: Usar using para la conexión también
+        using var connection = await _manufactureRepository.GetDbConnectionAsync();
+        
         try
         {
-            // Obtener conexión desde el repositorio
-            var connection = await _manufactureRepository.GetDbConnectionAsync();
             if (connection.State != System.Data.ConnectionState.Open)
             {
                 await connection.OpenAsync();
             }
             
             int? providerId = null;
+            
+            // ⭐ CRITICAL: Usar using y await para cerrar el reader antes del siguiente comando
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = @"
@@ -344,7 +370,7 @@ public class ProcessDoneService : IProcessDoneService
                 {
                     providerId = Convert.ToInt32(result);
                 }
-            }
+            } // ⭐ El command se cierra aquí automáticamente
 
             if (!providerId.HasValue)
             {
@@ -352,113 +378,115 @@ public class ProcessDoneService : IProcessDoneService
                 return;
             }
 
-            // Crear el stock en la tienda usando raw SQL
+            // ⭐ Ahora podemos crear un nuevo comando sin conflictos
             int? stockId = null;
             using (var insertCommand = connection.CreateCommand())
-            {
-                insertCommand.CommandText = @"
-                    INSERT INTO stock (
-                        product_id, id_store, provider_id, business_id, 
-                        amount, cost, date, notes, is_active, created_at, updated_at
-                    ) VALUES (
-                        @productId, @storeId, @providerId, @businessId,
-                        @amount, @cost, @date, @notes, 1, @createdAt, @updatedAt
-                    );
-                    SELECT LAST_INSERT_ID();";
-                
-                var productIdParam = insertCommand.CreateParameter();
-                productIdParam.ParameterName = "@productId";
-                productIdParam.Value = manufacture.ProductId;
-                insertCommand.Parameters.Add(productIdParam);
-                
-                var storeIdParam = insertCommand.CreateParameter();
-                storeIdParam.ParameterName = "@storeId";
-                storeIdParam.Value = storeId;
-                insertCommand.Parameters.Add(storeIdParam);
-                
-                var providerIdParam = insertCommand.CreateParameter();
-                providerIdParam.ParameterName = "@providerId";
-                providerIdParam.Value = providerId.Value;
-                insertCommand.Parameters.Add(providerIdParam);
-                
-                var businessIdParam = insertCommand.CreateParameter();
-                businessIdParam.ParameterName = "@businessId";
-                businessIdParam.Value = businessId;
-                insertCommand.Parameters.Add(businessIdParam);
-                
-                var amountParam = insertCommand.CreateParameter();
-                amountParam.ParameterName = "@amount";
-                amountParam.Value = manufacture.Amount;
-                insertCommand.Parameters.Add(amountParam);
-                
-                var costParam = insertCommand.CreateParameter();
-                costParam.ParameterName = "@cost";
-                costParam.Value = manufacture.Cost ?? 0;
-                insertCommand.Parameters.Add(costParam);
-                
-                var dateParam = insertCommand.CreateParameter();
-                dateParam.ParameterName = "@date";
-                dateParam.Value = manufacture.Date;
-                insertCommand.Parameters.Add(dateParam);
-                
-                var notesParam = insertCommand.CreateParameter();
-                notesParam.ParameterName = "@notes";
-                notesParam.Value = $"Stock generado automáticamente desde manufactura ID {manufacture.Id}";
-                insertCommand.Parameters.Add(notesParam);
-                
-                var createdAtParam = insertCommand.CreateParameter();
-                createdAtParam.ParameterName = "@createdAt";
-                createdAtParam.Value = DateTime.UtcNow;
-                insertCommand.Parameters.Add(createdAtParam);
-                
-                var updatedAtParam = insertCommand.CreateParameter();
-                updatedAtParam.ParameterName = "@updatedAt";
-                updatedAtParam.Value = DateTime.UtcNow;
-                insertCommand.Parameters.Add(updatedAtParam);
-                
-                var result = await insertCommand.ExecuteScalarAsync();
-                if (result != null)
                 {
-                    stockId = Convert.ToInt32(result);
-                }
-            }
-
-            // Actualizar el Manufacture con el StockId
-            if (stockId.HasValue)
-            {
-                using (var updateCommand = connection.CreateCommand())
-                {
-                    updateCommand.CommandText = @"
-                        UPDATE manufacture 
-                        SET stock_id = @stockId, 
-                            status = 'completed',
-                            updated_at = @updatedAt
-                        WHERE id = @manufactureId";
+                    insertCommand.CommandText = @"
+                        INSERT INTO stock (
+                            product_id, id_store, provider_id, business_id, 
+                            amount, cost, date, notes, is_active, created_at, updated_at
+                        ) VALUES (
+                            @productId, @storeId, @providerId, @businessId,
+                            @amount, @cost, @date, @notes, 1, @createdAt, @updatedAt
+                        );
+                        SELECT LAST_INSERT_ID();";
                     
-                    var stockIdParam = updateCommand.CreateParameter();
-                    stockIdParam.ParameterName = "@stockId";
-                    stockIdParam.Value = stockId.Value;
-                    updateCommand.Parameters.Add(stockIdParam);
+                    var productIdParam = insertCommand.CreateParameter();
+                    productIdParam.ParameterName = "@productId";
+                    productIdParam.Value = manufacture.ProductId;
+                    insertCommand.Parameters.Add(productIdParam);
                     
-                    var updatedAtParam = updateCommand.CreateParameter();
+                    var storeIdParam = insertCommand.CreateParameter();
+                    storeIdParam.ParameterName = "@storeId";
+                    storeIdParam.Value = storeId;
+                    insertCommand.Parameters.Add(storeIdParam);
+                    
+                    var providerIdParam = insertCommand.CreateParameter();
+                    providerIdParam.ParameterName = "@providerId";
+                    providerIdParam.Value = providerId.Value;
+                    insertCommand.Parameters.Add(providerIdParam);
+                    
+                    var businessIdParam = insertCommand.CreateParameter();
+                    businessIdParam.ParameterName = "@businessId";
+                    businessIdParam.Value = businessId;
+                    insertCommand.Parameters.Add(businessIdParam);
+                    
+                    var amountParam = insertCommand.CreateParameter();
+                    amountParam.ParameterName = "@amount";
+                    amountParam.Value = manufacture.Amount;
+                    insertCommand.Parameters.Add(amountParam);
+                    
+                    var costParam = insertCommand.CreateParameter();
+                    costParam.ParameterName = "@cost";
+                    costParam.Value = manufacture.Cost ?? 0;
+                    insertCommand.Parameters.Add(costParam);
+                    
+                    var dateParam = insertCommand.CreateParameter();
+                    dateParam.ParameterName = "@date";
+                    dateParam.Value = manufacture.Date;
+                    insertCommand.Parameters.Add(dateParam);
+                    
+                    var notesParam = insertCommand.CreateParameter();
+                    notesParam.ParameterName = "@notes";
+                    notesParam.Value = $"Stock generado automáticamente desde manufactura ID {manufacture.Id}";
+                    insertCommand.Parameters.Add(notesParam);
+                    
+                    var createdAtParam = insertCommand.CreateParameter();
+                    createdAtParam.ParameterName = "@createdAt";
+                    createdAtParam.Value = DateTime.UtcNow;
+                    insertCommand.Parameters.Add(createdAtParam);
+                    
+                    var updatedAtParam = insertCommand.CreateParameter();
                     updatedAtParam.ParameterName = "@updatedAt";
                     updatedAtParam.Value = DateTime.UtcNow;
-                    updateCommand.Parameters.Add(updatedAtParam);
+                    insertCommand.Parameters.Add(updatedAtParam);
                     
-                    var manufactureIdParam = updateCommand.CreateParameter();
-                    manufactureIdParam.ParameterName = "@manufactureId";
-                    manufactureIdParam.Value = manufacture.Id;
-                    updateCommand.Parameters.Add(manufactureIdParam);
-                    
-                    await updateCommand.ExecuteNonQueryAsync();
+                    var result = await insertCommand.ExecuteScalarAsync();
+                    if (result != null)
+                    {
+                        stockId = Convert.ToInt32(result);
+                    }
+                }
+
+                // Actualizar el Manufacture con el StockId
+                if (stockId.HasValue)
+                {
+                    using (var updateCommand = connection.CreateCommand())
+                    {
+                        updateCommand.CommandText = @"
+                            UPDATE manufacture 
+                            SET stock_id = @stockId, 
+                                status = 'completed',
+                                updated_at = @updatedAt
+                            WHERE id = @manufactureId";
+                        
+                        var stockIdParam = updateCommand.CreateParameter();
+                        stockIdParam.ParameterName = "@stockId";
+                        stockIdParam.Value = stockId.Value;
+                        updateCommand.Parameters.Add(stockIdParam);
+                        
+                        var updatedAtParam = updateCommand.CreateParameter();
+                        updatedAtParam.ParameterName = "@updatedAt";
+                        updatedAtParam.Value = DateTime.UtcNow;
+                        updateCommand.Parameters.Add(updatedAtParam);
+                        
+                        var manufactureIdParam = updateCommand.CreateParameter();
+                        manufactureIdParam.ParameterName = "@manufactureId";
+                        manufactureIdParam.Value = manufacture.Id;
+                        updateCommand.Parameters.Add(manufactureIdParam);
+                        
+                        await updateCommand.ExecuteNonQueryAsync();
+                    }
                 }
             }
-        }
+            // ⭐ La conexión se cierra automáticamente aquí por el using var
         catch (Exception ex)
         {
             Console.WriteLine($"Error creating stock from manufacture: {ex.Message}");
             // No lanzamos la excepción para no interrumpir el flujo principal
         }
+        // ⭐ Y si hay excepción, también se cierra automáticamente la conexión
     }
 
     /// <summary>
@@ -486,7 +514,7 @@ public class ProcessDoneService : IProcessDoneService
             // Crear supply_entry negativo con referencia al stock original
             var supplyEntry = new SupplyEntry(
                 availableEntry.UnitCost,           // Usar el costo del stock original
-                -(int)consumeFromThisEntry,        // Cantidad negativa
+                -consumeFromThisEntry,             // Cantidad negativa
                 1,                                 // ProviderId por defecto
                 supplyUsage.SupplyId,
                 processDoneId,
@@ -498,7 +526,7 @@ public class ProcessDoneService : IProcessDoneService
             
             // Si esta entrada se queda completamente vacía, marcarla para desactivar
             var remainingInEntry = availableEntry.Amount - consumeFromThisEntry;
-            if (remainingInEntry == 0)
+            if (remainingInEntry <= 0)
             {
                 // Obtener la entrada original para actualizar su estado
                 var originalEntry = await _supplyEntryRepository.GetByIdAsync(availableEntry.Id);
@@ -645,6 +673,7 @@ public class ProcessDoneService : IProcessDoneService
             CreatedAt = processDone.CreatedAt,
             UpdatedAt = processDone.UpdatedAt,
             IsActive = processDone.IsActive,
+            CreatedByUserId = processDone.CreatedByUserId,
             Process = processDone.Process != null ? new ProcessDto
             {
                 Id = processDone.Process.Id,
@@ -679,6 +708,7 @@ public class ProcessDoneService : IProcessDoneService
             CreatedAt = processDone.CreatedAt,
             UpdatedAt = processDone.UpdatedAt,
             IsActive = processDone.IsActive,
+            CreatedByUserId = processDone.CreatedByUserId,
             Process = processDone.Process != null ? new ProcessDto
             {
                 Id = processDone.Process.Id,
@@ -731,7 +761,7 @@ public class ProcessDoneService : IProcessDoneService
         if (!availableProductions.Any())
             throw new InvalidOperationException($"No stock available for Component ID {componentUsage.ComponentId}");
         
-        var productionsToUpdate = new List<ComponentProduction>(); // Producciones que necesitan actualización
+        var productionsToUpdate = new List<ComponentProduction>();
         
         foreach (var availableProduction in availableProductions)
         {
@@ -740,10 +770,16 @@ public class ProcessDoneService : IProcessDoneService
             // Determinar cuánto consumir de esta producción
             var consumeFromThisProduction = Math.Min(remainingQuantity, availableProduction.ProducedAmount);
             
-            // Calcular costo proporcional del stock consumido
-            var costPerUnit = availableProduction.ProducedAmount > 0 
-                ? availableProduction.Cost / availableProduction.ProducedAmount 
-                : 0;
+            // ⭐ CRITICAL FIX: Para calcular el costo unitario, obtener la cantidad ORIGINAL del lote directamente de la BD
+            var originalProduction = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
+            if (originalProduction == null) continue;
+            
+            // La cantidad original es el ProducedAmount del registro padre (positivo)
+            var originalAmount = Math.Abs(originalProduction.ProducedAmount);
+            var lotCost = originalProduction.Cost;
+            
+            // Calcular costo proporcional usando la cantidad ORIGINAL
+            var costPerUnit = originalAmount > 0 ? lotCost / originalAmount : 0;
             
             // Crear component_production negativo con referencia al lote original
             var componentProduction = new ComponentProduction
@@ -751,7 +787,6 @@ public class ProcessDoneService : IProcessDoneService
                 ComponentId = componentUsage.ComponentId,
                 ProcessDoneId = processDoneId,
                 BusinessId = process.Product?.BusinessId ?? availableProduction.BusinessId,
-                StoreId = process.StoreId,
                 ProducedAmount = -consumeFromThisProduction, // Cantidad negativa
                 ProductionDate = DateTime.Now,
                 Cost = costPerUnit * consumeFromThisProduction, // Costo proporcional
@@ -766,10 +801,9 @@ public class ProcessDoneService : IProcessDoneService
             
             // Si esta producción se queda completamente vacía, marcarla para desactivar
             var remainingInProduction = availableProduction.ProducedAmount - consumeFromThisProduction;
-            if (remainingInProduction == 0)
+            if (remainingInProduction <= 0.0001m)
             {
                 // Obtener la producción original para actualizar su estado
-                var originalProduction = await _componentProductionRepository.GetByIdAsync(availableProduction.Id);
                 if (originalProduction != null)
                 {
                     originalProduction.IsActive = false; // Marcar como inactiva
@@ -789,5 +823,26 @@ public class ProcessDoneService : IProcessDoneService
         
         if (remainingQuantity > 0)
             throw new InvalidOperationException($"Insufficient stock for Component ID {componentUsage.ComponentId}. Missing: {remainingQuantity}");
+    }
+    
+    private async Task EnrichWithUserNamesAsync(List<ProcessDoneDto> dtos)
+    {
+        var userIds = dtos
+            .Where(d => d.CreatedByUserId.HasValue)
+            .Select(d => d.CreatedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        
+        if (!userIds.Any()) return;
+        
+        var userNames = await _userRepository.GetUserNamesByIdsAsync(userIds);
+        
+        foreach (var dto in dtos)
+        {
+            if (dto.CreatedByUserId.HasValue && userNames.TryGetValue(dto.CreatedByUserId.Value, out var userName))
+            {
+                dto.CreatedByUserName = userName;
+            }
+        }
     }
 }

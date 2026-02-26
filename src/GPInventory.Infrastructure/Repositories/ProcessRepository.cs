@@ -96,6 +96,14 @@ public class ProcessRepository : IProcessRepository
         }
     }
 
+    public async Task DeleteProcessRelationsAsync(int processId)
+    {
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM process_supplies WHERE process_id = {0}", processId);
+        await _context.Database.ExecuteSqlRawAsync(
+            "DELETE FROM process_components WHERE process_id = {0}", processId);
+    }
+
     public async Task<bool> ExistsAsync(int id)
     {
         return await _context.Processes.AnyAsync(p => p.Id == id);
@@ -117,11 +125,11 @@ public class ProcessRepository : IProcessRepository
                 if (storeIds != null && storeIds.Length > 0)
                 {
                     var storeIdsList = string.Join(",", storeIds);
-                    whereConditions.Add($"p.store_id IN ({storeIdsList})");
+                    whereConditions.Add($"(p.store_id IN ({storeIdsList}) OR p.store_id IS NULL)");
                 }
                 if (businessId.HasValue)
                 {
-                    whereConditions.Add("s.id_business = @businessId");
+                    whereConditions.Add("(s.id_business = @businessId OR p.store_id IS NULL)");
                 }
 
                 var whereClause = whereConditions.Count > 0 ? "WHERE " + string.Join(" AND ", whereConditions) : "";
@@ -176,7 +184,7 @@ public class ProcessRepository : IProcessRepository
                             ProductId = reader.GetInt32(3),
                             ProductionTime = reader.GetInt32(4),
                             TimeUnitId = reader.GetInt32(5),
-                            StoreId = reader.GetInt32(6),
+                            StoreId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
                             CreatedAt = reader.IsDBNull(7) ? DateTime.UtcNow : reader.GetDateTime(7),
                             UpdatedAt = reader.IsDBNull(8) ? DateTime.UtcNow : reader.GetDateTime(8),
                             IsActive = reader.IsDBNull(9) ? true : reader.GetBoolean(9)
@@ -456,9 +464,9 @@ public class ProcessRepository : IProcessRepository
                     SELECT 
                         pd.completed_at,
                         u.name,
-                        pd.quantity_produced
+                        pd.amount as quantity_produced
                     FROM process_done pd
-                    LEFT JOIN users u ON pd.created_by_user_id = u.id
+                    LEFT JOIN user u ON pd.created_by_user_id = u.id
                     WHERE pd.process_id = @processId
                     ORDER BY pd.completed_at DESC
                     LIMIT 1";
@@ -474,7 +482,19 @@ public class ProcessRepository : IProcessRepository
                 {
                     var date = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
                     var userName = reader.IsDBNull(1) ? null : reader.GetString(1);
-                    var amount = reader.IsDBNull(2) ? (decimal?)null : reader.GetDecimal(2);
+                    
+                    // Manejar amount como INT o DECIMAL
+                    decimal? amount = null;
+                    if (!reader.IsDBNull(2))
+                    {
+                        var amountValue = reader.GetValue(2);
+                        if (amountValue is int intAmount)
+                            amount = (decimal)intAmount;
+                        else if (amountValue is decimal decAmount)
+                            amount = decAmount;
+                        else
+                            amount = Convert.ToDecimal(amountValue);
+                    }
 
                     return (date, userName, amount);
                 }
@@ -528,7 +548,7 @@ public class ProcessRepository : IProcessRepository
                                     END
                                 ELSE 0 
                             END), 0) as current_stock
-                        FROM process_supply ps
+                        FROM process_supplies ps
                         INNER JOIN supplies s ON ps.supply_id = s.id
                         LEFT JOIN supply_entry se ON s.id = se.supply_id
                         WHERE ps.process_id = @processId

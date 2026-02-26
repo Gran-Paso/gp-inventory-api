@@ -18,4 +18,5 @@ public interface ISupplyRepository
     Task<bool> ExistsAsync(int id);
     Task<Supply?> GetByNameAsync(string name, int businessId);
     Task<IEnumerable<SupplyStockDto>> GetAllSupplyStocksAsync(int? businessId = null);
+    Task<IEnumerable<Supply>> GetByFixedExpenseIdsAsync(List<int> fixedExpenseIds);
 }

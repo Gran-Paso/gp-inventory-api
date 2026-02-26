@@ -53,6 +53,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasColumnName("active")
             .HasColumnType("bit(1)");
         
+        builder.Property(e => e.SystemRole)
+            .HasColumnName("system_role")
+            .HasMaxLength(50)
+            .IsRequired()
+            .HasDefaultValue("none");
+        
         // BaseEntity properties - ignore since they don't exist in the database
         builder.Ignore(e => e.CreatedAt);
         builder.Ignore(e => e.UpdatedAt);

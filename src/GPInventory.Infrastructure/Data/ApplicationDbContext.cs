@@ -54,6 +54,10 @@ public class ApplicationDbContext : DbContext
     // Gran Paso entities
     public DbSet<Prospect> Prospects { get; set; }
 
+    // Bank integration (Fintoc)
+    public DbSet<BankConnection> BankConnections { get; set; }
+    public DbSet<BankTransaction> BankTransactions { get; set; }
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Configure basic conventions
@@ -86,8 +90,15 @@ public class ApplicationDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
             entity.Property(e => e.SupplyId).HasColumnName("supply_id");
-            entity.Property(e => e.UnitCost).HasColumnName("unit_cost");
-            entity.Property(e => e.Amount).HasColumnName("amount");
+            entity.Property(e => e.UnitCost)
+                .HasColumnName("unit_cost")
+                .HasPrecision(18, 4);
+            entity.Property(e => e.TotalCost)
+                .HasColumnName("total_cost")
+                .HasPrecision(18, 4);
+            entity.Property(e => e.Amount)
+                .HasColumnName("amount")
+                .HasPrecision(18, 4);
             entity.Property(e => e.Tag).HasColumnName("tag").HasMaxLength(100);
             entity.Property(e => e.ProviderId).HasColumnName("provider_id");
             entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");
@@ -146,6 +157,11 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ExpenseTypeConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseConfiguration());
         modelBuilder.ApplyConfiguration(new FixedExpenseConfiguration());
+
+        // Apply Bank integration configurations
+        modelBuilder.ApplyConfiguration(new BankEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new BankConnectionConfiguration());
+        modelBuilder.ApplyConfiguration(new BankTransactionConfiguration());
 
         // Business configuration
         modelBuilder.Entity<Business>(entity =>
@@ -281,6 +297,7 @@ public class ApplicationDbContext : DbContext
 
             // Ignore shadow properties that EF might try to create
             entity.Ignore("SupplyCategoryId1");
+            entity.Ignore("SupplyCategoryId2");
             entity.Ignore("UnitMeasure");
 
             entity.HasOne(e => e.SupplyCategory)
@@ -602,7 +619,6 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.ComponentId).HasColumnName("component_id");
             entity.Property(e => e.ProcessDoneId).HasColumnName("process_done_id");
             entity.Property(e => e.BusinessId).HasColumnName("business_id");
-            entity.Property(e => e.StoreId).HasColumnName("store_id");
             entity.Property(e => e.ProducedAmount).HasColumnName("produced_amount");
             entity.Property(e => e.ProductionDate).HasColumnName("production_date");
             entity.Property(e => e.ExpirationDate).HasColumnName("expiration_date");
@@ -628,11 +644,6 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(cp => cp.Business)
                 .WithMany()
                 .HasForeignKey(cp => cp.BusinessId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(cp => cp.Store)
-                .WithMany()
-                .HasForeignKey(cp => cp.StoreId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Auto-referencia FIFO: producción padre

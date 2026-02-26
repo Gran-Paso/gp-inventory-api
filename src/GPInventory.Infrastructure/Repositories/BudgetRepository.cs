@@ -24,119 +24,178 @@ public class BudgetRepository : IBudgetRepository
         }
     }
 
+    /// <summary>
+    /// ⭐ Helper method to execute action with connection management (auto-close)
+    /// </summary>
+    private async Task<T> ExecuteWithConnectionAsync<T>(Func<System.Data.Common.DbConnection, Task<T>> action)
+    {
+        var connection = _context.Database.GetDbConnection();
+        try
+        {
+            await EnsureConnectionOpenAsync(connection);
+            return await action(connection);
+        }
+        finally
+        {
+            if (connection.State == System.Data.ConnectionState.Open)
+            {
+                await connection.CloseAsync();
+            }
+        }
+    }
+
+    /// <summary>
+    /// ⭐ Helper method to execute action with connection management (auto-close) - void return
+    /// </summary>
+    private async Task ExecuteWithConnectionAsync(Func<System.Data.Common.DbConnection, Task> action)
+    {
+        var connection = _context.Database.GetDbConnection();
+        try
+        {
+            await EnsureConnectionOpenAsync(connection);
+            await action(connection);
+        }
+        finally
+        {
+            if (connection.State == System.Data.ConnectionState.Open)
+            {
+                await connection.CloseAsync();
+            }
+        }
+    }
+
     public async Task<List<BudgetDto>> GetBudgetsAsync(int? storeId, int? businessId, int? year, string? status)
     {
         var connection = _context.Database.GetDbConnection();
-        await EnsureConnectionOpenAsync(connection);
+        try
+        {
+            await EnsureConnectionOpenAsync(connection);
 
-        using var command = connection.CreateCommand();
-        
-        var query = @"
-            SELECT 
-                b.id,
-                b.name,
-                b.year,
-                b.total_amount,
-                b.business_id,
-                b.store_id,
-                b.status,
-                b.created_at,
-                b.updated_at,
-                COALESCE(allocations.total_allocated, 0) as total_allocated,
-                COALESCE(expenses.total_used, 0) as total_used,
-                (b.total_amount - COALESCE(expenses.total_used, 0)) as remaining_amount,
-                CASE 
-                    WHEN b.total_amount > 0 
-                    THEN (COALESCE(expenses.total_used, 0) / b.total_amount) * 100 
-                    ELSE 0 
-                END as usage_percentage
-            FROM budgets b
-            LEFT JOIN (
+            using var command = connection.CreateCommand();
+            
+            var query = @"
                 SELECT 
-                    ba.budget_id,
-                    SUM(
-                        CASE 
-                            WHEN ba.fixed_amount IS NOT NULL THEN ba.fixed_amount
-                            ELSE b2.total_amount * (ba.percentage / 100)
-                        END
-                    ) as total_allocated
-                FROM budget_allocations ba
-                JOIN budgets b2 ON ba.budget_id = b2.id
-                GROUP BY ba.budget_id
-            ) allocations ON b.id = allocations.budget_id
-            LEFT JOIN (
-                SELECT 
-                    b3.id as budget_id,
-                    SUM(e.amount) as total_used
-                FROM budgets b3
-                JOIN budget_allocations ba3 ON b3.id = ba3.budget_id
-                JOIN expenses e ON e.expense_type_id = ba3.expense_type_id 
-                    AND YEAR(e.date) = b3.year
-                    AND (b3.business_id IS NULL OR e.business_id = b3.business_id)
-                    AND (b3.store_id IS NULL OR e.store_id = b3.store_id)
-                    AND e.amount IS NOT NULL 
-                    AND e.date IS NOT NULL
-                GROUP BY b3.id
-            ) expenses ON b.id = expenses.budget_id
-            WHERE 1=1";
+                    b.id,
+                    b.name,
+                    b.year,
+                    b.total_amount,
+                    b.business_id,
+                    b.store_id,
+                    b.status,
+                    b.created_at,
+                    b.updated_at,
+                    COALESCE(allocations.total_allocated, 0) as total_allocated,
+                    COALESCE(expenses.total_used, 0) as total_used,
+                    (b.total_amount - COALESCE(expenses.total_used, 0)) as remaining_amount,
+                    CASE 
+                        WHEN b.total_amount > 0 
+                        THEN (COALESCE(expenses.total_used, 0) / b.total_amount) * 100 
+                        ELSE 0 
+                    END as usage_percentage
+                FROM budgets b
+                LEFT JOIN (
+                    SELECT 
+                        ba.budget_id,
+                        SUM(
+                            CASE 
+                                WHEN ba.fixed_amount IS NOT NULL THEN ba.fixed_amount
+                                ELSE b2.total_amount * (ba.percentage / 100)
+                            END
+                        ) as total_allocated
+                    FROM budget_allocations ba
+                    JOIN budgets b2 ON ba.budget_id = b2.id
+                    GROUP BY ba.budget_id
+                ) allocations ON b.id = allocations.budget_id
+                LEFT JOIN (
+                    SELECT 
+                        b3.id as budget_id,
+                        SUM(ea.used_amount) as total_used
+                    FROM budgets b3
+                    JOIN budget_allocations ba3 ON b3.id = ba3.budget_id
+                    JOIN (
+                        -- Gastos sin plan de pagos: usar monto completo en el año del gasto
+                        SELECT e.expense_type_id, e.business_id, e.store_id, e.amount as used_amount, YEAR(e.date) as yr
+                        FROM expenses e
+                        WHERE NOT EXISTS (SELECT 1 FROM payment_plan pp WHERE pp.expense_id = e.id)
+                          AND e.amount IS NOT NULL AND e.date IS NOT NULL
+                        UNION ALL
+                        -- Gastos con plan de pagos: usar monto de cada cuota en el año de su vencimiento
+                        SELECT e.expense_type_id, e.business_id, e.store_id, pi.amount_clp as used_amount, YEAR(pi.due_date) as yr
+                        FROM expenses e
+                        JOIN payment_plan pp ON pp.expense_id = e.id
+                        JOIN payment_installment pi ON pi.payment_plan_id = pp.id
+                        WHERE pi.amount_clp IS NOT NULL AND pi.due_date IS NOT NULL
+                    ) ea ON ea.expense_type_id = ba3.expense_type_id
+                        AND ea.yr = b3.year
+                        AND (b3.business_id IS NULL OR ea.business_id = b3.business_id)
+                        AND (b3.store_id IS NULL OR ea.store_id = b3.store_id)
+                    GROUP BY b3.id
+                ) expenses ON b.id = expenses.budget_id
+                WHERE 1=1";
 
-        if (storeId.HasValue)
-        {
-            query += " AND b.store_id = @storeId";
-        }
-
-        if (businessId.HasValue)
-        {
-            query += " AND b.business_id = @businessId";
-        }
-
-        if (year.HasValue)
-        {
-            query += " AND b.year = @year";
-        }
-
-        if (!string.IsNullOrEmpty(status))
-        {
-            query += " AND b.status = @status";
-        }
-
-        query += " ORDER BY b.year DESC, b.created_at DESC";
-
-        command.CommandText = query;
-
-        if (storeId.HasValue)
-            command.Parameters.Add(new MySqlParameter("@storeId", storeId.Value));
-        if (businessId.HasValue)
-            command.Parameters.Add(new MySqlParameter("@businessId", businessId.Value));
-        if (year.HasValue)
-            command.Parameters.Add(new MySqlParameter("@year", year.Value));
-        if (!string.IsNullOrEmpty(status))
-            command.Parameters.Add(new MySqlParameter("@status", status));
-
-        var budgets = new List<BudgetDto>();
-
-        using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            budgets.Add(new BudgetDto
+            if (storeId.HasValue)
             {
-                Id = reader.GetInt32("id"),
-                Name = reader.GetString("name"),
-                Year = reader.GetInt32("year"),
-                TotalAmount = reader.GetDecimal("total_amount"),
-                BusinessId = reader.IsDBNull("business_id") ? null : reader.GetInt32("business_id"),
-                StoreId = reader.IsDBNull("store_id") ? null : reader.GetInt32("store_id"),
-                Status = reader.GetString("status"),
-                CreatedAt = reader.GetDateTime("created_at"),
-                UpdatedAt = reader.GetDateTime("updated_at"),
-                TotalAllocated = reader.GetDecimal("total_allocated"),
-                TotalUsed = reader.GetDecimal("total_used"),
-                RemainingAmount = reader.GetDecimal("remaining_amount"),
-                UsagePercentage = reader.GetDecimal("usage_percentage")
-            });
-        }
+                query += " AND b.store_id = @storeId";
+            }
 
-        return budgets;
+            if (businessId.HasValue)
+            {
+                query += " AND b.business_id = @businessId";
+            }
+
+            if (year.HasValue)
+            {
+                query += " AND b.year = @year";
+            }
+
+            if (!string.IsNullOrEmpty(status))
+            {
+                query += " AND b.status = @status";
+            }
+
+            query += " ORDER BY b.year DESC, b.created_at DESC";
+
+            command.CommandText = query;
+
+            if (storeId.HasValue)
+                command.Parameters.Add(new MySqlParameter("@storeId", storeId.Value));
+            if (businessId.HasValue)
+                command.Parameters.Add(new MySqlParameter("@businessId", businessId.Value));
+            if (year.HasValue)
+                command.Parameters.Add(new MySqlParameter("@year", year.Value));
+            if (!string.IsNullOrEmpty(status))
+                command.Parameters.Add(new MySqlParameter("@status", status));
+
+            var budgets = new List<BudgetDto>();
+
+            using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                budgets.Add(new BudgetDto
+                {
+                    Id = reader.GetInt32("id"),
+                    Name = reader.GetString("name"),
+                    Year = reader.GetInt32("year"),
+                    TotalAmount = reader.GetDecimal("total_amount"),
+                    BusinessId = reader.IsDBNull("business_id") ? null : reader.GetInt32("business_id"),
+                    StoreId = reader.IsDBNull("store_id") ? null : reader.GetInt32("store_id"),
+                    Status = reader.GetString("status"),
+                    CreatedAt = reader.GetDateTime("created_at"),
+                    UpdatedAt = reader.GetDateTime("updated_at"),
+                    TotalAllocated = reader.GetDecimal("total_allocated"),
+                    TotalUsed = reader.GetDecimal("total_used"),
+                    RemainingAmount = reader.GetDecimal("remaining_amount"),
+                    UsagePercentage = reader.GetDecimal("usage_percentage")
+                });
+            }
+
+            return budgets;
+        }
+        finally
+        {
+            if (connection.State == System.Data.ConnectionState.Open)
+                await connection.CloseAsync();
+        }
     }
 
     public async Task<BudgetDto?> GetBudgetByIdAsync(int id)
@@ -429,14 +488,27 @@ public class BudgetRepository : IBudgetRepository
                     ELSE b.total_amount * (ba.percentage / 100)
                 END as allocated_amount,
                 COALESCE(ba.percentage, (ba.fixed_amount / b.total_amount) * 100) as percentage,
-                COALESCE(SUM(e.amount), 0) as used_amount
+                COALESCE(SUM(ea.used_amount), 0) as used_amount
             FROM budget_allocations ba
             JOIN expense_types et ON ba.expense_type_id = et.id
             JOIN budgets b ON ba.budget_id = b.id
-            LEFT JOIN expenses e ON e.expense_type_id = ba.expense_type_id 
-                AND YEAR(e.date) = b.year
-                AND (b.business_id IS NULL OR e.business_id = b.business_id)
-                AND (b.store_id IS NULL OR e.store_id = b.store_id)
+            LEFT JOIN (
+                -- Gastos sin plan de pagos: usar monto completo en el año del gasto
+                SELECT e.expense_type_id, e.business_id, e.store_id, e.amount as used_amount, YEAR(e.date) as yr
+                FROM expenses e
+                WHERE NOT EXISTS (SELECT 1 FROM payment_plan pp WHERE pp.expense_id = e.id)
+                  AND e.amount IS NOT NULL AND e.date IS NOT NULL
+                UNION ALL
+                -- Gastos con plan de pagos: usar monto de cada cuota en el año de su vencimiento
+                SELECT e.expense_type_id, e.business_id, e.store_id, pi.amount_clp as used_amount, YEAR(pi.due_date) as yr
+                FROM expenses e
+                JOIN payment_plan pp ON pp.expense_id = e.id
+                JOIN payment_installment pi ON pi.payment_plan_id = pp.id
+                WHERE pi.amount_clp IS NOT NULL AND pi.due_date IS NOT NULL
+            ) ea ON ea.expense_type_id = ba.expense_type_id
+                AND ea.yr = b.year
+                AND (b.business_id IS NULL OR ea.business_id = b.business_id)
+                AND (b.store_id IS NULL OR ea.store_id = b.store_id)
             WHERE ba.budget_id = @budgetId
             GROUP BY ba.expense_type_id, et.name, et.code, ba.percentage, ba.fixed_amount, b.total_amount";
 
@@ -479,7 +551,7 @@ public class BudgetRepository : IBudgetRepository
             SELECT 
                 months.month,
                 COALESCE(bmd.allocated_amount, b.total_amount / 12) as allocated_amount,
-                COALESCE(SUM(e.amount), 0) as used_amount
+                COALESCE(SUM(ea.used_amount), 0) as used_amount
             FROM budgets b
             CROSS JOIN (
                 SELECT 1 as month UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 
@@ -497,11 +569,24 @@ public class BudgetRepository : IBudgetRepository
                 WHERE budget_id = @budgetId
             ) bmd ON months.month = bmd.month
             LEFT JOIN budget_allocations ba ON b.id = ba.budget_id
-            LEFT JOIN expenses e ON e.expense_type_id = ba.expense_type_id 
-                AND YEAR(e.date) = b.year
-                AND MONTH(e.date) = months.month
-                AND (b.business_id IS NULL OR e.business_id = b.business_id)
-                AND (b.store_id IS NULL OR e.store_id = b.store_id)
+            LEFT JOIN (
+                -- Gastos sin plan de pagos: usar monto completo en el mes/año del gasto
+                SELECT e.expense_type_id, e.business_id, e.store_id, e.amount as used_amount, YEAR(e.date) as yr, MONTH(e.date) as mo
+                FROM expenses e
+                WHERE NOT EXISTS (SELECT 1 FROM payment_plan pp WHERE pp.expense_id = e.id)
+                  AND e.amount IS NOT NULL AND e.date IS NOT NULL
+                UNION ALL
+                -- Gastos con plan de pagos: usar monto de cada cuota en el mes/año de su vencimiento
+                SELECT e.expense_type_id, e.business_id, e.store_id, pi.amount_clp as used_amount, YEAR(pi.due_date) as yr, MONTH(pi.due_date) as mo
+                FROM expenses e
+                JOIN payment_plan pp ON pp.expense_id = e.id
+                JOIN payment_installment pi ON pi.payment_plan_id = pp.id
+                WHERE pi.amount_clp IS NOT NULL AND pi.due_date IS NOT NULL
+            ) ea ON ea.expense_type_id = ba.expense_type_id
+                AND ea.yr = b.year
+                AND ea.mo = months.month
+                AND (b.business_id IS NULL OR ea.business_id = b.business_id)
+                AND (b.store_id IS NULL OR ea.store_id = b.store_id)
             WHERE b.id = @budgetId
             GROUP BY months.month, bmd.allocated_amount, b.total_amount
             ORDER BY months.month";
@@ -595,32 +680,64 @@ public class BudgetRepository : IBudgetRepository
     public async Task<bool> CreateBudgetAllocationAsync(int budgetId, CreateBudgetAllocationDto allocationDto)
     {
         var connection = _context.Database.GetDbConnection();
-        await EnsureConnectionOpenAsync(connection);
-        await CreateBudgetAllocationInternalAsync(connection, null, budgetId, allocationDto);
-        return true;
+        try
+        {
+            await EnsureConnectionOpenAsync(connection);
+            await CreateBudgetAllocationInternalAsync(connection, null, budgetId, allocationDto);
+            return true;
+        }
+        finally
+        {
+            if (connection.State == System.Data.ConnectionState.Open)
+                await connection.CloseAsync();
+        }
     }
 
     public async Task<bool> CreateMonthlyDistributionAsync(int budgetId, CreateMonthlyDistributionDto distributionDto)
     {
         var connection = _context.Database.GetDbConnection();
-        await EnsureConnectionOpenAsync(connection);
-        await CreateMonthlyDistributionInternalAsync(connection, null, budgetId, distributionDto);
-        return true;
+        try
+        {
+            await EnsureConnectionOpenAsync(connection);
+            await CreateMonthlyDistributionInternalAsync(connection, null, budgetId, distributionDto);
+            return true;
+        }
+        finally
+        {
+            if (connection.State == System.Data.ConnectionState.Open)
+                await connection.CloseAsync();
+        }
     }
 
     public async Task<bool> DeleteBudgetAllocationsAsync(int budgetId)
     {
         var connection = _context.Database.GetDbConnection();
-        await EnsureConnectionOpenAsync(connection);
-        await DeleteBudgetAllocationsInternalAsync(connection, null, budgetId);
-        return true;
+        try
+        {
+            await EnsureConnectionOpenAsync(connection);
+            await DeleteBudgetAllocationsInternalAsync(connection, null, budgetId);
+            return true;
+        }
+        finally
+        {
+            if (connection.State == System.Data.ConnectionState.Open)
+                await connection.CloseAsync();
+        }
     }
 
     public async Task<bool> DeleteMonthlyDistributionsAsync(int budgetId)
     {
         var connection = _context.Database.GetDbConnection();
-        await EnsureConnectionOpenAsync(connection);
-        await DeleteMonthlyDistributionsInternalAsync(connection, null, budgetId);
-        return true;
+        try
+        {
+            await EnsureConnectionOpenAsync(connection);
+            await DeleteMonthlyDistributionsInternalAsync(connection, null, budgetId);
+            return true;
+        }
+        finally
+        {
+            if (connection.State == System.Data.ConnectionState.Open)
+                await connection.CloseAsync();
+        }
     }
 }

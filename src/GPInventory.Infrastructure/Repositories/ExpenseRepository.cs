@@ -17,6 +17,11 @@ public class ExpenseRepository : IExpenseRepository
         _dbSet = context.Set<Expense>();
     }
 
+    public System.Data.Common.DbConnection GetDbConnection()
+    {
+        return _context.Database.GetDbConnection();
+    }
+
     public async Task<Expense?> GetByIdAsync(int id)
     {
         return await _dbSet.FindAsync(id);
@@ -30,6 +35,10 @@ public class ExpenseRepository : IExpenseRepository
                 e.date,
                 e.subcategory_id,
                 e.amount,
+                e.amount_net,
+                e.amount_iva,
+                e.amount_total,
+                e.receipt_type_id,
                 e.description,
                 e.is_fixed,
                 e.fixed_expense_id,
@@ -72,6 +81,10 @@ public class ExpenseRepository : IExpenseRepository
                 Id = reader.GetInt32(reader.GetOrdinal("id")),
                 Date = reader.GetDateTime(reader.GetOrdinal("date")),
                 Amount = (int)reader.GetDecimal(reader.GetOrdinal("amount")),
+                AmountNet = reader.IsDBNull(reader.GetOrdinal("amount_net")) ? null : reader.GetDecimal(reader.GetOrdinal("amount_net")),
+                AmountIva = reader.IsDBNull(reader.GetOrdinal("amount_iva")) ? null : reader.GetDecimal(reader.GetOrdinal("amount_iva")),
+                AmountTotal = reader.IsDBNull(reader.GetOrdinal("amount_total")) ? null : reader.GetDecimal(reader.GetOrdinal("amount_total")),
+                ReceiptTypeId = reader.IsDBNull(reader.GetOrdinal("receipt_type_id")) ? null : reader.GetInt32(reader.GetOrdinal("receipt_type_id")),
                 Description = reader.IsDBNull(reader.GetOrdinal("description")) ? string.Empty : reader.GetString(reader.GetOrdinal("description")),
                 BusinessId = reader.GetInt32(reader.GetOrdinal("business_id")),
                 StoreId = reader.IsDBNull(reader.GetOrdinal("store_id")) ? null : reader.GetInt32(reader.GetOrdinal("store_id")),
@@ -144,6 +157,12 @@ public class ExpenseRepository : IExpenseRepository
         await _context.SaveChangesAsync();
     }
 
+    public async Task UpdatePaymentPlanIdAsync(int expenseId, int paymentPlanId)
+    {
+        var sql = "UPDATE expenses SET payment_plan_id = @p0 WHERE id = @p1";
+        await _context.Database.ExecuteSqlRawAsync(sql, paymentPlanId, expenseId);
+    }
+
     public async Task DeleteAsync(int id)
     {
         var entity = await GetByIdAsync(id);
@@ -183,6 +202,10 @@ public class ExpenseRepository : IExpenseRepository
                 e.id,
                 e.date,
                 e.amount,
+                e.amount_net,
+                e.amount_iva,
+                e.amount_total,
+                e.receipt_type_id,
                 e.description,
                 e.is_fixed,
                 e.fixed_expense_id,
@@ -191,6 +214,7 @@ public class ExpenseRepository : IExpenseRepository
                 e.expense_type_id,
                 e.provider_id,
                 e.subcategory_id,
+                e.payment_plan_id,
                 sub.id as sub_id,
                 sub.name as subcategory_name,
                 sub.expense_category_id,
@@ -252,8 +276,11 @@ public class ExpenseRepository : IExpenseRepository
 
         if (endDate.HasValue)
         {
+            // Agregar un día para incluir todos los expenses del día final
+            // Si endDate es "2026-02-04 00:00:00", cambiar a "2026-02-04 23:59:59"
+            var adjustedEndDate = endDate.Value.Date.AddDays(1).AddSeconds(-1);
             sql += " AND e.date <= @endDate";
-            parameters.Add(new MySqlParameter("@endDate", endDate.Value));
+            parameters.Add(new MySqlParameter("@endDate", adjustedEndDate));
         }
 
         // Filtro por monto
@@ -286,9 +313,10 @@ public class ExpenseRepository : IExpenseRepository
         // Ordenamiento
         var orderColumn = orderBy.ToLower() switch
         {
+            "date" => "e.date",
             "amount" => "e.amount",
             "description" => "e.description",
-            _ => "e.date"
+            _ => "e.id" // Por defecto ordenar por ID
         };
         var orderDirection = orderDescending ? "DESC" : "ASC";
         sql += $" ORDER BY {orderColumn} {orderDirection}";
@@ -322,6 +350,10 @@ public class ExpenseRepository : IExpenseRepository
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
                     Date = reader.GetDateTime(reader.GetOrdinal("date")),
                     Amount = reader.GetDecimal(reader.GetOrdinal("amount")),
+                    AmountNet = reader.IsDBNull(reader.GetOrdinal("amount_net")) ? null : reader.GetDecimal(reader.GetOrdinal("amount_net")),
+                    AmountIva = reader.IsDBNull(reader.GetOrdinal("amount_iva")) ? null : reader.GetDecimal(reader.GetOrdinal("amount_iva")),
+                    AmountTotal = reader.IsDBNull(reader.GetOrdinal("amount_total")) ? null : reader.GetDecimal(reader.GetOrdinal("amount_total")),
+                    ReceiptTypeId = reader.IsDBNull(reader.GetOrdinal("receipt_type_id")) ? null : reader.GetInt32(reader.GetOrdinal("receipt_type_id")),
                     Description = reader.IsDBNull(reader.GetOrdinal("description")) ? string.Empty : (reader.GetString(reader.GetOrdinal("description")) ?? string.Empty),
                     IsFixed = reader.IsDBNull(reader.GetOrdinal("is_fixed")) ? null : reader.GetBoolean(reader.GetOrdinal("is_fixed")),
                     FixedExpenseId = reader.IsDBNull(reader.GetOrdinal("fixed_expense_id")) ? null : reader.GetInt32(reader.GetOrdinal("fixed_expense_id")),
@@ -329,7 +361,8 @@ public class ExpenseRepository : IExpenseRepository
                     StoreId = reader.IsDBNull(reader.GetOrdinal("store_id")) ? null : reader.GetInt32(reader.GetOrdinal("store_id")),
                     ExpenseTypeId = reader.IsDBNull(reader.GetOrdinal("expense_type_id")) ? null : reader.GetInt32(reader.GetOrdinal("expense_type_id")),
                     ProviderId = reader.IsDBNull(reader.GetOrdinal("provider_id")) ? null : reader.GetInt32(reader.GetOrdinal("provider_id")),
-                    SubcategoryId = reader.GetInt32(reader.GetOrdinal("subcategory_id"))
+                    SubcategoryId = reader.GetInt32(reader.GetOrdinal("subcategory_id")),
+                    PaymentPlanId = reader.IsDBNull(reader.GetOrdinal("payment_plan_id")) ? null : reader.GetInt32(reader.GetOrdinal("payment_plan_id"))
                 };
 
                 // Cargar subcategory si existe

@@ -115,6 +115,7 @@ public class DashboardController : ControllerBase
 
             // Query para calcular el capital en stock (al costo)
             // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
+            // Capital en stock = Σ(Costo unitario × unidades disponibles del lote)
             var stockCapitalQuery = @"
                 SELECT 
                     COALESCE(SUM(
@@ -150,6 +151,7 @@ public class DashboardController : ControllerBase
 
             // Query para obtener valor potencial de ventas (precio de venta * cantidad en stock)
             // Solo considera stocks padre (stock_id IS NULL) y resta las ventas
+            // Los precios ya vienen sin IVA
             var stockRevenueQuery = @"
                 SELECT 
                     COALESCE(SUM(
@@ -488,6 +490,7 @@ public class DashboardController : ControllerBase
                         END
                     ), 0) as StockCapital,
                     -- Valor potencial (precio) - considerando stock disponible real
+                    -- Los precios ya vienen sin IVA
                     COALESCE(SUM(
                         CASE 
                             WHEN s.amount > 0 AND s.active = 1 AND s.stock_id IS NULL THEN
@@ -869,8 +872,12 @@ public class DashboardController : ControllerBase
                 TotalMovements = stockData.Where(s => s.StoreId == store.StoreId).Sum(s => s.MovementCount)
             }).ToList();
 
-            // Construir datos diarios - incluir TODOS los días del mes hasta hoy
+            // Construir datos diarios con acumulados - incluir TODOS los días del mes hasta hoy
             var dailyData = new List<DailyStockChartData>();
+            
+            // Diccionario para mantener acumulados por tienda
+            var accumulatedEntries = stores.ToDictionary(s => s.StoreId, s => 0m);
+            var accumulatedExits = stores.ToDictionary(s => s.StoreId, s => 0m);
 
             for (var date = firstDayOfMonth; date <= today; date = date.AddDays(1))
             {
@@ -888,11 +895,20 @@ public class DashboardController : ControllerBase
                     var storeStock = stockData.FirstOrDefault(s => 
                         s.MovementDate.Date == date.Date && s.StoreId == store.StoreId);
 
+                    var dailyEntries = storeStock?.DailyEntries ?? 0;
+                    var dailyExits = storeStock?.DailyExits ?? 0;
+                    
+                    // Actualizar acumulados
+                    accumulatedEntries[store.StoreId] += dailyEntries;
+                    accumulatedExits[store.StoreId] += dailyExits;
+
                     dayData.Stores[$"store_{store.StoreId}"] = new StockMovementData
                     {
-                        Entries = storeStock?.DailyEntries ?? 0,
-                        Exits = storeStock?.DailyExits ?? 0,
-                        Net = storeStock?.NetMovement ?? 0
+                        Entries = dailyEntries,
+                        Exits = dailyExits,
+                        Net = storeStock?.NetMovement ?? 0,
+                        AccumulatedEntries = accumulatedEntries[store.StoreId],
+                        AccumulatedExits = accumulatedExits[store.StoreId]
                     };
                 }
 
@@ -948,7 +964,9 @@ public class DashboardController : ControllerBase
 
     private static string FormatCurrency(decimal value)
     {
-        return $"${value:N0}";
+        // Redondear primero, luego formatear sin decimales
+        var rounded = Math.Round(value, 0);
+        return $"${rounded:N0}";
     }
 }
 
@@ -1146,6 +1164,8 @@ public class StockMovementData
     public decimal Entries { get; set; }
     public decimal Exits { get; set; }
     public decimal Net { get; set; }
+    public decimal AccumulatedEntries { get; set; }
+    public decimal AccumulatedExits { get; set; }
 }
 
 public class DailyStockData

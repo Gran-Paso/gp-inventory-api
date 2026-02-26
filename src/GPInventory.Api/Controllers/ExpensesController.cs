@@ -2,12 +2,14 @@ using GPInventory.Application.DTOs.Expenses;
 using GPInventory.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using GPInventory.Api.Authorization;
 
 namespace GPInventory.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[ExpensesAuthorize] // Solo Cofundador, Dueño, Administrador, Contador
 public class ExpensesController : ControllerBase
 {
     private readonly IExpenseService _expenseService;

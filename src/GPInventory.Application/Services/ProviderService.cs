@@ -76,7 +76,7 @@ public class ProviderService : IProviderService
         // Check if name changed and if it conflicts with another provider
         if (provider.Name != updateProviderDto.Name)
         {
-            var existingProvider = await _providerRepository.GetByNameAsync(updateProviderDto.Name, provider.BusinessId);
+            var existingProvider = await _providerRepository.GetByNameAsync(updateProviderDto.Name, provider.BusinessId.GetValueOrDefault());
             if (existingProvider != null && existingProvider.Id != id)
                 throw new ArgumentException($"A provider with name '{updateProviderDto.Name}' already exists in this business");
         }
@@ -118,7 +118,7 @@ public class ProviderService : IProviderService
         {
             Id = provider.Id,
             Name = provider.Name,
-            BusinessId = provider.BusinessId,
+            BusinessId = provider.BusinessId ?? 0,
             StoreId = provider.StoreId,
             Contact = provider.Contact,
             Address = provider.Address,

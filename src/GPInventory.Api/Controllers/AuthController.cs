@@ -51,6 +51,31 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("google-login")]
+    public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginDto googleLoginDto)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var result = await _authService.GoogleLoginAsync(googleLoginDto);
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning("Google login failed. Reason: {Reason}", ex.Message);
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during Google login");
+            return StatusCode(500, new { message = "An error occurred during Google login" });
+        }
+    }
+
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterDto registerDto)
     {
@@ -156,6 +181,46 @@ public class AuthController : ControllerBase
         {
             _logger.LogError(ex, "Error during password reset for email: {Email}", resetDto.Email);
             return StatusCode(500, new { message = "An error occurred during password reset" });
+        }
+    }
+
+    [Authorize]
+    [HttpPut("update-profile")]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileDto updateDto)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            // Obtener el email del usuario desde el token JWT
+            var userEmail = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+            
+            _logger.LogInformation("Update profile request for user: {Email}", userEmail);
+            _logger.LogInformation("Profile data - Gender: {Gender}, BirthDate: {BirthDate}, Phone: {Phone}", 
+                updateDto.Gender, updateDto.BirthDate, updateDto.Phone);
+            
+            if (string.IsNullOrEmpty(userEmail))
+            {
+                _logger.LogWarning("User email not found in token");
+                return Unauthorized(new { message = "User email not found in token" });
+            }
+
+            await _authService.UpdateProfileAsync(userEmail, updateDto);
+            _logger.LogInformation("Profile updated successfully for user: {Email}", userEmail);
+            return Ok(new { message = "Profile updated successfully" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning("Profile update failed for user. Reason: {Reason}", ex.Message);
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during profile update");
+            return StatusCode(500, new { message = "An error occurred during profile update" });
         }
     }
 }

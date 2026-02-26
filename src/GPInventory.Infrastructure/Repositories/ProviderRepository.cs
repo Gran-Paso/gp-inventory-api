@@ -50,7 +50,7 @@ public class ProviderRepository : IProviderRepository
             {
                 provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -62,8 +62,8 @@ public class ProviderRepository : IProviderRepository
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
-                provider.Active = reader.GetBoolean(8);
-                provider.IsSelf = reader.GetBoolean(9);
+                provider.Active = reader.IsDBNull(8) ? true : reader.GetBoolean(8);
+                provider.IsSelf = reader.IsDBNull(9) ? false : reader.GetBoolean(9);
                 provider.CreatedAt = reader.GetDateTime(10);
                 provider.UpdatedAt = reader.GetDateTime(11);
             }
@@ -86,7 +86,7 @@ public class ProviderRepository : IProviderRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT 
+                SELECT DISTINCT
                     p.id,
                     p.name,
                     p.id_store,
@@ -107,7 +107,7 @@ public class ProviderRepository : IProviderRepository
             {
                 var provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -116,8 +116,8 @@ public class ProviderRepository : IProviderRepository
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
-                provider.Active = reader.GetBoolean(8);
-                provider.IsSelf = reader.GetBoolean(9);
+                provider.Active = reader.IsDBNull(8) ? true : reader.GetBoolean(8);
+                provider.IsSelf = reader.IsDBNull(9) ? false : reader.GetBoolean(9);
                 provider.CreatedAt = reader.GetDateTime(10);
                 provider.UpdatedAt = reader.GetDateTime(11);
 
@@ -142,7 +142,7 @@ public class ProviderRepository : IProviderRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT 
+                SELECT
                     p.id,
                     p.name,
                     p.id_store,
@@ -169,7 +169,7 @@ public class ProviderRepository : IProviderRepository
             {
                 var provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -178,8 +178,8 @@ public class ProviderRepository : IProviderRepository
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
-                provider.Active = reader.GetBoolean(8);
-                provider.IsSelf = reader.GetBoolean(9);
+                provider.Active = reader.IsDBNull(8) ? true : reader.GetBoolean(8);
+                provider.IsSelf = reader.IsDBNull(9) ? false : reader.GetBoolean(9);
                 provider.CreatedAt = reader.GetDateTime(10);
                 provider.UpdatedAt = reader.GetDateTime(11);
 
@@ -204,7 +204,7 @@ public class ProviderRepository : IProviderRepository
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
             command.CommandText = @"
-                SELECT 
+                SELECT
                     p.id,
                     p.name,
                     p.id_store,
@@ -231,7 +231,7 @@ public class ProviderRepository : IProviderRepository
             {
                 var provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 
@@ -240,8 +240,8 @@ public class ProviderRepository : IProviderRepository
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
-                provider.Active = reader.GetBoolean(8);
-                provider.IsSelf = reader.GetBoolean(9);
+                provider.Active = reader.IsDBNull(8) ? true : reader.GetBoolean(8);
+                provider.IsSelf = reader.IsDBNull(9) ? false : reader.GetBoolean(9);
                 provider.CreatedAt = reader.GetDateTime(10);
                 provider.UpdatedAt = reader.GetDateTime(11);
 
@@ -502,7 +502,7 @@ public class ProviderRepository : IProviderRepository
             {
                 provider = new Provider(
                     name: reader.GetString(1),
-                    businessId: reader.GetInt32(3),
+                    businessId: reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     storeId: reader.IsDBNull(2) ? null : reader.GetInt32(2)
                 );
 

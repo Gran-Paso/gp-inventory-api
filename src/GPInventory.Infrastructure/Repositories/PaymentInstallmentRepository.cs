@@ -171,6 +171,21 @@ public class PaymentInstallmentRepository : IPaymentInstallmentRepository
         await command.ExecuteNonQueryAsync();
     }
 
+    public async Task DeleteByPaymentPlanIdAsync(int paymentPlanId)
+    {
+        const string sql = @"
+            DELETE FROM payment_installment 
+            WHERE payment_plan_id = @paymentPlanId";
+
+        using var connection = new MySqlConnection(_connectionString);
+        using var command = new MySqlCommand(sql, connection);
+
+        command.Parameters.AddWithValue("@paymentPlanId", paymentPlanId);
+
+        await connection.OpenAsync();
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static PaymentInstallment MapInstallment(MySqlDataReader reader)
     {
         return new PaymentInstallment

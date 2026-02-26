@@ -32,7 +32,7 @@ public class PaymentMappingProfile : Profile
         // PaymentInstallment mappings
         CreateMap<PaymentInstallment, PaymentInstallmentDto>()
             .ForMember(dest => dest.Status, opt => opt.MapFrom(src => 
-                src.Status.ToLower() == "pagado" || src.Status.ToLower() == "paid" ? "paid" : "pending"))
+                src.Status.ToLower() == "pagado" ? "pagado" : "pendiente"))
             .ForMember(dest => dest.PaymentMethodName, opt => opt.MapFrom(src => src.PaymentMethod != null ? src.PaymentMethod.Name : null));
         
         CreateMap<CreateInstallmentDto, PaymentInstallment>()

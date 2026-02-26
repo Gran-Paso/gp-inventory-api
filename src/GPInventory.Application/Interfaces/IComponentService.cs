@@ -15,6 +15,7 @@ public interface IComponentService
     Task<ComponentWithSuppliesDto> AddSuppliesAsync(int componentId, List<CreateComponentSupplyDto> supplies);
     Task<bool> RemoveSupplyAsync(int componentId, int supplyId);
     Task<ComponentWithSuppliesDto> UpdateSuppliesAsync(int componentId, List<CreateComponentSupplyDto> supplies);
+    Task<ComponentWithSuppliesDto> UpdateSuppliesWithYieldAsync(int componentId, List<CreateComponentSupplyDto> supplies, decimal yieldAmount);
     
     // Production management
     Task<ComponentProductionDto> CreateProductionAsync(CreateComponentProductionDto dto);

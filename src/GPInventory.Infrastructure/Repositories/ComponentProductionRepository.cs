@@ -22,7 +22,6 @@ public class ComponentProductionRepository : IComponentProductionRepository
                 component_id, 
                 process_done_id, 
                 business_id, 
-                store_id, 
                 produced_amount, 
                 production_date, 
                 expiration_date, 
@@ -35,7 +34,7 @@ public class ComponentProductionRepository : IComponentProductionRepository
                 created_at, 
                 updated_at
             ) VALUES (
-                @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14
+                @p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13
             );
             SELECT LAST_INSERT_ID();";
 
@@ -68,63 +67,58 @@ public class ComponentProductionRepository : IComponentProductionRepository
             
             var p3 = command.CreateParameter();
             p3.ParameterName = "@p3";
-            p3.Value = componentProduction.StoreId;
+            p3.Value = componentProduction.ProducedAmount;
             command.Parameters.Add(p3);
             
             var p4 = command.CreateParameter();
             p4.ParameterName = "@p4";
-            p4.Value = componentProduction.ProducedAmount;
+            p4.Value = (object?)componentProduction.ProductionDate ?? DBNull.Value;
             command.Parameters.Add(p4);
             
             var p5 = command.CreateParameter();
             p5.ParameterName = "@p5";
-            p5.Value = (object?)componentProduction.ProductionDate ?? DBNull.Value;
+            p5.Value = (object?)componentProduction.ExpirationDate ?? DBNull.Value;
             command.Parameters.Add(p5);
             
             var p6 = command.CreateParameter();
             p6.ParameterName = "@p6";
-            p6.Value = (object?)componentProduction.ExpirationDate ?? DBNull.Value;
+            p6.Value = (object?)componentProduction.BatchNumber ?? DBNull.Value;
             command.Parameters.Add(p6);
             
             var p7 = command.CreateParameter();
             p7.ParameterName = "@p7";
-            p7.Value = (object?)componentProduction.BatchNumber ?? DBNull.Value;
+            p7.Value = componentProduction.Cost;
             command.Parameters.Add(p7);
             
             var p8 = command.CreateParameter();
             p8.ParameterName = "@p8";
-            p8.Value = componentProduction.Cost;
+            p8.Value = (object?)componentProduction.Notes ?? DBNull.Value;
             command.Parameters.Add(p8);
             
             var p9 = command.CreateParameter();
             p9.ParameterName = "@p9";
-            p9.Value = (object?)componentProduction.Notes ?? DBNull.Value;
+            p9.Value = (object?)componentProduction.ComponentProductionId ?? DBNull.Value;
             command.Parameters.Add(p9);
             
             var p10 = command.CreateParameter();
             p10.ParameterName = "@p10";
-            p10.Value = (object?)componentProduction.ComponentProductionId ?? DBNull.Value;
+            p10.Value = (object?)componentProduction.CreatedByUserId ?? DBNull.Value;
             command.Parameters.Add(p10);
             
             var p11 = command.CreateParameter();
             p11.ParameterName = "@p11";
-            p11.Value = (object?)componentProduction.CreatedByUserId ?? DBNull.Value;
+            p11.Value = componentProduction.IsActive;
             command.Parameters.Add(p11);
             
             var p12 = command.CreateParameter();
             p12.ParameterName = "@p12";
-            p12.Value = componentProduction.IsActive;
+            p12.Value = componentProduction.CreatedAt;
             command.Parameters.Add(p12);
             
             var p13 = command.CreateParameter();
             p13.ParameterName = "@p13";
-            p13.Value = componentProduction.CreatedAt;
+            p13.Value = componentProduction.UpdatedAt;
             command.Parameters.Add(p13);
-            
-            var p14 = command.CreateParameter();
-            p14.ParameterName = "@p14";
-            p14.Value = componentProduction.UpdatedAt;
-            command.Parameters.Add(p14);
             
             var result = await command.ExecuteScalarAsync();
             componentProduction.Id = Convert.ToInt32(result);
@@ -150,7 +144,7 @@ public class ComponentProductionRepository : IComponentProductionRepository
         var sql = @"
             SELECT id, component_id, produced_amount, production_date, expiration_date, 
                    batch_number, cost, notes, is_active, created_at, updated_at, 
-                   process_done_id, business_id, store_id, component_production_id, created_by_user_id
+                   process_done_id, business_id, component_production_id, created_by_user_id
             FROM component_production 
             WHERE component_id = @p0
             ORDER BY created_at DESC";
@@ -191,9 +185,8 @@ public class ComponentProductionRepository : IComponentProductionRepository
                     UpdatedAt = reader.GetDateTime(10),
                     ProcessDoneId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
                     BusinessId = reader.GetInt32(12),
-                    StoreId = reader.GetInt32(13),
-                    ComponentProductionId = reader.IsDBNull(14) ? null : reader.GetInt32(14),
-                    CreatedByUserId = reader.IsDBNull(15) ? null : reader.GetInt32(15)
+                    ComponentProductionId = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                    CreatedByUserId = reader.IsDBNull(14) ? null : reader.GetInt32(14)
                 };
                 results.Add(componentProduction);
             }
@@ -274,7 +267,7 @@ public class ComponentProductionRepository : IComponentProductionRepository
         command.CommandText = @"
             SELECT id, component_id, produced_amount, production_date, expiration_date, 
                    batch_number, cost, notes, is_active, created_at, updated_at, 
-                   process_done_id, business_id, store_id, component_production_id, created_by_user_id
+                   process_done_id, business_id, component_production_id, created_by_user_id
             FROM component_production 
             WHERE process_done_id = @processDoneId AND is_active = 1
             ORDER BY created_at";
@@ -306,9 +299,8 @@ public class ComponentProductionRepository : IComponentProductionRepository
                 UpdatedAt = reader.GetDateTime(10),
                 ProcessDoneId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
                 BusinessId = reader.GetInt32(12),
-                StoreId = reader.GetInt32(13),
-                ComponentProductionId = reader.IsDBNull(14) ? null : reader.GetInt32(14),
-                CreatedByUserId = reader.IsDBNull(15) ? null : reader.GetInt32(15)
+                ComponentProductionId = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                CreatedByUserId = reader.IsDBNull(14) ? null : reader.GetInt32(14)
             };
             results.Add(componentProduction);
         }
@@ -331,7 +323,6 @@ public class ComponentProductionRepository : IComponentProductionRepository
                     component_id,
                     process_done_id,
                     business_id,
-                    store_id,
                     produced_amount,
                     production_date,
                     cost,
@@ -355,7 +346,6 @@ public class ComponentProductionRepository : IComponentProductionRepository
                     ComponentId = reader.GetInt32(reader.GetOrdinal("component_id")),
                     ProcessDoneId = reader.IsDBNull(reader.GetOrdinal("process_done_id")) ? null : reader.GetInt32(reader.GetOrdinal("process_done_id")),
                     BusinessId = reader.GetInt32(reader.GetOrdinal("business_id")),
-                    StoreId = reader.IsDBNull(reader.GetOrdinal("store_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("store_id")),
                     ProducedAmount = reader.GetDecimal(reader.GetOrdinal("produced_amount")),
                     ProductionDate = reader.IsDBNull(reader.GetOrdinal("production_date")) ? null : reader.GetDateTime(reader.GetOrdinal("production_date")),
                     Cost = reader.GetDecimal(reader.GetOrdinal("cost")),
@@ -388,7 +378,6 @@ public class ComponentProductionRepository : IComponentProductionRepository
                 parent.component_id,
                 parent.process_done_id,
                 parent.business_id,
-                parent.store_id,
                 parent.produced_amount,
                 parent.production_date,
                 parent.expiration_date,
@@ -442,7 +431,6 @@ public class ComponentProductionRepository : IComponentProductionRepository
                     ComponentId = reader.GetInt32(reader.GetOrdinal("component_id")),
                     ProcessDoneId = reader.IsDBNull(reader.GetOrdinal("process_done_id")) ? null : reader.GetInt32(reader.GetOrdinal("process_done_id")),
                     BusinessId = reader.GetInt32(reader.GetOrdinal("business_id")),
-                    StoreId = reader.IsDBNull(reader.GetOrdinal("store_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("store_id")),
                     ProducedAmount = reader.GetDecimal(reader.GetOrdinal("available_amount")), // ⭐ USAR CANTIDAD DISPONIBLE
                     ProductionDate = reader.IsDBNull(reader.GetOrdinal("production_date")) ? null : reader.GetDateTime(reader.GetOrdinal("production_date")),
                     ExpirationDate = reader.IsDBNull(reader.GetOrdinal("expiration_date")) ? null : reader.GetDateTime(reader.GetOrdinal("expiration_date")),
@@ -486,7 +474,6 @@ public class ComponentProductionRepository : IComponentProductionRepository
                     component_id,
                     process_done_id,
                     business_id,
-                    store_id,
                     produced_amount,
                     production_date,
                     cost,
@@ -510,7 +497,6 @@ public class ComponentProductionRepository : IComponentProductionRepository
                     ComponentId = reader.GetInt32(reader.GetOrdinal("component_id")),
                     ProcessDoneId = reader.IsDBNull(reader.GetOrdinal("process_done_id")) ? null : reader.GetInt32(reader.GetOrdinal("process_done_id")),
                     BusinessId = reader.GetInt32(reader.GetOrdinal("business_id")),
-                    StoreId = reader.IsDBNull(reader.GetOrdinal("store_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("store_id")),
                     ProducedAmount = reader.GetDecimal(reader.GetOrdinal("produced_amount")),
                     ProductionDate = reader.IsDBNull(reader.GetOrdinal("production_date")) ? null : reader.GetDateTime(reader.GetOrdinal("production_date")),
                     Cost = reader.GetDecimal(reader.GetOrdinal("cost")),
@@ -539,18 +525,17 @@ public class ComponentProductionRepository : IComponentProductionRepository
                 component_id = @p0,
                 process_done_id = @p1,
                 business_id = @p2,
-                store_id = @p3,
-                produced_amount = @p4,
-                production_date = @p5,
-                expiration_date = @p6,
-                batch_number = @p7,
-                cost = @p8,
-                notes = @p9,
-                component_production_id = @p10,
-                created_by_user_id = @p11,
-                is_active = @p12,
-                updated_at = @p13
-            WHERE id = @p14";
+                produced_amount = @p3,
+                production_date = @p4,
+                expiration_date = @p5,
+                batch_number = @p6,
+                cost = @p7,
+                notes = @p8,
+                component_production_id = @p9,
+                created_by_user_id = @p10,
+                is_active = @p11,
+                updated_at = @p12
+            WHERE id = @p13";
 
         var connection = _context.Database.GetDbConnection();
         var shouldCloseConnection = connection.State == System.Data.ConnectionState.Closed;
@@ -580,69 +565,144 @@ public class ComponentProductionRepository : IComponentProductionRepository
             
             var p3 = command.CreateParameter();
             p3.ParameterName = "@p3";
-            p3.Value = componentProduction.StoreId;
+            p3.Value = componentProduction.ProducedAmount;
             command.Parameters.Add(p3);
             
             var p4 = command.CreateParameter();
             p4.ParameterName = "@p4";
-            p4.Value = componentProduction.ProducedAmount;
+            p4.Value = (object?)componentProduction.ProductionDate ?? DBNull.Value;
             command.Parameters.Add(p4);
             
             var p5 = command.CreateParameter();
             p5.ParameterName = "@p5";
-            p5.Value = (object?)componentProduction.ProductionDate ?? DBNull.Value;
+            p5.Value = (object?)componentProduction.ExpirationDate ?? DBNull.Value;
             command.Parameters.Add(p5);
             
             var p6 = command.CreateParameter();
             p6.ParameterName = "@p6";
-            p6.Value = (object?)componentProduction.ExpirationDate ?? DBNull.Value;
+            p6.Value = (object?)componentProduction.BatchNumber ?? DBNull.Value;
             command.Parameters.Add(p6);
             
             var p7 = command.CreateParameter();
             p7.ParameterName = "@p7";
-            p7.Value = (object?)componentProduction.BatchNumber ?? DBNull.Value;
+            p7.Value = componentProduction.Cost;
             command.Parameters.Add(p7);
             
             var p8 = command.CreateParameter();
             p8.ParameterName = "@p8";
-            p8.Value = componentProduction.Cost;
+            p8.Value = (object?)componentProduction.Notes ?? DBNull.Value;
             command.Parameters.Add(p8);
             
             var p9 = command.CreateParameter();
             p9.ParameterName = "@p9";
-            p9.Value = (object?)componentProduction.Notes ?? DBNull.Value;
+            p9.Value = (object?)componentProduction.ComponentProductionId ?? DBNull.Value;
             command.Parameters.Add(p9);
             
             var p10 = command.CreateParameter();
             p10.ParameterName = "@p10";
-            p10.Value = (object?)componentProduction.ComponentProductionId ?? DBNull.Value;
+            p10.Value = (object?)componentProduction.CreatedByUserId ?? DBNull.Value;
             command.Parameters.Add(p10);
             
             var p11 = command.CreateParameter();
             p11.ParameterName = "@p11";
-            p11.Value = (object?)componentProduction.CreatedByUserId ?? DBNull.Value;
+            p11.Value = componentProduction.IsActive;
             command.Parameters.Add(p11);
             
             var p12 = command.CreateParameter();
             p12.ParameterName = "@p12";
-            p12.Value = componentProduction.IsActive;
+            p12.Value = DateTime.Now;
             command.Parameters.Add(p12);
             
             var p13 = command.CreateParameter();
             p13.ParameterName = "@p13";
-            p13.Value = DateTime.Now;
+            p13.Value = componentProduction.Id;
             command.Parameters.Add(p13);
-            
-            var p14 = command.CreateParameter();
-            p14.ParameterName = "@p14";
-            p14.Value = componentProduction.Id;
-            command.Parameters.Add(p14);
             
             await command.ExecuteNonQueryAsync();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error in UpdateAsync: {ex.Message}");
+            throw;
+        }
+        finally
+        {
+            if (shouldCloseConnection)
+                await connection.CloseAsync();
+        }
+    }
+
+    public async Task<ComponentProduction?> GetLastProductionByComponentIdAsync(int componentId)
+    {
+        var sql = @"
+            SELECT 
+                id,
+                component_id,
+                process_done_id,
+                business_id,
+                produced_amount,
+                production_date,
+                expiration_date,
+                batch_number,
+                cost,
+                notes,
+                component_production_id,
+                created_by_user_id,
+                is_active,
+                created_at,
+                updated_at
+            FROM component_production
+            WHERE component_id = @p0
+            AND component_production_id IS NULL
+            AND is_active = 1
+            ORDER BY created_at DESC
+            LIMIT 1";
+
+        var connection = _context.Database.GetDbConnection();
+        var shouldCloseConnection = connection.State == System.Data.ConnectionState.Closed;
+        
+        if (shouldCloseConnection)
+            await connection.OpenAsync();
+        
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@p0";
+            parameter.Value = componentId;
+            command.Parameters.Add(parameter);
+            
+            using var reader = await command.ExecuteReaderAsync();
+            
+            if (await reader.ReadAsync())
+            {
+                return new ComponentProduction
+                {
+                    Id = reader.GetInt32(0),
+                    ComponentId = reader.GetInt32(1),
+                    ProcessDoneId = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                    BusinessId = reader.GetInt32(3),
+                    ProducedAmount = reader.GetDecimal(4),
+                    ProductionDate = reader.IsDBNull(5) ? null : reader.GetDateTime(5),
+                    ExpirationDate = reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                    BatchNumber = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    Cost = reader.GetDecimal(8),
+                    Notes = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    ComponentProductionId = reader.IsDBNull(10) ? null : reader.GetInt32(10),
+                    CreatedByUserId = reader.IsDBNull(11) ? null : reader.GetInt32(11),
+                    IsActive = reader.GetBoolean(12),
+                    CreatedAt = reader.GetDateTime(13),
+                    UpdatedAt = reader.GetDateTime(14)
+                };
+            }
+            
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in GetLastProductionByComponentIdAsync: {ex.Message}");
             throw;
         }
         finally

@@ -37,6 +37,9 @@ public class CreateFixedExpenseDto
 
     [JsonPropertyName("store_id")]
     public int? StoreId { get; set; }
+
+    [JsonPropertyName("expense_type_id")]
+    public int? ExpenseTypeId { get; set; }
 }
 
 public class UpdateFixedExpenseDto
@@ -99,6 +102,8 @@ public class FixedExpenseListItemDto
     public bool IsUpToDate { get; set; }
     public DateTime NextDueDate { get; set; }
     public int AssociatedExpensesCount { get; set; } // Cantidad de gastos generados
+    public bool IsRelatedToSupply { get; set; } // Si está relacionado con un insumo
+    public string? SupplyName { get; set; } // Nombre del insumo relacionado (si aplica)
 }
 
 public class FixedExpenseWithDetailsDto
@@ -129,6 +134,8 @@ public class FixedExpenseWithDetailsDto
     public ExpenseSubcategoryDto? Subcategory { get; set; }
     public RecurrenceTypeDto RecurrenceType { get; set; } = null!;
     public string? StoreName { get; set; }
+    public bool IsRelatedToSupply { get; set; } // Si está relacionado con un insumo
+    public string? SupplyName { get; set; } // Nombre del insumo relacionado (si aplica)
     
     // Expenses asociados a este gasto fijo (con detalles para incluir provider)
     public List<ExpenseWithDetailsDto> AssociatedExpenses { get; set; } = new List<ExpenseWithDetailsDto>();

@@ -7,6 +7,12 @@ public class LoginDto
     public string? ClientApp { get; set; } // "gp-factory", "gp-expenses", "gp-inventory", "gran-paso"
 }
 
+public class GoogleLoginDto
+{
+    public string GoogleToken { get; set; } = string.Empty;
+    public string? ClientApp { get; set; }
+}
+
 public class RefreshTokenDto
 {
     public string RefreshToken { get; set; } = string.Empty;
@@ -45,9 +51,12 @@ public class UserDto
     public int? Phone { get; set; }
     public bool Active { get; set; }
     public string Role { get; set; } = string.Empty;
+    public string SystemRole { get; set; } = "none";
     public List<UserRoleDto> Roles { get; set; } = new List<UserRoleDto>();
+    public List<BusinessRoleInfo> BusinessRoles { get; set; } = new List<BusinessRoleInfo>();
     public List<int> BusinessIds { get; set; } = new();
     public List<BusinessInfoDto> Businesses { get; set; } = new();
+    public Dictionary<string, bool> AppPermissions { get; set; } = new();
 }
 
 public class BusinessInfoDto
@@ -70,6 +79,13 @@ public class ResetPasswordDto
     public string Email { get; set; } = string.Empty;
     public string NewPassword { get; set; } = string.Empty;
     public string Token { get; set; } = string.Empty;
+}
+
+public class UpdateProfileDto
+{
+    public char? Gender { get; set; }
+    public DateTime? BirthDate { get; set; }
+    public int? Phone { get; set; }
 }
 
 /// <summary>

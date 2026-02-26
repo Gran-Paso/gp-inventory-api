@@ -206,7 +206,9 @@ public class ProductsController : ControllerBase
                     name = p.Name,
                     sku = p.Sku,
                     price = p.Price,
+                    // Costo unitario configurado del producto
                     cost = p.Cost,
+                    baseCost = p.Cost, // Costo base configurado al crear el producto (para usar al agregar nuevo stock)
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
@@ -259,7 +261,9 @@ public class ProductsController : ControllerBase
                     name = p.Name,
                     sku = p.Sku,
                     price = p.Price,
+                    // Costo unitario configurado del producto
                     cost = p.Cost,
+                    baseCost = p.Cost, // Costo base configurado al crear el producto (para usar al agregar nuevo stock)
                     image = p.Image,
                     date = p.Date,
                     productType = new { id = p.ProductType.Id, name = p.ProductType.Name },
@@ -275,7 +279,6 @@ public class ProductsController : ControllerBase
                 return NotFound(new { message = "Producto no encontrado" });
             }
 
-            _logger.LogInformation("Producto encontrado: {productName}", product.name);
             return Ok(product);
         }
         catch (Exception ex)

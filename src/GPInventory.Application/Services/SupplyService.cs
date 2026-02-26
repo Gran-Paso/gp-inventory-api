@@ -174,7 +174,11 @@ public class SupplyService : ISupplyService
 
     private static SupplyDto MapToDto(Supply supply)
     {
-        var currentStock = supply.SupplyEntries?.Sum(se => se.Amount) ?? 0;
+        // ⭐ CRITICAL FIX: Solo sumar entradas activas para calcular el stock real disponible
+        // Las entradas inactivas (active=0) ya se consumieron completamente
+        var currentStock = supply.SupplyEntries?
+            .Where(se => se.IsActive)
+            .Sum(se => se.Amount) ?? 0m;
         
         return new SupplyDto
         {
@@ -201,7 +205,12 @@ public class SupplyService : ISupplyService
             CurrentStock = currentStock,
             
             // Calculate stock status based on current stock and minimum threshold
-            StockStatus = StockHelper.CalculateStockStatus(currentStock, supply.MinimumStock),
+            StockStatus = StockHelper.CalculateStockStatus(currentStock, (decimal)supply.MinimumStock),
+            
+            // Set unit cost from last supply entry if available, otherwise from FixedExpense
+            UnitCost = GetLastUnitCost(supply),
+            
+            // Navigation properties - only include if loaded
             
             // Navigation properties - only include if loaded
             UnitMeasure = supply.UnitMeasure != null ? new UnitMeasureDto
@@ -237,7 +246,7 @@ public class SupplyService : ISupplyService
             {
                 Id = supply.PreferredProvider.Id,
                 Name = supply.PreferredProvider.Name,
-                BusinessId = supply.PreferredProvider.BusinessId,
+                BusinessId = supply.PreferredProvider.BusinessId ?? 0,
                 StoreId = supply.PreferredProvider.StoreId,
                 Contact = supply.PreferredProvider.Contact,
                 Address = supply.PreferredProvider.Address,
@@ -252,7 +261,7 @@ public class SupplyService : ISupplyService
             {
                 Id = se.Id,
                 UnitCost = se.UnitCost,
-                Amount = (decimal)se.Amount,
+                Amount = se.Amount,
                 ProviderId = se.ProviderId,
                 SupplyId = se.SupplyId,
                 ProcessDoneId = se.ProcessDoneId,
@@ -268,5 +277,41 @@ public class SupplyService : ISupplyService
                 } : null
             }).ToList() ?? new List<SupplyEntryDto>()
         };
+    }
+
+    private static decimal GetLastUnitCost(Supply supply)
+    {
+        // FIFO logic: Get the oldest supply entry that still has available stock
+        // Filter original purchase entries (Amount > 0 and ReferenceToSupplyEntry is null)
+        var purchaseEntries = supply.SupplyEntries
+            ?.Where(se => se.Amount > 0 && se.ReferenceToSupplyEntry == null)
+            .OrderBy(se => se.CreatedAt)
+            .ToList();
+
+        if (purchaseEntries == null || !purchaseEntries.Any())
+        {
+            // Fallback to FixedExpense if no supply entry found
+            return supply.FixedExpense?.Amount ?? 0;
+        }
+
+        // Calculate remaining stock for each purchase entry by subtracting consumption entries
+        foreach (var purchaseEntry in purchaseEntries)
+        {
+            var consumed = supply.SupplyEntries
+                ?.Where(se => se.ReferenceToSupplyEntry == purchaseEntry.Id)
+                .Sum(se => Math.Abs(se.Amount)) ?? 0;
+
+            var remainingStock = purchaseEntry.Amount - consumed;
+
+            // Return cost of first entry that still has stock (FIFO)
+            if (remainingStock > 0)
+            {
+                return purchaseEntry.UnitCost;
+            }
+        }
+
+        // If all entries are consumed, return cost of the most recent purchase
+        var lastPurchase = purchaseEntries.LastOrDefault();
+        return lastPurchase?.UnitCost ?? supply.FixedExpense?.Amount ?? 0;
     }
 }

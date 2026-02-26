@@ -5,12 +5,14 @@ namespace GPInventory.Application.Interfaces;
 public interface IAuthService
 {
     Task<AuthResponseDto> LoginAsync(LoginDto loginDto);
+    Task<AuthResponseDto> GoogleLoginAsync(GoogleLoginDto googleLoginDto);
     Task<AuthResponseDto> RegisterAsync(RegisterDto registerDto);
     Task<bool> ValidateTokenAsync(string token);
     Task<UserDto?> GetUserByEmailAsync(string email);
     Task<AuthResponseDto> ResetPasswordAsync(ResetPasswordDto resetDto);
     Task<AuthResponseDto> RefreshTokenAsync(RefreshTokenDto refreshDto);
     Task LogoutAsync(string userEmail, string? clientApp = null);
+    Task UpdateProfileAsync(string userEmail, UpdateProfileDto updateDto);
 }
 
 public interface ITokenService

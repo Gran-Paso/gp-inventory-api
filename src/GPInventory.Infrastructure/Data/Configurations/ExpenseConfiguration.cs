@@ -22,6 +22,19 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
             .HasColumnName("amount")
             .IsRequired();
             
+        // IVA fields for invoices with tax (Factura Afecta)
+        builder.Property(e => e.AmountNet)
+            .HasColumnName("amount_net");
+            
+        builder.Property(e => e.AmountIva)
+            .HasColumnName("amount_iva");
+            
+        builder.Property(e => e.AmountTotal)
+            .HasColumnName("amount_total");
+            
+        builder.Property(e => e.ReceiptTypeId)
+            .HasColumnName("receipt_type_id");
+            
         builder.Property(e => e.Date)
             .HasColumnName("date")
             .IsRequired();

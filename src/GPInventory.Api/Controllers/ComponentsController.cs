@@ -137,11 +137,11 @@ public class ComponentsController : ControllerBase
     /// Update component supplies (replaces all existing supplies)
     /// </summary>
     [HttpPut("{id}/supplies")]
-    public async Task<ActionResult<ComponentWithSuppliesDto>> UpdateSupplies(int id, [FromBody] List<CreateComponentSupplyDto> supplies)
+    public async Task<ActionResult<ComponentWithSuppliesDto>> UpdateSupplies(int id, [FromBody] UpdateComponentRecipeDto dto)
     {
         try
         {
-            var component = await _service.UpdateSuppliesAsync(id, supplies);
+            var component = await _service.UpdateSuppliesWithYieldAsync(id, dto.Supplies, dto.YieldAmount);
             return Ok(component);
         }
         catch (KeyNotFoundException ex)

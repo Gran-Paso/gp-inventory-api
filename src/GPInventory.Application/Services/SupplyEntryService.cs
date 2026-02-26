@@ -111,8 +111,8 @@ public class SupplyEntryService : ISupplyEntryService
         // Calculate stock based on ProcessDoneId
         // Entradas: process_done_id IS NULL (incoming stock) - amounts positivos
         // Salidas: process_done_id IS NOT NULL (outgoing stock used in processes) - amounts negativos
-        var totalIncoming = supplyEntries.Where(se => se.ProcessDoneId == null).Sum(se => (decimal)se.Amount);
-        var totalOutgoing = supplyEntries.Where(se => se.ProcessDoneId != null).Sum(se => (decimal)se.Amount);
+        var totalIncoming = supplyEntries.Where(se => se.ProcessDoneId == null).Sum(se => se.Amount);
+        var totalOutgoing = supplyEntries.Where(se => se.ProcessDoneId != null).Sum(se => se.Amount);
         var currentStock = totalIncoming + totalOutgoing; // totalOutgoing ya incluye valores negativos
         
         // Get unit measure separately to avoid EF Core auto-detection issues
@@ -155,9 +155,10 @@ public class SupplyEntryService : ISupplyEntryService
 
         var unitCost = createDto.UnitCost;
         
-        // If the supply is measured in grams (UnitMeasureId = 2), adjust the unit cost
-        // Since items are bought by kilogram but stored in grams, divide the cost by 1000
-        if (supply.UnitMeasureId == 2) // Grams
+        // If the supply is measured in grams (UnitMeasureId = 2) or milliliters (UnitMeasureId = 4), 
+        // adjust the unit cost. Items are bought by kilogram/liter but stored in grams/milliliters, 
+        // so divide the cost by 1000
+        if (supply.UnitMeasureId == 2 || supply.UnitMeasureId == 4) // Grams or Milliliters
         {
             unitCost = createDto.UnitCost / 1000;
         }
@@ -191,13 +192,13 @@ public class SupplyEntryService : ISupplyEntryService
         var created = await _repository.CreateAsync(supplyEntry);
 
         // Si es una entrada de stock (no tiene ProcessDoneId), crear un expense automáticamente
-        if (createDto.ProcessDoneId == null && supply.FixedExpenseId.HasValue)
+        if (createDto.ProcessDoneId == null)
         {
             try
             {
                 // Para el expense, usar el costo real de la compra
                 decimal totalAmount;
-                if (supply.UnitMeasureId == 2) // Grams
+                if (supply.UnitMeasureId == 2 || supply.UnitMeasureId == 4) // Grams or Milliliters
                 {
                     // Si está en gramos, el costo unitario está en kilos y la cantidad en gramos
                     // Convertir gramos a kilos para calcular el costo total real
@@ -212,30 +213,49 @@ public class SupplyEntryService : ISupplyEntryService
                 
                 // Usar la subcategoría del FixedExpense del supply, o buscar una por defecto
                 int subcategoryId;
-                var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
-                if (fixedExpense?.SubcategoryId.HasValue == true)
+                int? fixedExpenseId = supply.FixedExpenseId;
+                
+                if (supply.FixedExpenseId.HasValue)
                 {
-                    subcategoryId = fixedExpense.SubcategoryId.Value;
+                    var fixedExpense = await _fixedExpenseRepository.GetByIdAsync(supply.FixedExpenseId.Value);
+                    if (fixedExpense?.SubcategoryId.HasValue == true)
+                    {
+                        subcategoryId = fixedExpense.SubcategoryId.Value;
+                    }
+                    else
+                    {
+                        subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
+                    }
                 }
                 else
                 {
+                    // Si no tiene FixedExpenseId, usar subcategoría por defecto
                     subcategoryId = await GetDefaultSubcategoryForSupplyAsync();
                 }
                 
+                // Calcular desglose IVA para Boleta (1) y Factura Afecta (3)
+                bool hasIva = createDto.ReceiptTypeId == 1 || createDto.ReceiptTypeId == 3;
+                decimal? amountNet = hasIva ? Math.Round(totalAmount / 1.19m) : null;
+                decimal? amountIva = hasIva ? totalAmount - amountNet!.Value : null;
+
                 var expenseDto = new CreateExpenseDto
                 {
                     SubcategoryId = subcategoryId,
                     Amount = totalAmount,
+                    AmountNet = amountNet,
+                    AmountIva = amountIva,
+                    AmountTotal = totalAmount,
+                    ReceiptTypeId = createDto.ReceiptTypeId,
                     Description = $"Compra de insumo: {supply.Name} - {createDto.Amount} unidades",
                     Date = DateTime.UtcNow,
                     BusinessId = supply.BusinessId,
                     StoreId = supply.StoreId,
-                    IsFixed = true,
-                    FixedExpenseId = supply.FixedExpenseId.Value,
+                    IsFixed = fixedExpenseId.HasValue, // Solo true si tiene FixedExpenseId
+                    FixedExpenseId = fixedExpenseId,
                     ProviderId = createDto.ProviderId,
                     ExpenseTypeId = 2, // Costos - compra de insumos
                     
-                    // Payment Plan data (if financing)
+                    // Payment Plan data (if financing or credit)
                     PaymentTypeId = createDto.PaymentTypeId,
                     InstallmentsCount = createDto.InstallmentsCount,
                     ExpressedInUf = createDto.ExpressedInUf ?? false,
@@ -244,11 +264,12 @@ public class SupplyEntryService : ISupplyEntryService
                 };
 
                 await _expenseService.CreateExpenseAsync(expenseDto);
-                Console.WriteLine($"✅ Expense created automatically for supply entry {created.Id}");
+                Console.WriteLine($"✅ Expense created automatically for supply entry {created.Id} (FixedExpenseId: {fixedExpenseId})");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"⚠️ Warning: Could not create expense for supply entry {created.Id}: {ex.Message}");
+                Console.WriteLine($"⚠️ Stack trace: {ex.StackTrace}");
                 // No lanzamos excepción para no fallar la creación del supply entry
             }
         }
@@ -258,7 +279,7 @@ public class SupplyEntryService : ISupplyEntryService
         {
             Id = created.Id,
             UnitCost = created.UnitCost,
-            Amount = (decimal)created.Amount, // Convert int to decimal
+            Amount = created.Amount,
             ProviderId = created.ProviderId,
             SupplyId = created.SupplyId,
             ProcessDoneId = created.ProcessDoneId,
@@ -309,7 +330,7 @@ public class SupplyEntryService : ISupplyEntryService
             throw new InvalidOperationException($"SupplyEntry with id {id} not found");
 
         supplyEntry.UnitCost = updateDto.UnitCost;
-        supplyEntry.Amount = (int)updateDto.Amount; // Convert decimal to int
+        supplyEntry.Amount = updateDto.Amount;
         supplyEntry.ProviderId = updateDto.ProviderId;
         
         // Actualizar Tag si está presente en el DTO
@@ -372,7 +393,7 @@ public class SupplyEntryService : ISupplyEntryService
         {
             Id = supplyEntry.Id,
             UnitCost = supplyEntry.UnitCost,
-            Amount = (decimal)supplyEntry.Amount, // Convert int to decimal
+            Amount = supplyEntry.Amount,
             Tag = supplyEntry.Tag,
             ProviderId = supplyEntry.ProviderId,
             SupplyId = supplyEntry.SupplyId,

@@ -17,12 +17,12 @@ public class Process : BaseEntity
     
     public int TimeUnitId { get; set; }
     
-    public int StoreId { get; set; }
+    public int? StoreId { get; set; }
 
     // Navigation properties
     public Product Product { get; set; } = null!;
     public TimeUnit TimeUnit { get; set; } = null!;
-    public Store Store { get; set; } = null!;
+    public Store? Store { get; set; }
     
     // Collection navigation properties
     public ICollection<ProcessSupply> ProcessSupplies { get; set; } = new List<ProcessSupply>();
@@ -34,7 +34,7 @@ public class Process : BaseEntity
     }
 
     public Process(int productId, string name, int productionTime, int timeUnitId, 
-                  int storeId,
+                  int? storeId = null,
                   string? description = null)
     {
         ProductId = productId;

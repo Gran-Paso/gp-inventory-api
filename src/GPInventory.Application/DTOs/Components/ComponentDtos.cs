@@ -30,6 +30,9 @@ public class ComponentDto
     // Stock information (not persisted, calculated at runtime)
     public decimal CurrentStock { get; set; } = 0;
     public StockStatus StockStatus { get; set; } = StockStatus.OutOfStock;
+    
+    // Cost information (not persisted, calculated at runtime)
+    public decimal UnitCost { get; set; } = 0;
 }
 
 public class ComponentSupplyDto
@@ -79,6 +82,12 @@ public class CreateComponentSupplyDto
     public bool IsOptional { get; set; }
 }
 
+public class UpdateComponentRecipeDto
+{
+    public decimal YieldAmount { get; set; }
+    public List<CreateComponentSupplyDto> Supplies { get; set; } = new();
+}
+
 public class UpdateComponentDto
 {
     public string? Name { get; set; }
@@ -110,6 +119,7 @@ public class ComponentProductionDto
     public string? CreatedByUserName { get; set; }
     public bool Active { get; set; }
     public DateTime CreatedAt { get; set; }
+    public int? ComponentProductionId { get; set; }
 }
 
 public class CreateComponentProductionDto
@@ -140,6 +150,8 @@ public class BOMTreeNodeDto
     public string Type { get; set; } = "supply"; // 'supply' | 'component'
     public decimal Quantity { get; set; }
     public int Level { get; set; }
+    public int? UnitMeasureId { get; set; }
+    public string? UnitMeasureSymbol { get; set; }
     public decimal? Cost { get; set; }
     public List<BOMTreeNodeDto> Children { get; set; } = new();
 }
