@@ -129,7 +129,7 @@ public class ProcessRepository : IProcessRepository
                 }
                 if (businessId.HasValue)
                 {
-                    whereConditions.Add("(s.id_business = @businessId OR p.store_id IS NULL)");
+                    whereConditions.Add("(s.id_business = @businessId OR (p.store_id IS NULL AND prod.business = @businessId))");
                 }
 
                 var whereClause = whereConditions.Count > 0 ? "WHERE " + string.Join(" AND ", whereConditions) : "";
