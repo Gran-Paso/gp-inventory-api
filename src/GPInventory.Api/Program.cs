@@ -12,10 +12,10 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure Kestrel to listen on all network interfaces
+// Configure Kestrel to listen on localhost
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    serverOptions.ListenAnyIP(8080); // Listen on 0.0.0.0:8080
+    serverOptions.ListenLocalhost(8080); // Listen on localhost:8080
 });
 
 // Add services to the container.
@@ -88,7 +88,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:8080",
                 "http://127.0.0.1:5173",  // Local IP variant
                 "http://127.0.0.1:8080",  // Local IP variant
-                "http://192.168.1.83:8080", // Local network for mobile testing
+                "http://localhost:8080", // Local network for mobile testing
                 // Producción
                 "https://inventory.granpasochile.cl",  // GP Inventory producción
                 "https://expenses.granpasochile.cl",   // GP Expenses producción
