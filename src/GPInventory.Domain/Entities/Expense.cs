@@ -59,6 +59,9 @@ public class Expense
     [Column("payment_plan_id")]
     public int? PaymentPlanId { get; set; } // Plan de pagos asociado (para crédito o financiamiento)
 
+    [Column("service_sale_id")]
+    public int? ServiceSaleId { get; set; } // Venta de servicio que originó este gasto (gp-services)
+
     // Navigation properties
     public ExpenseSubcategory ExpenseSubcategory { get; set; } = null!;
     public Business Business { get; set; } = null!;

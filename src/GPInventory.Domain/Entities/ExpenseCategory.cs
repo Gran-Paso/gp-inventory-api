@@ -10,6 +10,9 @@ public class ExpenseCategory
     [StringLength(200)]
     public string Name { get; set; } = string.Empty;
 
+    // Navigation property
+    public ICollection<ExpenseSubcategory> Subcategories { get; set; } = new List<ExpenseSubcategory>();
+
     public ExpenseCategory()
     {
     }

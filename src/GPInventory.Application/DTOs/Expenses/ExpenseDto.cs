@@ -61,6 +61,9 @@ public class ExpenseListItemDto
     
     [JsonPropertyName("next_installment_due_date")]
     public DateTime? NextInstallmentDueDate { get; set; }
+
+    [JsonPropertyName("service_sale_id")]
+    public int? ServiceSaleId { get; set; }
 }
 
 public class CreateExpenseDto
@@ -128,6 +131,9 @@ public class CreateExpenseDto
     
     [JsonPropertyName("payment_start_date")]
     public DateTime? PaymentStartDate { get; set; }
+
+    [JsonPropertyName("service_sale_id")]
+    public int? ServiceSaleId { get; set; }
 }
 
 public class UpdateExpenseDto
@@ -178,6 +184,8 @@ public class ExpenseDto
     public int? ProviderId { get; set; }
     [JsonPropertyName("created_at")]
     public DateTime CreatedAt { get; set; }
+    [JsonPropertyName("service_sale_id")]
+    public int? ServiceSaleId { get; set; }
 }
 
 public class ExpenseWithDetailsDto
@@ -224,4 +232,7 @@ public class ExpenseWithDetailsDto
     
     // NUEVO: Provider (para costos asociados a supply entries)
     public ProviderDto? Provider { get; set; }
+
+    [JsonPropertyName("service_sale_id")]
+    public int? ServiceSaleId { get; set; }
 }

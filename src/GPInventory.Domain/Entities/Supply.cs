@@ -23,7 +23,7 @@ public class Supply : BaseEntity
     
     public int BusinessId { get; set; }
     
-    public int StoreId { get; set; }
+    public int? StoreId { get; set; }
     
     public int? SupplyCategoryId { get; set; }
     
@@ -53,7 +53,7 @@ public class Supply : BaseEntity
     {
     }
 
-    public Supply(string name, int businessId, int storeId, int unitMeasureId = 1, 
+    public Supply(string name, int businessId, int? storeId, int unitMeasureId = 1, 
                  string? description = null, int? fixedExpenseId = null, bool active = true,
                  int? supplyCategoryId = null, SupplyType type = SupplyType.Both)
     {

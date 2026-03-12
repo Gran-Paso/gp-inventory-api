@@ -1,5 +1,6 @@
 using GPInventory.Application.DTOs.Production;
 using GPInventory.Application.Interfaces;
+using GPInventory.Api.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -135,6 +136,7 @@ public class ManufacturesController : ControllerBase
     /// Crear un nuevo lote manufacturado
     /// </summary>
     [HttpPost]
+    [HrAuthorize("manage_factory", false)]
     public async Task<ActionResult<ManufactureDto>> Create([FromBody] CreateManufactureDto createDto)
     {
         try
@@ -160,6 +162,7 @@ public class ManufacturesController : ControllerBase
     /// Actualizar un lote manufacturado
     /// </summary>
     [HttpPut("{id}")]
+    [HrAuthorize("manage_factory", false)]
     public async Task<ActionResult<ManufactureDto>> Update(int id, [FromBody] UpdateManufactureDto updateDto)
     {
         try
@@ -185,6 +188,7 @@ public class ManufacturesController : ControllerBase
     /// Eliminar un lote manufacturado (soft delete)
     /// </summary>
     [HttpDelete("{id}")]
+    [HrAuthorize("manage_factory", false)]
     public async Task<ActionResult> Delete(int id)
     {
         try

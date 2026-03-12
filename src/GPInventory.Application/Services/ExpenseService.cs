@@ -67,6 +67,26 @@ public class ExpenseService : IExpenseService
         }
     }
 
+    public async Task<IEnumerable<ExpenseCategoryDto>> GetCategoriesWithSubcategoriesAsync()
+    {
+        try
+        {
+            var categories = await _categoryRepository.GetCategoriesWithSubcategoriesAsync();
+            return _mapper.Map<IEnumerable<ExpenseCategoryDto>>(categories);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetCategoriesWithSubcategoriesAsync Error: {ex.Message}");
+            Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+            }
+            
+            throw new ApplicationException($"Error al obtener categorías con subcategorías: {ex.Message}", ex);
+        }
+    }
+
     public async Task<IEnumerable<ExpenseSubcategoryDto>> GetSubcategoriesAsync(int? categoryId = null)
     {
         try
@@ -1616,11 +1636,12 @@ public class ExpenseService : IExpenseService
             // 1. Distribución por categoría para gráfico de torta
             var totalAmount = expensesList.Sum(e => e.Amount);
             var categoryGroups = expensesList
-                .GroupBy(e => new { e.Category.Id, e.Category.Name })
+                .Where(e => e.Category != null)
+                .GroupBy(e => new { CategoryId = e.Category!.Id, CategoryName = e.Category.Name })
                 .Select(g => new CategoryChartDataDto
                 {
-                    CategoryId = g.Key.Id,
-                    CategoryName = g.Key.Name,
+                    CategoryId = g.Key.CategoryId,
+                    CategoryName = g.Key.CategoryName,
                     TotalAmount = g.Sum(e => e.Amount),
                     Count = g.Count(),
                     Percentage = totalAmount > 0 ? (g.Sum(e => e.Amount) / totalAmount * 100) : 0

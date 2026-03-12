@@ -9,7 +9,7 @@ namespace GPInventory.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-[ExpensesAuthorize] // Solo Cofundador, Dueño, Administrador, Contador
+[HrAuthorize("manage_expenses", orPermission: "view_expenses")] // Lectura: view_expenses o manage_expenses; escritura: ver atributos por método
 public class ExpensesController : ControllerBase
 {
     private readonly IExpenseService _expenseService;
@@ -141,6 +141,7 @@ public class ExpensesController : ControllerBase
 
     // POST: api/expenses
     [HttpPost]
+    [HrAuthorize("manage_expenses")]
     public async Task<IActionResult> CreateExpense([FromBody] CreateExpenseDto createExpenseDto)
     {
         try
@@ -162,6 +163,7 @@ public class ExpensesController : ControllerBase
 
     // PUT: api/expenses/{id}
     [HttpPut("{id}")]
+    [HrAuthorize("manage_expenses")]
     public async Task<IActionResult> UpdateExpense(int id, [FromBody] UpdateExpenseDto updateExpenseDto)
     {
         try
@@ -188,6 +190,7 @@ public class ExpensesController : ControllerBase
 
     // DELETE: api/expenses/{id}
     [HttpDelete("{id}")]
+    [HrAuthorize("manage_expenses")]
     public async Task<IActionResult> DeleteExpense(int id)
     {
         try

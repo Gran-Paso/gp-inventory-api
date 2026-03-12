@@ -2,6 +2,13 @@ using System.ComponentModel.DataAnnotations;
 
 namespace GPInventory.Application.DTOs.Expenses;
 
+public class ExpenseCategoryDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public List<ExpenseSubcategoryDto> Subcategories { get; set; } = new();
+}
+
 public class CreateExpenseCategoryDto
 {
     [Required]

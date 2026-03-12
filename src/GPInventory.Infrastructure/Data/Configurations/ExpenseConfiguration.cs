@@ -66,6 +66,9 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
         builder.Property(e => e.Notes)
             .HasColumnName("notes")
             .HasMaxLength(1000);
+
+        builder.Property(e => e.ServiceSaleId)
+            .HasColumnName("service_sale_id");
             
         // BaseEntity properties - ignore since they don't exist in the database
         builder.Ignore(e => e.CreatedAt);

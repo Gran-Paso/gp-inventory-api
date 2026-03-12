@@ -60,33 +60,38 @@ public class SupplyService : ISupplyService
         if (existingSupply != null)
             throw new ArgumentException($"A supply with name '{createSupplyDto.Name}' already exists in this business");
 
-        // Obtener un RecurrenceType por defecto (asumiendo que existe uno para "Una vez" o similar)
-        var recurrenceTypes = await _recurrenceTypeRepository.GetAllAsync();
-        var defaultRecurrenceType = recurrenceTypes.FirstOrDefault();
-        if (defaultRecurrenceType == null)
-            throw new InvalidOperationException("No recurrence types found in the system");
+        int? fixedExpenseId = null;
 
-        // Crear el gasto fijo automáticamente
-        var fixedExpense = new FixedExpense(
-            businessId: createSupplyDto.BusinessId,
-            additionalNote: $"Gasto fijo para insumo: {createSupplyDto.Name}",
-            amount: createSupplyDto.FixedExpenseAmount,
-            recurrenceTypeId: defaultRecurrenceType.Id,
-            storeId: createSupplyDto.StoreId,
-            subcategoryId: createSupplyDto.SubcategoryId,
-            paymentDate: createSupplyDto.PaymentDate
-        );
+        // Crear el gasto fijo SOLO si se especificó un monto > 0
+        if (createSupplyDto.FixedExpenseAmount > 0)
+        {
+            var recurrenceTypes = await _recurrenceTypeRepository.GetAllAsync();
+            var defaultRecurrenceType = recurrenceTypes.FirstOrDefault();
+            if (defaultRecurrenceType == null)
+                throw new InvalidOperationException("No recurrence types found in the system");
 
-        var createdFixedExpense = await _fixedExpenseRepository.AddAsync(fixedExpense);
+            var fixedExpense = new FixedExpense(
+                businessId: createSupplyDto.BusinessId,
+                additionalNote: $"Gasto fijo para insumo: {createSupplyDto.Name}",
+                amount: createSupplyDto.FixedExpenseAmount,
+                recurrenceTypeId: defaultRecurrenceType.Id,
+                storeId: createSupplyDto.StoreId > 0 ? createSupplyDto.StoreId : null,
+                subcategoryId: createSupplyDto.SubcategoryId,
+                paymentDate: createSupplyDto.PaymentDate
+            );
 
-        // Crear el supply con el gasto fijo creado
+            var createdFixedExpense = await _fixedExpenseRepository.AddAsync(fixedExpense);
+            fixedExpenseId = createdFixedExpense.Id;
+        }
+
+        // Crear el supply
         var supply = new Supply(
             name: createSupplyDto.Name,
             businessId: createSupplyDto.BusinessId,
-            storeId: createSupplyDto.StoreId,
+            storeId: createSupplyDto.StoreId > 0 ? createSupplyDto.StoreId : null,
             unitMeasureId: createSupplyDto.UnitMeasureId,
             description: createSupplyDto.Description,
-            fixedExpenseId: createdFixedExpense.Id,
+            fixedExpenseId: fixedExpenseId,
             active: createSupplyDto.Active
         );
         
