@@ -9,7 +9,6 @@ namespace GPInventory.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-[HrAuthorize("manage_expenses", orPermission: "view_expenses")] // Lectura: view_expenses o manage_expenses; escritura: ver atributos por método
 public class ExpensesController : ControllerBase
 {
     private readonly IExpenseService _expenseService;
@@ -23,6 +22,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/list - Endpoint optimizado para listas
     [HttpGet("list")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetExpensesList([FromQuery] ExpenseFiltersDto filters)
     {
         try
@@ -61,6 +61,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses
     [HttpGet]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetExpenses([FromQuery] ExpenseFiltersDto filters)
     {
         try
@@ -99,6 +100,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/{id}/details - Endpoint optimizado para detalles
     [HttpGet("{id}/details")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetExpenseDetails(int id)
     {
         try
@@ -120,6 +122,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/{id}
     [HttpGet("{id}")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetExpense(int id)
     {
         try
@@ -141,7 +144,7 @@ public class ExpensesController : ControllerBase
 
     // POST: api/expenses
     [HttpPost]
-    [HrAuthorize("manage_expenses")]
+    [HrAuthorize("manage_expenses", requireSystemRole: false, orPermission: "manage_inventory")]
     public async Task<IActionResult> CreateExpense([FromBody] CreateExpenseDto createExpenseDto)
     {
         try
@@ -163,7 +166,7 @@ public class ExpensesController : ControllerBase
 
     // PUT: api/expenses/{id}
     [HttpPut("{id}")]
-    [HrAuthorize("manage_expenses")]
+    [HrAuthorize("manage_expenses", requireSystemRole: false)]
     public async Task<IActionResult> UpdateExpense(int id, [FromBody] UpdateExpenseDto updateExpenseDto)
     {
         try
@@ -190,7 +193,7 @@ public class ExpensesController : ControllerBase
 
     // DELETE: api/expenses/{id}
     [HttpDelete("{id}")]
-    [HrAuthorize("manage_expenses")]
+    [HrAuthorize("manage_expenses", requireSystemRole: false)]
     public async Task<IActionResult> DeleteExpense(int id)
     {
         try
@@ -212,6 +215,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/summary
     [HttpGet("summary")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetExpenseSummary([FromQuery] ExpenseFiltersDto filters)
     {
         try
@@ -245,6 +249,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/monthly-kpis
     [HttpGet("monthly-kpis")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetMonthlyKPIs([FromQuery] int businessId)
     {
         try
@@ -261,6 +266,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/type-kpis
     [HttpGet("type-kpis")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetExpenseTypeKPIs([FromQuery] int businessId, [FromQuery] int expenseTypeId)
     {
         try
@@ -277,6 +283,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/charts
     [HttpGet("charts")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> GetExpenseTypeCharts(
         [FromQuery] int expenseTypeId, 
         [FromQuery] ExpenseFiltersDto filters)
@@ -311,6 +318,7 @@ public class ExpensesController : ControllerBase
 
     // GET: api/expenses/export
     [HttpGet("export")]
+    [HrAuthorize("view_expenses", requireSystemRole: false, orPermission: "manage_expenses")]
     public async Task<IActionResult> ExportExpenses([FromQuery] ExpenseFiltersDto filters)
     {
         try

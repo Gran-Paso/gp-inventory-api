@@ -101,6 +101,18 @@ public class HrController : ControllerBase
     {
         try
         {
+            // super_admin siempre tiene acceso completo, sin consultar la BD
+            var jwtSystemRole = User.FindFirst("systemRole")?.Value;
+            if (jwtSystemRole == "super_admin")
+            {
+                return Ok(new
+                {
+                    fullAccess   = true,
+                    systemRoleId = (int?)null,
+                    permissions  = (object?)null,
+                });
+            }
+
             // Extraer userId desde los claims JWT
             var userIdClaim = User.FindFirst("sub")
                            ?? User.FindFirst("user_id")

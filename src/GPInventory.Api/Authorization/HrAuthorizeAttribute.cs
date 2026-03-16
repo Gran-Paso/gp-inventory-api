@@ -47,7 +47,7 @@ public class HrAuthorizeAttribute : TypeFilterAttribute
 public class HrAuthorizeFilter : IAsyncAuthorizationFilter
 {
     private static readonly int[] HrSystemRoles = { 1, 2, 3, 6 };
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(1);
 
     private readonly string _requiredPermission;
     private readonly string _orPermission;
@@ -279,9 +279,11 @@ public class HrAuthorizeFilter : IAsyncAuthorizationFilter
                 try
                 {
                     using var doc = JsonDocument.Parse(body);
-                    if (doc.RootElement.TryGetProperty("businessId", out var bid)
-                        && bid.TryGetInt32(out int jBid))
+                    // Intentar camelCase ("businessId") y snake_case ("business_id")
+                    if (doc.RootElement.TryGetProperty("businessId", out var bid) && bid.TryGetInt32(out int jBid))
                         return jBid;
+                    if (doc.RootElement.TryGetProperty("business_id", out var bid2) && bid2.TryGetInt32(out int jBid2))
+                        return jBid2;
                 }
                 catch { /* ignorar */ }
             }
