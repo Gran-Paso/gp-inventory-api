@@ -601,6 +601,8 @@ public class ServicesController : ControllerBase
         [FromQuery] int? storeId = null,
         [FromQuery] DateTime? startDate = null,
         [FromQuery] DateTime? endDate = null,
+        [FromQuery] DateTime? scheduledStart = null,
+        [FromQuery] DateTime? scheduledEnd = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50)
     {
@@ -611,6 +613,7 @@ public class ServicesController : ControllerBase
             using var cmd = new MySqlCommand(@"
                 SELECT ss.id, ss.business_id, ss.store_id, ss.total_amount, ss.status,
                        ss.document_type, ss.payment_type, ss.installments_count, ss.payment_start_date,
+                       ss.payment_method_id, pm.name AS payment_method_name,
                        ss.user_id,
                        CONCAT(u.name,' ',u.lastname) AS user_full_name,
                        u.mail AS user_email, CAST(u.phone AS CHAR) AS user_phone,
@@ -630,20 +633,25 @@ public class ServicesController : ControllerBase
                 FROM service_sale ss
                 LEFT JOIN store st ON ss.store_id=st.id
                 LEFT JOIN user u ON ss.user_id=u.id
+                LEFT JOIN payment_methods pm ON ss.payment_method_id = pm.id
                 WHERE ss.business_id=@B
-                  AND (@Status  IS NULL OR ss.status  =@Status)
-                  AND (@StoreId IS NULL OR ss.store_id=@StoreId)
-                  AND (@Start   IS NULL OR ss.date   >=@Start)
-                  AND (@End     IS NULL OR ss.date   <=@End)
+                  AND (@Status     IS NULL OR ss.status         =@Status)
+                  AND (@StoreId    IS NULL OR ss.store_id       =@StoreId)
+                  AND (@Start      IS NULL OR ss.date           >=@Start)
+                  AND (@End        IS NULL OR ss.date           <=@End)
+                  AND (@SchedStart IS NULL OR ss.scheduled_date >=@SchedStart)
+                  AND (@SchedEnd   IS NULL OR ss.scheduled_date <=@SchedEnd)
                 ORDER BY ss.date DESC, ss.id DESC
                 LIMIT @Size OFFSET @Offset", conn);
-            cmd.Parameters.AddWithValue("@B",       businessId);
-            cmd.Parameters.AddWithValue("@Status",  (object?)status    ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@StoreId", (object?)storeId   ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Start",   (object?)startDate ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@End",     (object?)endDate   ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Size",    pageSize);
-            cmd.Parameters.AddWithValue("@Offset",  (page - 1) * pageSize);
+            cmd.Parameters.AddWithValue("@B",          businessId);
+            cmd.Parameters.AddWithValue("@Status",      (object?)status       ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@StoreId",     (object?)storeId      ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Start",       (object?)startDate    ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@End",         (object?)endDate      ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@SchedStart",  (object?)scheduledStart ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@SchedEnd",    (object?)scheduledEnd   ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Size",        pageSize);
+            cmd.Parameters.AddWithValue("@Offset",      (page - 1) * pageSize);
             using var r = await cmd.ExecuteReaderAsync();
             var list = new List<object>();
             while (await r.ReadAsync())
@@ -659,6 +667,8 @@ public class ServicesController : ControllerBase
                     paymentType      = r.GetInt32("payment_type"),
                     installmentsCount = r.GetInt32("installments_count"),
                     paymentStartDate  = IsNull(r, "payment_start_date") ? (string?)null : r.GetDateTime("payment_start_date").ToString("yyyy-MM-dd"),
+                    paymentMethodId   = IsNull(r, "payment_method_id")   ? (int?)null   : r.GetInt32("payment_method_id"),
+                    paymentMethodName = IsNull(r, "payment_method_name")  ? ""           : r.GetString("payment_method_name"),
                     userId           = IsNull(r, "user_id")           ? (int?)null    : r.GetInt32("user_id"),
                     userName        = IsNull(r, "user_full_name")     ? ""            : r.GetString("user_full_name"),
                     userEmail       = IsNull(r, "user_email")         ? ""            : r.GetString("user_email"),
@@ -694,10 +704,12 @@ public class ServicesController : ControllerBase
                 SELECT ss.*,
                        st.name AS store_name,
                        CONCAT(u.name,' ',u.lastname) AS user_full_name,
-                       u.mail AS user_email, CAST(u.phone AS CHAR) AS user_phone
+                       u.mail AS user_email, CAST(u.phone AS CHAR) AS user_phone,
+                       pm.name AS payment_method_name
                 FROM service_sale ss
                 LEFT JOIN store st ON ss.store_id=st.id
                 LEFT JOIN user u ON ss.user_id=u.id
+                LEFT JOIN payment_methods pm ON ss.payment_method_id = pm.id
                 WHERE ss.id=@Id", conn);
             hCmd.Parameters.AddWithValue("@Id", id);
             using var hr = await hCmd.ExecuteReaderAsync();
@@ -714,6 +726,8 @@ public class ServicesController : ControllerBase
                 paymentType   = hr.GetInt32("payment_type"),
                 installmentsCount = hr.GetInt32("installments_count"),
                 paymentStartDate  = IsNull(hr, "payment_start_date") ? (string?)null : hr.GetDateTime("payment_start_date").ToString("yyyy-MM-dd"),
+                paymentMethodId   = IsNull(hr, "payment_method_id")   ? (int?)null   : hr.GetInt32("payment_method_id"),
+                paymentMethodName = IsNull(hr, "payment_method_name")  ? ""           : hr.GetString("payment_method_name"),
                 userId        = IsNull(hr, "user_id")         ? (int?)null    : hr.GetInt32("user_id"),
                 userName      = IsNull(hr, "user_full_name")   ? ""            : hr.GetString("user_full_name"),
                 userEmail     = IsNull(hr, "user_email")       ? ""            : hr.GetString("user_email"),
@@ -787,10 +801,10 @@ public class ServicesController : ControllerBase
                 INSERT INTO service_sale
                     (business_id,store_id,user_id,client_name,client_rut,client_email,client_phone,
                      total_amount,status,date,scheduled_date,notes,created_by,
-                     document_type,payment_type,installments_count,payment_start_date)
+                     document_type,payment_type,installments_count,payment_start_date,payment_method_id)
                 VALUES (@B,@Str,@UserId,@CName,@CRut,@CEmail,@CPhone,
                         @Total,@Status,@Date,@Sched,@Notes,@CreatedBy,
-                        @DocType,@PayType,@Installments,@PayStart);
+                        @DocType,@PayType,@Installments,@PayStart,@PMId);
                 SELECT LAST_INSERT_ID();", conn, tx);
             headCmd.Parameters.AddWithValue("@B",          req.BusinessId);
             headCmd.Parameters.AddWithValue("@Str",        (object?)req.StoreId       ?? DBNull.Value);
@@ -809,6 +823,7 @@ public class ServicesController : ControllerBase
             headCmd.Parameters.AddWithValue("@PayType",    req.PaymentType      ?? 1);
             headCmd.Parameters.AddWithValue("@Installments", req.InstallmentsCount ?? 1);
             headCmd.Parameters.AddWithValue("@PayStart",   (object?)req.PaymentStartDate ?? DBNull.Value);
+            headCmd.Parameters.AddWithValue("@PMId",       (object?)req.PaymentMethodId  ?? DBNull.Value);
             var saleId = Convert.ToInt32(await headCmd.ExecuteScalarAsync());
 
             foreach (var item in req.Items)
@@ -890,6 +905,7 @@ public class ServicesController : ControllerBase
             if (req.PaymentType.HasValue)  { sets.Add("payment_type=@PT");        upd.Parameters.AddWithValue("@PT",    req.PaymentType.Value);        payType  = req.PaymentType.Value; }
             if (req.InstallmentsCount.HasValue) { sets.Add("installments_count=@IC"); upd.Parameters.AddWithValue("@IC", req.InstallmentsCount.Value); payCount = req.InstallmentsCount.Value; }
             if (req.PaymentStartDate.HasValue)  { sets.Add("payment_start_date=@PS"); upd.Parameters.AddWithValue("@PS", req.PaymentStartDate.Value);  payStart = req.PaymentStartDate.Value; }
+            if (req.PaymentMethodId.HasValue)   { sets.Add("payment_method_id=@PMId"); upd.Parameters.AddWithValue("@PMId", req.PaymentMethodId.Value == 0 ? (object)DBNull.Value : req.PaymentMethodId.Value); }
 
             upd.CommandText = $"UPDATE service_sale SET {string.Join(",", sets)} WHERE id=@Id";
             await upd.ExecuteNonQueryAsync();
@@ -990,6 +1006,49 @@ public class ServicesController : ControllerBase
     }
 
     // ================================================================
+    // LOW STOCK ALERTS
+    // ================================================================
+
+    [HttpGet("low-stock")]
+    public async Task<IActionResult> GetLowStockSupplies([FromQuery] int businessId)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new MySqlCommand(@"
+                SELECT s.id, s.name, s.minimum_stock,
+                       um.symbol AS unit_symbol,
+                       COALESCE(SUM(CASE WHEN se.active = 1 THEN se.amount ELSE 0 END), 0) AS current_stock
+                FROM supplies s
+                LEFT JOIN unit_measures um ON s.unit_measure_id = um.id
+                LEFT JOIN supply_entry se ON s.id = se.supply_id
+                WHERE s.business_id = @B
+                  AND s.active = 1
+                  AND s.minimum_stock IS NOT NULL
+                  AND s.minimum_stock > 0
+                GROUP BY s.id, s.name, s.minimum_stock, um.symbol
+                HAVING current_stock <= minimum_stock
+                ORDER BY (current_stock / NULLIF(minimum_stock, 0)) ASC, s.name
+                LIMIT 10", conn);
+            cmd.Parameters.AddWithValue("@B", businessId);
+            using var r = await cmd.ExecuteReaderAsync();
+            var list = new List<object>();
+            while (await r.ReadAsync())
+                list.Add(new
+                {
+                    id           = r.GetInt32("id"),
+                    name         = r.GetString("name"),
+                    currentStock = r.GetDecimal("current_stock"),
+                    minimumStock = r.GetInt32("minimum_stock"),
+                    unitSymbol   = IsNull(r, "unit_symbol") ? "" : r.GetString("unit_symbol"),
+                });
+            return Ok(list);
+        }
+        catch (Exception ex) { return Err(ex, "GetLowStockSupplies"); }
+    }
+
+    // ================================================================
     // EXPENSES DE UNA VENTA
     // ================================================================
 
@@ -1001,7 +1060,9 @@ public class ServicesController : ControllerBase
             using var conn = GetConnection();
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
-                SELECT e.id, e.description, e.amount, e.date, e.notes, e.is_paid,
+                SELECT e.id, e.description,
+                       COALESCE(e.amount_total, e.amount) AS amount,
+                       e.date, e.notes, e.is_paid,
                        e.provider_id, e.receipt_type_id, e.subcategory_id,
                        p.name AS provider_name,
                        s.name AS subcategory_name
@@ -1073,6 +1134,147 @@ public class ServicesController : ControllerBase
             return Ok(new { message = "Estado actualizado" });
         }
         catch (Exception ex) { return Err(ex, "ToggleSaleItemCompleted"); }
+    }
+
+    /// <summary>
+    /// POST /services/sales/{saleId}/items
+    /// Agrega un ítem de servicio a una venta existente (solo en estado pending o in_progress).
+    /// </summary>
+    [HttpPost("sales/{saleId}/items")]
+    [HrAuthorize("manage_sales", false)]
+    public async Task<IActionResult> AddSaleItem(int saleId, [FromBody] SaleItemRequest req)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            using var tx = await conn.BeginTransactionAsync();
+            try
+            {
+                // Verificar que la venta existe y está en estado editable
+                using var chkCmd = new MySqlCommand(
+                    "SELECT status, total_amount FROM service_sale WHERE id=@SaleId", conn, tx);
+                chkCmd.Parameters.AddWithValue("@SaleId", saleId);
+                using var chkR = await chkCmd.ExecuteReaderAsync();
+                if (!await chkR.ReadAsync())
+                {
+                    await chkR.CloseAsync(); await tx.RollbackAsync();
+                    return NotFound(new { error = "Venta no encontrada" });
+                }
+                var status      = chkR.GetString("status");
+                var prevTotal   = chkR.GetDecimal("total_amount");
+                await chkR.CloseAsync();
+
+                if (status != "pending" && status != "in_progress")
+                {
+                    await tx.RollbackAsync();
+                    return BadRequest(new { error = "Solo se pueden editar ventas en estado pendiente o en progreso" });
+                }
+
+                var qty = req.Quantity ?? 1m;
+                var subtotal = req.UnitPrice * qty;
+
+                using var insCmd = new MySqlCommand(@"
+                    INSERT INTO service_sale_item (sale_id,service_id,quantity,unit_price,subtotal,notes)
+                    VALUES (@Sale,@Svc,@Qty,@Price,@Sub,@Notes);
+                    SELECT LAST_INSERT_ID();", conn, tx);
+                insCmd.Parameters.AddWithValue("@Sale",  saleId);
+                insCmd.Parameters.AddWithValue("@Svc",   req.ServiceId);
+                insCmd.Parameters.AddWithValue("@Qty",   qty);
+                insCmd.Parameters.AddWithValue("@Price", req.UnitPrice);
+                insCmd.Parameters.AddWithValue("@Sub",   subtotal);
+                insCmd.Parameters.AddWithValue("@Notes", (object?)req.Notes ?? DBNull.Value);
+                var newId = Convert.ToInt32(await insCmd.ExecuteScalarAsync());
+
+                // Actualizar total_amount de la venta
+                using var totCmd = new MySqlCommand(
+                    "UPDATE service_sale SET total_amount=total_amount+@Sub, updated_at=NOW() WHERE id=@SaleId",
+                    conn, tx);
+                totCmd.Parameters.AddWithValue("@Sub", subtotal);
+                totCmd.Parameters.AddWithValue("@SaleId", saleId);
+                await totCmd.ExecuteNonQueryAsync();
+
+                await tx.CommitAsync();
+                return Ok(new { id = newId, message = "Ítem agregado" });
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+        catch (Exception ex) { return Err(ex, "AddSaleItem"); }
+    }
+
+    /// <summary>
+    /// DELETE /services/sales/{saleId}/items/{itemId}
+    /// Elimina un ítem de servicio de una venta existente (solo en estado pending o in_progress).
+    /// </summary>
+    [HttpDelete("sales/{saleId}/items/{itemId}")]
+    [HrAuthorize("manage_sales", false)]
+    public async Task<IActionResult> DeleteSaleItem(int saleId, int itemId)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            using var tx = await conn.BeginTransactionAsync();
+            try
+            {
+                // Verificar estado y obtener subtotal del ítem
+                using var chkCmd = new MySqlCommand(
+                    "SELECT ss.status FROM service_sale ss WHERE ss.id=@SaleId", conn, tx);
+                chkCmd.Parameters.AddWithValue("@SaleId", saleId);
+                var status = (string?)await chkCmd.ExecuteScalarAsync();
+                if (status == null)
+                {
+                    await tx.RollbackAsync();
+                    return NotFound(new { error = "Venta no encontrada" });
+                }
+                if (status != "pending" && status != "in_progress")
+                {
+                    await tx.RollbackAsync();
+                    return BadRequest(new { error = "Solo se pueden editar ventas en estado pendiente o en progreso" });
+                }
+
+                using var getCmd = new MySqlCommand(
+                    "SELECT subtotal FROM service_sale_item WHERE id=@ItemId AND sale_id=@SaleId",
+                    conn, tx);
+                getCmd.Parameters.AddWithValue("@ItemId", itemId);
+                getCmd.Parameters.AddWithValue("@SaleId", saleId);
+                var subtotalObj = await getCmd.ExecuteScalarAsync();
+                if (subtotalObj == null)
+                {
+                    await tx.RollbackAsync();
+                    return NotFound(new { error = "Ítem no encontrado" });
+                }
+                var subtotal = Convert.ToDecimal(subtotalObj);
+
+                using var delCmd = new MySqlCommand(
+                    "DELETE FROM service_sale_item WHERE id=@ItemId AND sale_id=@SaleId",
+                    conn, tx);
+                delCmd.Parameters.AddWithValue("@ItemId", itemId);
+                delCmd.Parameters.AddWithValue("@SaleId", saleId);
+                await delCmd.ExecuteNonQueryAsync();
+
+                // Actualizar total_amount de la venta
+                using var totCmd = new MySqlCommand(
+                    "UPDATE service_sale SET total_amount=GREATEST(0,total_amount-@Sub), updated_at=NOW() WHERE id=@SaleId",
+                    conn, tx);
+                totCmd.Parameters.AddWithValue("@Sub", subtotal);
+                totCmd.Parameters.AddWithValue("@SaleId", saleId);
+                await totCmd.ExecuteNonQueryAsync();
+
+                await tx.CommitAsync();
+                return Ok(new { message = "Ítem eliminado" });
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+        catch (Exception ex) { return Err(ex, "DeleteSaleItem"); }
     }
 
     // ================================================================
@@ -1517,7 +1719,8 @@ public record SaleRequest(
     string? Status, DateTime Date, DateTime? ScheduledDate, string? Notes, int? CreatedBy,
     List<SaleItemRequest> Items,
     string? DocumentType,
-    int? PaymentType, int? InstallmentsCount, DateTime? PaymentStartDate);
+    int? PaymentType, int? InstallmentsCount, DateTime? PaymentStartDate,
+    int? PaymentMethodId);
 
 public record UpdateSaleRequest(
     string? Status, int? UserId,
@@ -1525,7 +1728,8 @@ public record UpdateSaleRequest(
     string? ClientEmail, string? ClientPhone,
     DateTime? ScheduledDate, string? Notes,
     string? DocumentType,
-    int? PaymentType, int? InstallmentsCount, DateTime? PaymentStartDate);
+    int? PaymentType, int? InstallmentsCount, DateTime? PaymentStartDate,
+    int? PaymentMethodId);
 
 public record AddSaleSupplyRequest(
     int SupplyId, decimal? Quantity, decimal? UnitCost, string? Notes);
