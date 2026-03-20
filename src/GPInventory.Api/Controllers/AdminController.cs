@@ -754,6 +754,139 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Obtiene métricas generales del sistema para el dashboard
+    /// </summary>
+    [HttpGet("stats")]
+    public async Task<IActionResult> GetStats()
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var query = @"
+                SELECT
+                    (SELECT COUNT(*) FROM user) AS total_users,
+                    (SELECT COUNT(*) FROM user WHERE active = 1) AS active_users,
+                    (SELECT COUNT(*) FROM user WHERE active = 0) AS inactive_users,
+                    (SELECT COUNT(*) FROM business) AS total_businesses,
+                    (SELECT COUNT(*) FROM business WHERE active = 1) AS active_businesses,
+                    (SELECT COUNT(*) FROM user WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS new_users_30d,
+                    (SELECT COUNT(*) FROM user WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS new_users_7d";
+
+            using var cmd = new MySqlCommand(query, conn);
+            using var reader = await cmd.ExecuteReaderAsync();
+
+            object stats = new { };
+            if (await reader.ReadAsync())
+            {
+                stats = new
+                {
+                    totalUsers = reader.GetInt32("total_users"),
+                    activeUsers = reader.GetInt32("active_users"),
+                    inactiveUsers = reader.GetInt32("inactive_users"),
+                    totalBusinesses = reader.GetInt32("total_businesses"),
+                    activeBusinesses = reader.GetInt32("active_businesses"),
+                    newUsersLast30Days = reader.GetInt32("new_users_30d"),
+                    newUsersLast7Days = reader.GetInt32("new_users_7d")
+                };
+            }
+            reader.Close();
+
+            // Usuarios más recientes
+            var recentQuery = @"
+                SELECT id, CONCAT(name, ' ', lastname) AS full_name, mail, active, created_at
+                FROM user
+                ORDER BY created_at DESC
+                LIMIT 5";
+
+            using var recentCmd = new MySqlCommand(recentQuery, conn);
+            using var recentReader = await recentCmd.ExecuteReaderAsync();
+
+            var recentUsers = new List<object>();
+            while (await recentReader.ReadAsync())
+            {
+                recentUsers.Add(new
+                {
+                    id = recentReader.GetInt32("id"),
+                    fullName = recentReader.GetString("full_name"),
+                    email = recentReader.GetString("mail"),
+                    active = recentReader.GetBoolean("active"),
+                    createdAt = recentReader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss")
+                });
+            }
+
+            return Ok(new { stats, recentUsers });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting admin stats");
+            return StatusCode(500, new { message = "Error retrieving stats", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Resetea la contraseña de un usuario (solo super_admin)
+    /// </summary>
+    [HttpPost("users/{userId}/reset-password")]
+    public async Task<IActionResult> ResetUserPassword(int userId, [FromBody] ResetPasswordRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
+            {
+                return BadRequest(new { message = "La nueva contraseña debe tener al menos 6 caracteres" });
+            }
+
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            // Verificar que el usuario existe
+            var checkQuery = "SELECT COUNT(*) FROM user WHERE id = @UserId";
+            using var checkCmd = new MySqlCommand(checkQuery, conn);
+            checkCmd.Parameters.AddWithValue("@UserId", userId);
+            var exists = Convert.ToInt32(await checkCmd.ExecuteScalarAsync()) > 0;
+
+            if (!exists)
+            {
+                return NotFound(new { message = "Usuario no encontrado" });
+            }
+
+            // Hashear con BCrypt
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword, 12);
+
+            var updateQuery = @"
+                UPDATE user 
+                SET password = @Password, salt = '', updated_at = @Now
+                WHERE id = @UserId";
+
+            using var updateCmd = new MySqlCommand(updateQuery, conn);
+            updateCmd.Parameters.AddWithValue("@Password", hashedPassword);
+            updateCmd.Parameters.AddWithValue("@Now", DateTime.UtcNow);
+            updateCmd.Parameters.AddWithValue("@UserId", userId);
+
+            var rowsAffected = await updateCmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected > 0)
+            {
+                _logger.LogInformation("Password reset for user {UserId} by super_admin", userId);
+                return Ok(new { message = "Contraseña actualizada exitosamente" });
+            }
+
+            return StatusCode(500, new { message = "No se pudo actualizar la contraseña" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting password for user {UserId}", userId);
+            return StatusCode(500, new { message = "Error al resetear contraseña", error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Sube una imagen y retorna la URL
     /// </summary>
     [HttpPost("upload-image")]
@@ -1095,4 +1228,9 @@ public class UpdateStoreRequest
     public string? Location { get; set; }
     public string? OpenHour { get; set; }
     public string? CloseHour { get; set; }
+}
+
+public class ResetPasswordRequest
+{
+    public string NewPassword { get; set; } = string.Empty;
 }

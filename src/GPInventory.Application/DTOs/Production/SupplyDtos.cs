@@ -40,8 +40,7 @@ public class CreateSupplyDto
     [Required]
     public int BusinessId { get; set; }
     
-    [Required]
-    public int StoreId { get; set; }
+    public int? StoreId { get; set; }
 }
 
 public class SupplyDto
@@ -55,7 +54,7 @@ public class SupplyDto
     public int? ExpenseTypeId { get; set; }
     public bool Active { get; set; }
     public int BusinessId { get; set; }
-    public int StoreId { get; set; }
+    public int? StoreId { get; set; }
     public int? SupplyCategoryId { get; set; }
     public SupplyType Type { get; set; }
     public int UsageCount { get; set; } = 0; // Total usage (legacy)
@@ -122,8 +121,7 @@ public class UpdateSupplyDto
     
     public int? PreferredProviderId { get; set; }
     
-    [Required]
-    public int StoreId { get; set; }
+    public int? StoreId { get; set; }
 }
 
 // DTOs auxiliares para referencias

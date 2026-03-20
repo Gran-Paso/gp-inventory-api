@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using GPInventory.Api.Authorization;
 using GPInventory.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Cors;
@@ -278,6 +279,7 @@ public class StockController : ControllerBase
     /// <returns>Movimiento de stock creado</returns>
     [HttpPost]
     [Authorize]
+    [HrAuthorize("manage_inventory", false)] // Operacional: cualquier empleado, pero hr_business_role debe tener manage_inventory
     [ProducesResponseType(201)]
     [ProducesResponseType(400)]
     [ProducesResponseType(401)]
@@ -704,6 +706,7 @@ public class StockController : ControllerBase
     /// <returns>Lote actualizado</returns>
     [HttpPut("{stockId}")]
     [Authorize]
+    [HrAuthorize("manage_inventory", false)]
     [ProducesResponseType(200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(404)]
@@ -1859,6 +1862,7 @@ public class StockController : ControllerBase
     /// <returns>Resultado de la operación</returns>
     [HttpPost("{stockId}/anular")]
     [Authorize]
+    [HrAuthorize("manage_inventory", false)]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
     [ProducesResponseType(401)]
@@ -1976,6 +1980,7 @@ public class StockController : ControllerBase
     /// <returns>Resultado de la operación</returns>
     [HttpPost("{stockId}/corregir")]
     [Authorize]
+    [HrAuthorize("manage_inventory", false)]
     [ProducesResponseType(200)]
     [ProducesResponseType(400)]
     [ProducesResponseType(401)]

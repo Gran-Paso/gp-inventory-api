@@ -1,5 +1,6 @@
 using GPInventory.Application.DTOs.Production;
 using GPInventory.Application.Interfaces;
+using GPInventory.Api.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
@@ -112,6 +113,7 @@ public class SuppliesController : ControllerBase
     /// Create a new supply
     /// </summary>
     [HttpPost]
+    [HrAuthorize("manage_inventory", false)]
     public async Task<ActionResult<SupplyDto>> CreateSupply([FromBody] CreateSupplyDto createSupplyDto)
     {
         try
@@ -136,6 +138,7 @@ public class SuppliesController : ControllerBase
     /// Update an existing supply
     /// </summary>
     [HttpPut("{id}")]
+    [HrAuthorize("manage_inventory", false)]
     public async Task<ActionResult<SupplyDto>> UpdateSupply(int id, [FromBody] UpdateSupplyDto updateSupplyDto)
     {
         try
@@ -160,6 +163,7 @@ public class SuppliesController : ControllerBase
     /// Delete a supply
     /// </summary>
     [HttpDelete("{id}")]
+    [HrAuthorize("manage_inventory", false)]
     public async Task<IActionResult> DeleteSupply(int id)
     {
         try

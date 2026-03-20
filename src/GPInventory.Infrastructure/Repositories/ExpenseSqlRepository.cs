@@ -40,6 +40,7 @@ public class ExpenseSqlRepository : IExpenseSqlRepository
                 e.business_id,
                 e.store_id,
                 e.expense_type_id,
+                e.service_sale_id,
                 s.name as store_name,
                 sc.id as subcategory_id,
                 sc.name as subcategory_name,
@@ -96,6 +97,7 @@ public class ExpenseSqlRepository : IExpenseSqlRepository
                     StoreName = reader.IsDBNull("store_name") ? null : reader.GetString("store_name"),
                     CreatedAt = reader.GetDateTime("date"), // Using date as created_at fallback
                     ExpenseTypeId = reader.IsDBNull("expense_type_id") ? null : reader.GetInt32("expense_type_id"),
+                    ServiceSaleId = reader.IsDBNull("service_sale_id") ? null : reader.GetInt32("service_sale_id"),
                     
                     // Subcategory details
                     Subcategory = new ExpenseSubcategoryDto

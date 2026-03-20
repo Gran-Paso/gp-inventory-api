@@ -55,7 +55,8 @@ public class ExpenseMappingProfile : Profile
             .ForMember(dest => dest.PaymentDate, opt => opt.MapFrom(src => src.StartDate))
             .ForMember(dest => dest.IsActive, opt => opt.MapFrom(src => true))
             .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
-            .ForMember(dest => dest.UpdatedAt, opt => opt.MapFrom(src => DateTime.UtcNow));
+            .ForMember(dest => dest.UpdatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
+            .ForMember(dest => dest.StoreId, opt => opt.MapFrom(src => src.StoreId.HasValue && src.StoreId.Value > 0 ? src.StoreId : null));
         
         CreateMap<UpdateFixedExpenseDto, FixedExpense>()
             .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
@@ -72,7 +73,8 @@ public class ExpenseMappingProfile : Profile
             .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId));
 
         // Category and subcategory mappings
-        CreateMap<ExpenseCategory, ExpenseCategoryDto>();
+        CreateMap<ExpenseCategory, ExpenseCategoryDto>()
+            .ForMember(dest => dest.Subcategories, opt => opt.MapFrom(src => src.Subcategories));
         CreateMap<ExpenseSubcategory, ExpenseSubcategoryDto>();
         CreateMap<RecurrenceType, RecurrenceTypeDto>();
     }

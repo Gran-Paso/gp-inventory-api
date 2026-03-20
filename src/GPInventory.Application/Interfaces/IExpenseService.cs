@@ -6,6 +6,7 @@ public interface IExpenseService
 {
     // Categorías y subcategorías
     Task<IEnumerable<ExpenseCategoryDto>> GetCategoriesAsync();
+    Task<IEnumerable<ExpenseCategoryDto>> GetCategoriesWithSubcategoriesAsync();
     Task<IEnumerable<ExpenseSubcategoryDto>> GetSubcategoriesAsync(int? categoryId = null);
     Task<IEnumerable<RecurrenceTypeDto>> GetRecurrenceTypesAsync();
 

@@ -67,6 +67,7 @@ public class FixedExpenseConfiguration : IEntityTypeConfiguration<FixedExpense>
         builder.HasOne(e => e.Store)
             .WithMany(s => s.FixedExpenses)
             .HasForeignKey(e => e.StoreId)
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
             
         builder.HasOne(e => e.Subcategory)

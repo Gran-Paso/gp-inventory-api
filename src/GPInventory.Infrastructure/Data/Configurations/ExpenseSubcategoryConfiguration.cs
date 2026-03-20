@@ -24,7 +24,7 @@ public class ExpenseSubcategoryConfiguration : IEntityTypeConfiguration<ExpenseS
         
         // Relations
         builder.HasOne(e => e.ExpenseCategory)
-            .WithMany()
+            .WithMany(c => c.Subcategories)
             .HasForeignKey(e => e.ExpenseCategoryId)
             .OnDelete(DeleteBehavior.Restrict);
     }

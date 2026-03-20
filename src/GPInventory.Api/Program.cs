@@ -23,6 +23,9 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
     serverOptions.ListenAnyIP(8080); // Listen on 0.0.0.0:8080
 });
 
+// Memory cache (usado por HrAuthorizeFilter para cachear permisos 5 min)
+builder.Services.AddMemoryCache();
+
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -83,6 +86,9 @@ builder.Services.AddCors(options =>
                 "http://localhost:3003",  // GP Inventory  
                 "http://localhost:3004",  // GP Auth
                 "http://localhost:3005",  // GP Admin
+                "http://localhost:3006",  // GP Services
+                "http://localhost:3007",  // GP Services (fallback port)
+                "http://localhost:3008",  // GP HR
                 "http://localhost:5175",  // Gran Paso website dev
                 "http://localhost:4173",  // Vite preview mode
                 "http://localhost:4174",  // Vite preview mode alternate
@@ -100,6 +106,7 @@ builder.Services.AddCors(options =>
                 "https://factory.granpasochile.cl",    // GP Factory producción
                 "https://auth.granpasochile.cl",       // GP Auth producción
                 "https://admin.granpasochile.cl",      // GP Admin producción
+                "https://services.granpasochile.cl",   // GP Services producción
                 "https://granpasochile.cl",            // Gran Paso website producción
                 "https://www.granpasochile.cl",        // Gran Paso website producción con www
                 // QA
@@ -107,13 +114,13 @@ builder.Services.AddCors(options =>
                 "https://qa.expenses.granpasochile.cl",   // GP Expenses QA
                 "https://qa.factory.granpasochile.cl",    // GP Factory QA
                 "https://qa.auth.granpasochile.cl",       // GP Auth QA
-                "https://qa.admin.granpasochile.cl",      // GP Admin QA
-                // Dev
+                "https://qa.admin.granpasochile.cl",      // GP Admin QA                "https://qa.services.granpasochile.cl",   // GP Services QA                // Dev
                 "https://dev.inventory.granpasochile.cl",  // GP Inventory Dev
                 "https://dev.expenses.granpasochile.cl",   // GP Expenses Dev
                 "https://dev.factory.granpasochile.cl",    // GP Factory Dev
                 "https://dev.auth.granpasochile.cl",       // GP Auth Dev
                 "https://dev.admin.granpasochile.cl",      // GP Admin Dev
+                "https://dev.services.granpasochile.cl",   // GP Services Dev
                 // ngrok tunnels (desarrollo local con HTTPS)
                 "https://2d45-186-78-39-127.ngrok-free.app"
                )

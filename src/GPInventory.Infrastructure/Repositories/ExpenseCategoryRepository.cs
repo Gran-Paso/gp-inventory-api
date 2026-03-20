@@ -51,16 +51,16 @@ public class ExpenseCategoryRepository : IExpenseCategoryRepository
 
     public async Task<IEnumerable<ExpenseCategory>> GetCategoriesWithSubcategoriesAsync()
     {
-        // Simplified - just return categories without includes for now
         return await _dbSet
+            .Include(c => c.Subcategories)
             .OrderBy(c => c.Name)
             .ToListAsync();
     }
 
     public async Task<ExpenseCategory?> GetCategoryWithSubcategoriesAsync(int id)
     {
-        // Simplified - just return category without includes for now
         return await _dbSet
+            .Include(c => c.Subcategories)
             .FirstOrDefaultAsync(c => c.Id == id);
     }
 

@@ -24,7 +24,7 @@ public class ExpenseCategoriesController : ControllerBase
     {
         try
         {
-            var categories = await _expenseService.GetCategoriesAsync();
+            var categories = await _expenseService.GetCategoriesWithSubcategoriesAsync();
             return Ok(categories);
         }
         catch (Exception ex)
