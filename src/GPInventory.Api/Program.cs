@@ -28,11 +28,19 @@ builder.Services.AddMemoryCache();
 
 // Add services to the container.
 builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Desactivar validación automática para poder debugear mejor los errores
+        // Los controladores ahora deben validar manualmente ModelState
+        options.SuppressModelStateInvalidFilter = true;
+    })
     .AddJsonOptions(options =>
     {
         // Configure JSON to handle camelCase from frontend
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        // Permitir que los enums se puedan enviar como strings (ej: "Individual") o números (ej: 0)
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 
@@ -257,6 +265,18 @@ builder.Services.AddScoped<IComponentService, ComponentService>();
 builder.Services.AddScoped<IProviderService, ProviderService>();
 builder.Services.AddScoped<IManufactureService, ManufactureService>();
 
+// GP Services module services
+builder.Services.AddScoped<IServiceCategoryService, ServiceCategoryService>();
+builder.Services.AddScoped<IServiceService, ServiceService>();
+builder.Services.AddScoped<IServiceClientService, ServiceClientService>();
+builder.Services.AddScoped<IServiceSaleService, ServiceSaleService>();
+builder.Services.AddScoped<IServicePlanService, ServicePlanService>();
+builder.Services.AddScoped<IClientServicePlanService, ClientServicePlanService>();
+builder.Services.AddScoped<IServiceAttendanceService, ServiceAttendanceService>();
+builder.Services.AddScoped<IServiceSessionService, ServiceSessionService>();
+builder.Services.AddScoped<IServiceSessionExpenseService, ServiceSessionExpenseService>();
+builder.Services.AddScoped<IPlanBillingPeriodService, PlanBillingPeriodService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -292,6 +312,12 @@ app.Use(async (context, next) =>
 
 // Add error handling middleware
 app.UseMiddleware<ErrorHandlingMiddleware>();
+
+// Add request logging middleware (solo en desarrollo)
+if (app.Environment.IsDevelopment())
+{
+    app.UseMiddleware<RequestLoggingMiddleware>();
+}
 
 // CORS debe ir lo más arriba posible en el pipeline
 var corsLogger = app.Services.GetRequiredService<ILogger<Program>>();
