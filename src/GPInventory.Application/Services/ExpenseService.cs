@@ -19,6 +19,7 @@ public class ExpenseService : IExpenseService
     private readonly IPaymentPlanRepository _paymentPlanRepository;
     private readonly IPaymentInstallmentRepository _paymentInstallmentRepository;
     private readonly ISupplyRepository _supplyRepository;
+    private readonly IExpenseTagRepository _tagRepository;
     private readonly IMapper _mapper;
 
     public ExpenseService(
@@ -31,7 +32,8 @@ public class ExpenseService : IExpenseService
         IPaymentPlanRepository paymentPlanRepository,
         IPaymentInstallmentRepository paymentInstallmentRepository,
         ISupplyRepository supplyRepository,
-        IMapper mapper)
+        IMapper mapper,
+        IExpenseTagRepository tagRepository)
     {
         _expenseRepository = expenseRepository;
         _expenseSqlRepository = expenseSqlRepository;
@@ -43,6 +45,7 @@ public class ExpenseService : IExpenseService
         _paymentInstallmentRepository = paymentInstallmentRepository;
         _supplyRepository = supplyRepository;
         _mapper = mapper;
+        _tagRepository = tagRepository;
     }
 
     // Categorías y subcategorías
@@ -240,6 +243,10 @@ public class ExpenseService : IExpenseService
 
             // Mapear a DTO ligero
             var result = new List<ExpenseListItemDto>();
+            var expenseIds = expenses.Select(e => e.Id).ToList();
+            
+            // Cargar todas las etiquetas de los egresos en un solo query
+            var tagsByExpense = await _tagRepository.GetTagsByExpenseIdsAsync(expenseIds);
             
             foreach (var e in expenses)
             {
@@ -259,7 +266,10 @@ public class ExpenseService : IExpenseService
                     CategoryName = e.ExpenseSubcategory?.ExpenseCategory?.Name,
                     SubcategoryName = e.ExpenseSubcategory?.Name,
                     HasProvider = e.ProviderId.HasValue,
-                    ProviderName = e.Provider?.Name
+                    ProviderName = e.Provider?.Name,
+                    Tags = tagsByExpense.TryGetValue(e.Id, out var etags)
+                        ? etags.Select(t => new ExpenseListItemDto.TagInfo { Id = t.Id, Name = t.Name, Color = t.Color }).ToList()
+                        : new()
                 };
 
                 // Obtener información de cuotas si existe payment plan
@@ -381,7 +391,21 @@ public class ExpenseService : IExpenseService
             
             // Asegurar que IsFixed tenga un valor válido, convirtiendo NULL a false
             expense.IsFixed = createExpenseDto.IsFixed ?? false;
-            
+
+            // Safety-net: si el tipo de recibo incluye IVA (Boleta=1, Factura Afecta=3)
+            // y el front no envió el desglose, calcularlo aquí en base a AmountTotal o Amount.
+            const int receiptTypeBoleta = 1;
+            const int receiptTypeFacturaAfecta = 3;
+            var baseAmount = expense.AmountTotal ?? expense.Amount;
+            if ((expense.ReceiptTypeId == receiptTypeBoleta || expense.ReceiptTypeId == receiptTypeFacturaAfecta)
+                && baseAmount > 0
+                && expense.AmountNet == null)
+            {
+                expense.AmountNet   = Math.Round(baseAmount / 1.19m, 0, MidpointRounding.AwayFromZero);
+                expense.AmountIva   = baseAmount - expense.AmountNet;
+                expense.AmountTotal = baseAmount;
+            }
+
             Console.WriteLine($"CreateExpenseAsync - After manual assignment, expense.IsFixed: {expense.IsFixed}");
             
             var createdExpense = await _expenseRepository.AddAsync(expense);
@@ -612,6 +636,10 @@ public class ExpenseService : IExpenseService
                     EndDate = fe.EndDate,
                     BusinessId = fe.BusinessId,
                     ExpenseTypeId = fe.ExpenseTypeId,
+                    ReceiptTypeId = fe.ReceiptTypeId,
+                    Currency = fe.Currency,
+                    AmountUsd = fe.AmountUsd,
+                    UsdExchangeRate = fe.UsdExchangeRate,
                     CategoryName = fe.Subcategory?.ExpenseCategory?.Name ?? "Sin categoría",
                     SubcategoryName = fe.Subcategory?.Name ?? "Sin subcategoría",
                     RecurrenceTypeName = fe.RecurrenceType?.Description ?? "No definido",
@@ -795,7 +823,34 @@ public class ExpenseService : IExpenseService
             if (fixedExpense == null)
                 throw new KeyNotFoundException($"Gasto fijo con ID {id} no encontrado");
 
-            _mapper.Map(updateFixedExpenseDto, fixedExpense);
+            // Manual patch — only override fields that were explicitly provided
+            if (updateFixedExpenseDto.Amount.HasValue)
+                fixedExpense.Amount = updateFixedExpenseDto.Amount.Value;
+            if (updateFixedExpenseDto.Description != null)
+                fixedExpense.AdditionalNote = updateFixedExpenseDto.Description;
+            if (updateFixedExpenseDto.RecurrenceTypeId.HasValue)
+                fixedExpense.RecurrenceTypeId = updateFixedExpenseDto.RecurrenceTypeId.Value;
+            if (updateFixedExpenseDto.SubcategoryId.HasValue)
+                fixedExpense.SubcategoryId = updateFixedExpenseDto.SubcategoryId.Value;
+            if (updateFixedExpenseDto.StartDate.HasValue)
+                fixedExpense.PaymentDate = updateFixedExpenseDto.StartDate.Value;
+            if (updateFixedExpenseDto.EndDate.HasValue)
+                fixedExpense.EndDate = updateFixedExpenseDto.EndDate.Value;
+            if (updateFixedExpenseDto.Notes != null)
+                fixedExpense.AdditionalNote = updateFixedExpenseDto.Notes;
+            if (updateFixedExpenseDto.StoreId.HasValue)
+                fixedExpense.StoreId = updateFixedExpenseDto.StoreId.Value;
+            if (updateFixedExpenseDto.ExpenseTypeId.HasValue)
+                fixedExpense.ExpenseTypeId = updateFixedExpenseDto.ExpenseTypeId.Value;
+            if (updateFixedExpenseDto.ReceiptTypeId.HasValue)
+                fixedExpense.ReceiptTypeId = updateFixedExpenseDto.ReceiptTypeId.Value;
+            if (updateFixedExpenseDto.Currency != null)
+                fixedExpense.Currency = updateFixedExpenseDto.Currency;
+            if (updateFixedExpenseDto.AmountUsd.HasValue)
+                fixedExpense.AmountUsd = updateFixedExpenseDto.AmountUsd.Value;
+            if (updateFixedExpenseDto.UsdExchangeRate.HasValue)
+                fixedExpense.UsdExchangeRate = updateFixedExpenseDto.UsdExchangeRate.Value;
+
             fixedExpense.UpdatedAt = DateTime.UtcNow;
             
             await _fixedExpenseRepository.UpdateAsync(fixedExpense);

@@ -201,13 +201,13 @@ builder.Services.AddScoped<IStockRepository, StockRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 
 // Expense repositories
-builder.Services.AddScoped<IExpenseRepository, ExpenseRepository>();
+ builder.Services.AddScoped<IExpenseRepository, ExpenseRepository>();
 builder.Services.AddScoped<IExpenseSqlRepository, ExpenseSqlRepository>();
 builder.Services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
 builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository>();
 builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepository>();
 builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
-builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();
+builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();builder.Services.AddScoped<IExpenseTagRepository, ExpenseTagRepository>();builder.Services.AddScoped<IExpenseTagRepository, ExpenseTagRepository>();
 
 // Bank integration (Fintoc) repositories
 builder.Services.AddScoped<IBankConnectionRepository, BankConnectionRepository>();
@@ -243,6 +243,7 @@ builder.Services.AddScoped<IProductAuditService, ProductAuditService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
 builder.Services.AddScoped<IBudgetService, BudgetService>();
+builder.Services.AddScoped<IExpenseTagService, ExpenseTagService>();
 
 // Bank integration (Fintoc) services
 builder.Services.AddHttpClient<IFintocService, FintocService>();

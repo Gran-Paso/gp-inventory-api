@@ -25,6 +25,22 @@ public class FixedExpense
     
     [ForeignKey(nameof(ExpenseType))]
     public int? ExpenseTypeId { get; set; } // Tipo de egreso: Gasto, Costo o Inversión
+
+    [Column("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; } // Tipo de documento: Boleta, Factura Exenta, Factura Afecta, Sin Documento
+
+    /// <summary>Moneda en que está expresado el monto. "CLP" (default) o "USD".</summary>
+    [Column("currency")]
+    [StringLength(3)]
+    public string Currency { get; set; } = "CLP";
+
+    /// <summary>Monto original en USD si Currency = "USD". Null cuando Currency = "CLP".</summary>
+    [Column("amount_usd", TypeName = "decimal(18,4)")]
+    public decimal? AmountUsd { get; set; }
+
+    /// <summary>Tipo de cambio CLP/USD usado al registrar el gasto recurrente. Null si Currency = "CLP".</summary>
+    [Column("usd_exchange_rate", TypeName = "decimal(18,4)")]
+    public decimal? UsdExchangeRate { get; set; }
     
     public DateTime? EndDate { get; set; }
     public DateTime? PaymentDate { get; set; }
@@ -46,7 +62,8 @@ public class FixedExpense
     public FixedExpense(int businessId, string additionalNote, decimal amount, 
                        int recurrenceTypeId, int? storeId = null, 
                        int? subcategoryId = null, DateTime? endDate = null, 
-                       DateTime? paymentDate = null, int? expenseTypeId = null)
+                       DateTime? paymentDate = null, int? expenseTypeId = null,
+                       int? receiptTypeId = null)
     {
         BusinessId = businessId;
         StoreId = storeId;
@@ -57,5 +74,6 @@ public class FixedExpense
         EndDate = endDate;
         PaymentDate = paymentDate;
         ExpenseTypeId = expenseTypeId;
+        ReceiptTypeId = receiptTypeId;
     }
 }

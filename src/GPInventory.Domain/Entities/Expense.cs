@@ -62,6 +62,19 @@ public class Expense
     [Column("service_sale_id")]
     public int? ServiceSaleId { get; set; } // Venta de servicio que originó este gasto (gp-services)
 
+    /// <summary>Moneda en que fue registrado el egreso. "CLP" (default) o "USD".</summary>
+    [Column("currency")]
+    [StringLength(3)]
+    public string Currency { get; set; } = "CLP";
+
+    /// <summary>Monto original en USD si Currency = "USD". El campo Amount/AmountTotal siempre almacena el equivalente en CLP.</summary>
+    [Column("amount_usd", TypeName = "decimal(18,4)")]
+    public decimal? AmountUsd { get; set; }
+
+    /// <summary>Tipo de cambio CLP/USD usado al registrar el egreso. Null si Currency = "CLP".</summary>
+    [Column("usd_exchange_rate", TypeName = "decimal(18,4)")]
+    public decimal? UsdExchangeRate { get; set; }
+
     // Navigation properties
     public ExpenseSubcategory ExpenseSubcategory { get; set; } = null!;
     public Business Business { get; set; } = null!;
@@ -69,6 +82,7 @@ public class Expense
     public FixedExpense? FixedExpense { get; set; } // Navigation to the fixed expense that generated this
     public ExpenseType? ExpenseType { get; set; } // Tipo de egreso
     public Provider? Provider { get; set; } // Proveedor asociado
+    public ICollection<ExpenseTagAssignment> TagAssignments { get; set; } = new List<ExpenseTagAssignment>();
     public string Notes { get; set; } = string.Empty;
     public string CreatedAt { get; set; } = DateTime.UtcNow.ToString("o"); // ISO 8601 format for consistency
 

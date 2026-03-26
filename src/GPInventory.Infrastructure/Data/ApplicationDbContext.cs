@@ -35,6 +35,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<Expense> Expenses { get; set; }
     public DbSet<FixedExpense> FixedExpenses { get; set; }
     public DbSet<ExpenseType> ExpenseTypes { get; set; }
+    public DbSet<ExpenseTag> ExpenseTags { get; set; }
+    public DbSet<ExpenseTagAssignment> ExpenseTagAssignments { get; set; }
     
     // Production entities
     public DbSet<Supply> Supplies { get; set; }
@@ -178,6 +180,8 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ExpenseTypeConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseConfiguration());
         modelBuilder.ApplyConfiguration(new FixedExpenseConfiguration());
+        modelBuilder.ApplyConfiguration(new ExpenseTagConfiguration());
+        modelBuilder.ApplyConfiguration(new ExpenseTagAssignmentConfiguration());
 
         // Apply Bank integration configurations
         modelBuilder.ApplyConfiguration(new BankEntityConfiguration());
