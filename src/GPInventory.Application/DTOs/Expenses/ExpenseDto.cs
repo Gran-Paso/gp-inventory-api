@@ -250,6 +250,21 @@ public class ExpenseWithDetailsDto
     
     [JsonPropertyName("amount_total")]
     public decimal? AmountTotal { get; set; }
+
+    [JsonPropertyName("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; }
+
+    /// <summary>Moneda: "CLP" (default) o "USD".</summary>
+    [JsonPropertyName("currency")]
+    public string? Currency { get; set; }
+
+    /// <summary>Monto original en USD. Null si Currency = "CLP".</summary>
+    [JsonPropertyName("amount_usd")]
+    public decimal? AmountUsd { get; set; }
+
+    /// <summary>Tipo de cambio CLP/USD al momento del registro. Null si Currency = "CLP".</summary>
+    [JsonPropertyName("usd_exchange_rate")]
+    public decimal? UsdExchangeRate { get; set; }
     
     public string Description { get; set; } = string.Empty;
     [JsonPropertyName("is_fixed")]
