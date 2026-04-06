@@ -488,7 +488,8 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Obtiene todos los roles disponibles
+    /// Obtiene los roles base asignables a un usuario en un negocio.
+    /// Solo se allow "Dueño" y "Empleado".
     /// </summary>
     [HttpGet("roles")]
     public async Task<IActionResult> GetAllRoles()
@@ -500,12 +501,12 @@ public class AdminController : ControllerBase
             using var conn = GetConnection();
             await conn.OpenAsync();
 
+            // Solo se retornan los dos roles base válidos para la asignación
             var query = @"
-                SELECT 
-                    id,
-                    name
+                SELECT id, name
                 FROM role
-                ORDER BY name";
+                WHERE name IN ('Dueño', 'Empleado')
+                ORDER BY FIELD(name, 'Dueño', 'Empleado')";
 
             using var cmd = new MySqlCommand(query, conn);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -526,6 +527,115 @@ public class AdminController : ControllerBase
         {
             _logger.LogError(ex, "Error getting roles");
             return StatusCode(500, new { message = "Error retrieving roles", error = ex.Message });
+        }
+    }
+
+    // ================================================================
+    // BUSINESS APP ACCESS
+    // ================================================================
+
+    /// <summary>
+    /// Retorna las app_key habilitadas para un negocio.
+    /// </summary>
+    [HttpGet("businesses/{businessId}/apps")]
+    public async Task<IActionResult> GetBusinessApps(int businessId)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            using var cmd = new MySqlCommand(
+                "SELECT app_key FROM business_app_access WHERE business_id = @BID ORDER BY app_key", conn);
+            cmd.Parameters.AddWithValue("@BID", businessId);
+            using var reader = await cmd.ExecuteReaderAsync();
+
+            var apps = new List<string>();
+            while (await reader.ReadAsync())
+                apps.Add(reader.GetString("app_key"));
+
+            return Ok(apps);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting business apps for {BusinessId}", businessId);
+            return StatusCode(500, new { message = "Error retrieving business apps", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Habilita una app para un negocio.
+    /// </summary>
+    [HttpPost("businesses/{businessId}/apps")]
+    public async Task<IActionResult> AddBusinessApp(int businessId, [FromBody] BusinessAppRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+        if (string.IsNullOrWhiteSpace(request.AppKey))
+            return BadRequest(new { message = "AppKey is required" });
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            // Verificar negocio    
+            var check = Convert.ToInt32(await new MySqlCommand(
+                "SELECT COUNT(*) FROM business WHERE id = @BID AND active = 1", conn)
+                { Parameters = { new MySqlParameter("@BID", businessId) } }
+                .ExecuteScalarAsync());
+            if (check == 0) return NotFound(new { message = "Business not found or inactive" });
+
+            await new MySqlCommand(@"
+                INSERT IGNORE INTO business_app_access (business_id, app_key)
+                VALUES (@BID, @AppKey)", conn)
+            {
+                Parameters =
+                {
+                    new MySqlParameter("@BID",    businessId),
+                    new MySqlParameter("@AppKey", request.AppKey.Trim())
+                }
+            }.ExecuteNonQueryAsync();
+
+            return Ok(new { message = "App enabled for business", businessId, appKey = request.AppKey });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding app {AppKey} to business {BusinessId}", request.AppKey, businessId);
+            return StatusCode(500, new { message = "Error enabling app", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Deshabilita una app para un negocio.
+    /// </summary>
+    [HttpDelete("businesses/{businessId}/apps/{appKey}")]
+    public async Task<IActionResult> RemoveBusinessApp(int businessId, string appKey)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var rows = await new MySqlCommand(@"
+                DELETE FROM business_app_access
+                WHERE business_id = @BID AND app_key = @AppKey", conn)
+            {
+                Parameters =
+                {
+                    new MySqlParameter("@BID",    businessId),
+                    new MySqlParameter("@AppKey", appKey)
+                }
+            }.ExecuteNonQueryAsync();
+
+            if (rows == 0) return NotFound(new { message = "Assignment not found" });
+            return Ok(new { message = "App disabled for business" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing app {AppKey} from business {BusinessId}", appKey, businessId);
+            return StatusCode(500, new { message = "Error disabling app", error = ex.Message });
         }
     }
 
@@ -1190,6 +1300,11 @@ public class AssignBusinessRequest
 {
     public int BusinessId { get; set; }
     public int RoleId { get; set; }
+}
+
+public class BusinessAppRequest
+{
+    public string AppKey { get; set; } = string.Empty;
 }
 
 public class CreateBusinessRequest
