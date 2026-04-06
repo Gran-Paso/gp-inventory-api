@@ -225,7 +225,7 @@ public class BinnacleController : ControllerBase
             using var conn = GetConnection();
             await conn.OpenAsync();
 
-            var sql = @"SELECT id, title, date, business_id, user_id, project_id, summary, created_at, updated_at
+            var sql = @"SELECT id, title, date, business_id, user_id, project_id, summary, meeting_title, created_at, updated_at
                         FROM binnacle_entry
                         WHERE business_id=@B AND user_id=@UID AND date=@Date";
 
@@ -246,20 +246,21 @@ public class BinnacleController : ControllerBase
             var entryId = r.GetInt32("id");
             var entry = new
             {
-                id         = entryId,
-                title      = r.GetString("title"),
-                date       = r.GetDateTime("date").ToString("yyyy-MM-dd"),
-                businessId = r.GetInt32("business_id"),
-                userId     = r.GetInt32("user_id"),
-                projectId  = IsNull(r, "project_id") ? (int?)null : r.GetInt32("project_id"),
-                summary    = IsNull(r, "summary") ? null : r.GetString("summary"),
-                createdAt  = r.GetDateTime("created_at"),
-                updatedAt  = r.GetDateTime("updated_at"),
+                id           = entryId,
+                title        = r.GetString("title"),
+                date         = r.GetDateTime("date").ToString("yyyy-MM-dd"),
+                businessId   = r.GetInt32("business_id"),
+                userId       = r.GetInt32("user_id"),
+                projectId    = IsNull(r, "project_id") ? (int?)null : r.GetInt32("project_id"),
+                summary      = IsNull(r, "summary") ? null : r.GetString("summary"),
+                meetingTitle = IsNull(r, "meeting_title") ? null : r.GetString("meeting_title"),
+                createdAt    = r.GetDateTime("created_at"),
+                updatedAt    = r.GetDateTime("updated_at"),
             };
             await r.CloseAsync();
 
             var items = await ReadItems(conn, entryId);
-            return Ok(new { entry.id, entry.title, entry.date, entry.businessId, entry.userId, entry.projectId, entry.summary, entry.createdAt, entry.updatedAt, items });
+            return Ok(new { entry.id, entry.title, entry.date, entry.businessId, entry.userId, entry.projectId, entry.summary, entry.meetingTitle, entry.createdAt, entry.updatedAt, items });
         }
         catch (Exception ex)
         {
@@ -299,7 +300,7 @@ public class BinnacleController : ControllerBase
             if (!string.IsNullOrEmpty(to))   { where.Add("e.date<=@To");   cmd.Parameters.AddWithValue("@To",   to); }
 
             cmd.CommandText = $@"
-                SELECT e.id, e.title, e.date, e.business_id, e.user_id, e.project_id, e.summary,
+                SELECT e.id, e.title, e.date, e.business_id, e.user_id, e.project_id, e.summary, e.meeting_title,
                        e.created_at, e.updated_at
                 FROM binnacle_entry e
                 WHERE {string.Join(" AND ", where)}
@@ -311,16 +312,17 @@ public class BinnacleController : ControllerBase
             {
                 entries.Add(new
                 {
-                    id         = r.GetInt32("id"),
-                    title      = r.GetString("title"),
-                    date       = r.GetDateTime("date").ToString("yyyy-MM-dd"),
-                    businessId = r.GetInt32("business_id"),
-                    userId     = r.GetInt32("user_id"),
-                    projectId  = IsNull(r, "project_id") ? (int?)null : r.GetInt32("project_id"),
-                    summary    = IsNull(r, "summary") ? null : r.GetString("summary"),
-                    createdAt  = r.GetDateTime("created_at"),
-                    updatedAt  = r.GetDateTime("updated_at"),
-                    items      = new List<object>(), // se rellenan abajo
+                    id           = r.GetInt32("id"),
+                    title        = r.GetString("title"),
+                    date         = r.GetDateTime("date").ToString("yyyy-MM-dd"),
+                    businessId   = r.GetInt32("business_id"),
+                    userId       = r.GetInt32("user_id"),
+                    projectId    = IsNull(r, "project_id") ? (int?)null : r.GetInt32("project_id"),
+                    summary      = IsNull(r, "summary") ? null : r.GetString("summary"),
+                    meetingTitle = IsNull(r, "meeting_title") ? null : r.GetString("meeting_title"),
+                    createdAt    = r.GetDateTime("created_at"),
+                    updatedAt    = r.GetDateTime("updated_at"),
+                    items        = new List<object>(), // se rellenan abajo
                 });
             }
             await r.CloseAsync();
@@ -350,7 +352,7 @@ public class BinnacleController : ControllerBase
             using var conn = GetConnection();
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
-                SELECT id, title, date, business_id, user_id, project_id, summary, created_at, updated_at
+                SELECT id, title, date, business_id, user_id, project_id, summary, meeting_title, created_at, updated_at
                 FROM binnacle_entry WHERE id=@Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
 
@@ -360,20 +362,21 @@ public class BinnacleController : ControllerBase
             var entryId = r.GetInt32("id");
             var entry = new
             {
-                id         = entryId,
-                title      = r.GetString("title"),
-                date       = r.GetDateTime("date").ToString("yyyy-MM-dd"),
-                businessId = r.GetInt32("business_id"),
-                userId     = r.GetInt32("user_id"),
-                projectId  = IsNull(r, "project_id") ? (int?)null : r.GetInt32("project_id"),
-                summary    = IsNull(r, "summary") ? null : r.GetString("summary"),
-                createdAt  = r.GetDateTime("created_at"),
-                updatedAt  = r.GetDateTime("updated_at"),
+                id           = entryId,
+                title        = r.GetString("title"),
+                date         = r.GetDateTime("date").ToString("yyyy-MM-dd"),
+                businessId   = r.GetInt32("business_id"),
+                userId       = r.GetInt32("user_id"),
+                projectId    = IsNull(r, "project_id") ? (int?)null : r.GetInt32("project_id"),
+                summary      = IsNull(r, "summary") ? null : r.GetString("summary"),
+                meetingTitle = IsNull(r, "meeting_title") ? null : r.GetString("meeting_title"),
+                createdAt    = r.GetDateTime("created_at"),
+                updatedAt    = r.GetDateTime("updated_at"),
             };
             await r.CloseAsync();
 
             var items = await ReadItems(conn, entryId);
-            return Ok(new { entry.id, entry.title, entry.date, entry.businessId, entry.userId, entry.projectId, entry.summary, entry.createdAt, entry.updatedAt, items });
+            return Ok(new { entry.id, entry.title, entry.date, entry.businessId, entry.userId, entry.projectId, entry.summary, entry.meetingTitle, entry.createdAt, entry.updatedAt, items });
         }
         catch (Exception ex)
         {
@@ -391,32 +394,34 @@ public class BinnacleController : ControllerBase
 
         try
         {
-            var title      = body.GetProperty("title").GetString()!;
-            var date       = body.GetProperty("date").GetString()!;
-            var businessId = body.GetProperty("businessId").GetInt32();
-            int? projectId = body.TryGetProperty("projectId", out var pid) && pid.ValueKind != JsonValueKind.Null
-                             ? pid.GetInt32() : null;
-            var summary    = body.TryGetProperty("summary", out var s) ? s.GetString() : null;
+            var title        = body.GetProperty("title").GetString()!;
+            var date         = body.GetProperty("date").GetString()!;
+            var businessId   = body.GetProperty("businessId").GetInt32();
+            int? projectId   = body.TryGetProperty("projectId", out var pid) && pid.ValueKind != JsonValueKind.Null
+                               ? pid.GetInt32() : null;
+            var summary      = body.TryGetProperty("summary",      out var s)  ? s.GetString()  : null;
+            var meetingTitle = body.TryGetProperty("meetingTitle", out var mt) ? mt.GetString() : null;
 
             using var conn = GetConnection();
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
-                INSERT INTO binnacle_entry (title, date, business_id, user_id, project_id, summary)
-                VALUES (@Title, @Date, @B, @UID, @PID, @Summary);
+                INSERT INTO binnacle_entry (title, date, business_id, user_id, project_id, summary, meeting_title)
+                VALUES (@Title, @Date, @B, @UID, @PID, @Summary, @MeetingTitle);
                 SELECT LAST_INSERT_ID();", conn);
-            cmd.Parameters.AddWithValue("@Title",   title);
-            cmd.Parameters.AddWithValue("@Date",    date);
-            cmd.Parameters.AddWithValue("@B",       businessId);
-            cmd.Parameters.AddWithValue("@UID",     userId);
-            cmd.Parameters.AddWithValue("@PID",     (object?)projectId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Summary", (object?)summary   ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Title",        title);
+            cmd.Parameters.AddWithValue("@Date",         date);
+            cmd.Parameters.AddWithValue("@B",            businessId);
+            cmd.Parameters.AddWithValue("@UID",          userId);
+            cmd.Parameters.AddWithValue("@PID",          (object?)projectId    ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Summary",      (object?)summary      ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@MeetingTitle", (object?)meetingTitle ?? DBNull.Value);
 
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
 
             return CreatedAtAction(nameof(GetEntryById), new { id = newId }, new
             {
                 id = newId, title, date, businessId,
-                userId, projectId, summary,
+                userId, projectId, summary, meetingTitle,
                 items = new List<object>()
             });
         }
@@ -444,9 +449,10 @@ public class BinnacleController : ControllerBase
             var setClauses = new List<string>();
             var cmd = new MySqlCommand("", conn);
 
-            if (body.TryGetProperty("title", out var t))     { setClauses.Add("title=@Title");     cmd.Parameters.AddWithValue("@Title",   t.GetString()); }
-            if (body.TryGetProperty("summary", out var s))   { setClauses.Add("summary=@Summary"); cmd.Parameters.AddWithValue("@Summary", s.ValueKind == JsonValueKind.Null ? DBNull.Value : s.GetString()); }
-            if (body.TryGetProperty("projectId", out var p)) { setClauses.Add("project_id=@PID");  cmd.Parameters.AddWithValue("@PID",     p.ValueKind == JsonValueKind.Null ? DBNull.Value : p.GetInt32()); }
+            if (body.TryGetProperty("title",        out var t))  { setClauses.Add("title=@Title");              cmd.Parameters.AddWithValue("@Title",        t.GetString()); }
+            if (body.TryGetProperty("summary",      out var s))  { setClauses.Add("summary=@Summary");          cmd.Parameters.AddWithValue("@Summary",      s.ValueKind == JsonValueKind.Null ? DBNull.Value : s.GetString()); }
+            if (body.TryGetProperty("projectId",   out var p))  { setClauses.Add("project_id=@PID");           cmd.Parameters.AddWithValue("@PID",          p.ValueKind == JsonValueKind.Null ? DBNull.Value : p.GetInt32()); }
+            if (body.TryGetProperty("meetingTitle", out var mt)) { setClauses.Add("meeting_title=@MeetingTitle"); cmd.Parameters.AddWithValue("@MeetingTitle", mt.ValueKind == JsonValueKind.Null ? DBNull.Value : mt.GetString()); }
 
             if (setClauses.Count == 0) return BadRequest(new { message = "Nada que actualizar" });
 
