@@ -110,6 +110,7 @@ public class HrController : ControllerBase
                     fullAccess   = true,
                     systemRoleId = (int?)null,
                     permissions  = (object?)null,
+                    businessApps = Array.Empty<string>(), // super_admin no está limitado por apps
                 });
             }
 
@@ -125,10 +126,13 @@ public class HrController : ControllerBase
 
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            // 1. Obtener permisos HR del usuario en el negocio
             using var cmd = new MySqlCommand(@"
-                SELECT r.permissions, ub.id_role AS system_role_id
+                SELECT r.permissions, ub.id_role AS system_role_id, ro.name AS role_name
                 FROM user_has_business ub
-                LEFT JOIN hr_business_role r ON r.id = ub.hr_business_role_id
+                LEFT JOIN hr_business_role r  ON r.id  = ub.hr_business_role_id
+                LEFT JOIN role              ro ON ro.id = ub.id_role
                 WHERE ub.id_user = @UID AND ub.id_business = @BID
                 LIMIT 1", conn);
             cmd.Parameters.AddWithValue("@UID", userId);
@@ -139,21 +143,36 @@ public class HrController : ControllerBase
                 return NotFound(new { message = "Usuario no pertenece a este negocio" });
 
             var systemRoleId = IsNull(r, "system_role_id") ? (int?)null : r.GetInt32("system_role_id");
+            var roleName      = IsNull(r, "role_name")     ? null          : r.GetString("role_name");
+            var permissionsJson = r.IsDBNull(r.GetOrdinal("permissions")) ? null : r.GetString("permissions");
+            await r.CloseAsync();
 
-            if (r.IsDBNull(r.GetOrdinal("permissions")))
+            // 2. Obtener apps habilitadas para el negocio
+            using var appsCmd = new MySqlCommand(
+                "SELECT app_key FROM business_app_access WHERE business_id = @BID ORDER BY app_key", conn);
+            appsCmd.Parameters.AddWithValue("@BID", businessId);
+            using var appsReader = await appsCmd.ExecuteReaderAsync();
+            var businessApps = new List<string>();
+            while (await appsReader.ReadAsync())
+                businessApps.Add(appsReader.GetString("app_key"));
+            await appsReader.CloseAsync();
+
+            // 3. Dueño siempre tiene acceso completo a todas las apps habilitadas,
+            //    independientemente de si tiene un hr_business_role asignado.
+            //    También aplica cuando no hay hr_business_role (permissionsJson == null).
+            if (roleName == "Dueño" || permissionsJson == null)
             {
-                // Sin rol HR específico → acceso completo
                 return Ok(new
                 {
                     fullAccess   = true,
                     systemRoleId,
                     permissions  = (object?)null,
+                    businessApps = businessApps.ToArray(),
                 });
             }
 
-            var permsJson = r.GetString("permissions");
             var perms = JsonSerializer.Deserialize<Dictionary<string, bool>>(
-                permsJson,
+                permissionsJson,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
 
             return Ok(new
@@ -161,6 +180,7 @@ public class HrController : ControllerBase
                 fullAccess   = false,
                 systemRoleId,
                 permissions  = perms,
+                businessApps = businessApps.ToArray(),
             });
         }
         catch (Exception ex)

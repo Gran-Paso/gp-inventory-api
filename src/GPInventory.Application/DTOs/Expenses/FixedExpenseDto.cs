@@ -40,6 +40,21 @@ public class CreateFixedExpenseDto
 
     [JsonPropertyName("expense_type_id")]
     public int? ExpenseTypeId { get; set; }
+
+    [JsonPropertyName("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; }
+
+    /// <summary>Moneda: "CLP" (default) o "USD".</summary>
+    [JsonPropertyName("currency")]
+    public string? Currency { get; set; }
+
+    /// <summary>Monto en USD si Currency = "USD".</summary>
+    [JsonPropertyName("amount_usd")]
+    public decimal? AmountUsd { get; set; }
+
+    /// <summary>Tipo de cambio CLP/USD al registrar. Null si Currency = "CLP".</summary>
+    [JsonPropertyName("usd_exchange_rate")]
+    public decimal? UsdExchangeRate { get; set; }
 }
 
 public class UpdateFixedExpenseDto
@@ -62,6 +77,24 @@ public class UpdateFixedExpenseDto
     public string? Notes { get; set; }
 
     public int? StoreId { get; set; }
+
+    [JsonPropertyName("expense_type_id")]
+    public int? ExpenseTypeId { get; set; }
+
+    [JsonPropertyName("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; }
+
+    /// <summary>Moneda: "CLP" (default) o "USD".</summary>
+    [JsonPropertyName("currency")]
+    public string? Currency { get; set; }
+
+    /// <summary>Monto en USD si Currency = "USD".</summary>
+    [JsonPropertyName("amount_usd")]
+    public decimal? AmountUsd { get; set; }
+
+    /// <summary>Tipo de cambio CLP/USD al registrar. Null si Currency = "CLP".</summary>
+    [JsonPropertyName("usd_exchange_rate")]
+    public decimal? UsdExchangeRate { get; set; }
 }
 
 public class FixedExpenseDto
@@ -80,6 +113,17 @@ public class FixedExpenseDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     
+    public int? ReceiptTypeId { get; set; }
+
+    /// <summary>Moneda: "CLP" (default) o "USD".</summary>
+    public string? Currency { get; set; }
+
+    /// <summary>Monto en USD si Currency = "USD".</summary>
+    public decimal? AmountUsd { get; set; }
+
+    /// <summary>Tipo de cambio CLP/USD al registrar. Null si Currency = "CLP".</summary>
+    public decimal? UsdExchangeRate { get; set; }
+
     // Estado de pago
     public bool IsUpToDate { get; set; }
     public DateTime NextDueDate { get; set; }
@@ -96,6 +140,13 @@ public class FixedExpenseListItemDto
     public DateTime? EndDate { get; set; }
     public int BusinessId { get; set; }
     public int? ExpenseTypeId { get; set; }
+    public int? ReceiptTypeId { get; set; }
+    [JsonPropertyName("currency")]
+    public string? Currency { get; set; }
+    [JsonPropertyName("amount_usd")]
+    public decimal? AmountUsd { get; set; }
+    [JsonPropertyName("usd_exchange_rate")]
+    public decimal? UsdExchangeRate { get; set; }
     public string CategoryName { get; set; } = string.Empty;
     public string SubcategoryName { get; set; } = string.Empty;
     public string RecurrenceTypeName { get; set; } = string.Empty;
@@ -123,6 +174,21 @@ public class FixedExpenseWithDetailsDto
     public DateTime UpdatedAt { get; set; }
     [JsonPropertyName("expense_type_id")]
     public int? ExpenseTypeId { get; set; }
+
+    [JsonPropertyName("receipt_type_id")]
+    public int? ReceiptTypeId { get; set; }
+
+    /// <summary>Moneda: "CLP" (default) o "USD".</summary>
+    [JsonPropertyName("currency")]
+    public string? Currency { get; set; }
+
+    /// <summary>Monto en USD si Currency = "USD".</summary>
+    [JsonPropertyName("amount_usd")]
+    public decimal? AmountUsd { get; set; }
+
+    /// <summary>Tipo de cambio CLP/USD al registrar. Null si Currency = "CLP".</summary>
+    [JsonPropertyName("usd_exchange_rate")]
+    public decimal? UsdExchangeRate { get; set; }
     
     // Estado de pago
     public bool IsUpToDate { get; set; }

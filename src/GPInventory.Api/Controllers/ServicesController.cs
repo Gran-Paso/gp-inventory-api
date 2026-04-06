@@ -240,9 +240,14 @@ public class ServicesController : ControllerBase
             using var costCmd = new MySqlCommand(@"
                 SELECT ci.id, ci.name, ci.description, ci.cost_type, ci.amount, ci.quantity, ci.unit,
                        ci.is_externalized, ci.provider_id, ci.provider_name, ci.receipt_type_id, ci.sort_order,
-                       p.name AS provider_display_name
+                       ci.employee_id, ci.employee_name,
+                       p.name AS provider_display_name,
+                       e.contract_type AS emp_contract_type,
+                       ep.hourly_rate   AS emp_hourly_rate
                 FROM service_cost_item ci
-                LEFT JOIN provider p ON ci.provider_id = p.id
+                LEFT JOIN provider     p  ON ci.provider_id  = p.id
+                LEFT JOIN hr_employee  e  ON ci.employee_id  = e.id
+                LEFT JOIN hr_position  ep ON e.position_id   = ep.id
                 WHERE ci.service_id=@Id ORDER BY ci.sort_order, ci.id", conn);
             costCmd.Parameters.AddWithValue("@Id", id);
             using var cr = await costCmd.ExecuteReaderAsync();
@@ -250,18 +255,22 @@ public class ServicesController : ControllerBase
             while (await cr.ReadAsync())
                 costItems.Add(new
                 {
-                    id             = cr.GetInt32("id"),
-                    name           = cr.GetString("name"),
-                    description    = IsNull(cr, "description")          ? "" : cr.GetString("description"),
-                    costType       = cr.GetString("cost_type"),
-                    amount         = cr.GetDecimal("amount"),
-                    quantity       = cr.GetDecimal("quantity"),
-                    unit           = IsNull(cr, "unit")                 ? "" : cr.GetString("unit"),
-                    isExternalized = cr.GetBoolean("is_externalized"),
-                    providerId     = IsNull(cr, "provider_id")          ? (int?)null : cr.GetInt32("provider_id"),
-                    providerName   = IsNull(cr, "provider_display_name") ? (IsNull(cr, "provider_name") ? "" : cr.GetString("provider_name")) : cr.GetString("provider_display_name"),
-                    receiptTypeId  = IsNull(cr, "receipt_type_id")      ? (int?)null : cr.GetInt32("receipt_type_id"),
-                    sortOrder      = cr.GetInt32("sort_order"),
+                    id                   = cr.GetInt32("id"),
+                    name                 = cr.GetString("name"),
+                    description          = IsNull(cr, "description")           ? "" : cr.GetString("description"),
+                    costType             = cr.GetString("cost_type"),
+                    amount               = cr.GetDecimal("amount"),
+                    quantity             = cr.GetDecimal("quantity"),
+                    unit                 = IsNull(cr, "unit")                  ? "" : cr.GetString("unit"),
+                    isExternalized       = cr.GetBoolean("is_externalized"),
+                    providerId           = IsNull(cr, "provider_id")           ? (int?)null : cr.GetInt32("provider_id"),
+                    providerName         = IsNull(cr, "provider_display_name") ? (IsNull(cr, "provider_name") ? "" : cr.GetString("provider_name")) : cr.GetString("provider_display_name"),
+                    receiptTypeId        = IsNull(cr, "receipt_type_id")       ? (int?)null : cr.GetInt32("receipt_type_id"),
+                    sortOrder            = cr.GetInt32("sort_order"),
+                    employeeId           = IsNull(cr, "employee_id")           ? (int?)null : cr.GetInt32("employee_id"),
+                    employeeName         = IsNull(cr, "employee_name")         ? null : cr.GetString("employee_name"),
+                    employeeContractType = IsNull(cr, "emp_contract_type")     ? null : cr.GetString("emp_contract_type"),
+                    employeeHourlyRate   = IsNull(cr, "emp_hourly_rate")       ? (decimal?)null : cr.GetDecimal("emp_hourly_rate"),
                 });
             await cr.CloseAsync();
 
@@ -413,6 +422,53 @@ public class ServicesController : ControllerBase
     }
 
     // ================================================================
+    // EMPLOYEES (selector para cost items)
+    // ================================================================
+
+    /// <summary>
+    /// GET /api/services/employees?businessId=X
+    /// Devuelve empleados activos del negocio para asignarlos como ítems de costo de mano de obra.
+    /// </summary>
+    [HttpGet("employees")]
+    public async Task<IActionResult> GetEmployeesForCostItems([FromQuery] int businessId)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new MySqlCommand(@"
+                SELECT e.id, e.first_name, e.last_name, e.contract_type, e.current_salary,
+                       e.position_id, p.name AS position_name, p.hourly_rate,
+                       e.department_id, d.name AS department_name
+                FROM hr_employee e
+                LEFT JOIN hr_position   p ON p.id = e.position_id
+                LEFT JOIN hr_department d ON d.id = e.department_id
+                WHERE e.business_id=@B AND e.active=1 AND e.status='active'
+                ORDER BY e.contract_type, e.first_name, e.last_name", conn);
+            cmd.Parameters.AddWithValue("@B", businessId);
+            using var r = await cmd.ExecuteReaderAsync();
+            var list = new List<object>();
+            while (await r.ReadAsync())
+                list.Add(new
+                {
+                    id             = r.GetInt32("id"),
+                    firstName      = r.GetString("first_name"),
+                    lastName       = r.GetString("last_name"),
+                    fullName       = $"{r.GetString("first_name")} {r.GetString("last_name")}",
+                    contractType   = r.GetString("contract_type"),
+                    currentSalary  = r.GetDecimal("current_salary"),
+                    positionId     = IsNull(r, "position_id")   ? (int?)null : r.GetInt32("position_id"),
+                    positionName   = IsNull(r, "position_name") ? null : r.GetString("position_name"),
+                    hourlyRate     = IsNull(r, "hourly_rate")   ? 0m : r.GetDecimal("hourly_rate"),
+                    departmentId   = IsNull(r, "department_id")   ? (int?)null : r.GetInt32("department_id"),
+                    departmentName = IsNull(r, "department_name") ? null : r.GetString("department_name"),
+                });
+            return Ok(list);
+        }
+        catch (Exception ex) { return Err(ex, "GetEmployeesForCostItems"); }
+    }
+
+    // ================================================================
     // COST ITEMS
     // ================================================================
 
@@ -426,8 +482,8 @@ public class ServicesController : ControllerBase
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
                 INSERT INTO service_cost_item
-                    (service_id,name,description,cost_type,amount,quantity,unit,is_externalized,provider_id,provider_name,receipt_type_id,sort_order)
-                VALUES (@Svc,@Name,@Desc,@Type,@Amt,@Qty,@Unit,@Ext,@ProvId,@Prov,@RecType,@Ord);
+                    (service_id,name,description,cost_type,amount,quantity,unit,is_externalized,provider_id,provider_name,receipt_type_id,sort_order,employee_id,employee_name)
+                VALUES (@Svc,@Name,@Desc,@Type,@Amt,@Qty,@Unit,@Ext,@ProvId,@Prov,@RecType,@Ord,@EmpId,@EmpName);
                 SELECT LAST_INSERT_ID();", conn);
             cmd.Parameters.AddWithValue("@Svc",     serviceId);
             cmd.Parameters.AddWithValue("@Name",    req.Name);
@@ -441,6 +497,8 @@ public class ServicesController : ControllerBase
             cmd.Parameters.AddWithValue("@Prov",    (object?)req.ProviderName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@RecType", (object?)req.ReceiptTypeId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",     req.SortOrder ?? 0);
+            cmd.Parameters.AddWithValue("@EmpId",   (object?)req.EmployeeId   ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@EmpName", (object?)req.EmployeeName ?? DBNull.Value);
             return Ok(new { id = Convert.ToInt32(await cmd.ExecuteScalarAsync()) });
         }
         catch (Exception ex) { return Err(ex, "AddCostItem"); }
@@ -458,7 +516,8 @@ public class ServicesController : ControllerBase
                 UPDATE service_cost_item
                 SET name=@Name,description=@Desc,cost_type=@Type,amount=@Amt,
                     quantity=@Qty,unit=@Unit,is_externalized=@Ext,
-                    provider_id=@ProvId,provider_name=@Prov,receipt_type_id=@RecType,sort_order=@Ord
+                    provider_id=@ProvId,provider_name=@Prov,receipt_type_id=@RecType,
+                    sort_order=@Ord,employee_id=@EmpId,employee_name=@EmpName
                 WHERE id=@ItemId AND service_id=@Svc", conn);
             cmd.Parameters.AddWithValue("@ItemId",  itemId);
             cmd.Parameters.AddWithValue("@Svc",     serviceId);
@@ -473,6 +532,8 @@ public class ServicesController : ControllerBase
             cmd.Parameters.AddWithValue("@Prov",    (object?)req.ProviderName  ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@RecType", (object?)req.ReceiptTypeId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",     req.SortOrder ?? 0);
+            cmd.Parameters.AddWithValue("@EmpId",   (object?)req.EmployeeId    ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@EmpName", (object?)req.EmployeeName  ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
             return Ok(new { message = "Ítem actualizado" });
         }
@@ -1703,7 +1764,8 @@ public record CostItemRequest(
     string Name, string? Description, string? CostType,
     decimal Amount, decimal? Quantity, string? Unit,
     bool IsExternalized, int? ProviderId, string? ProviderName,
-    int? ReceiptTypeId, int? SortOrder);
+    int? ReceiptTypeId, int? SortOrder,
+    int? EmployeeId, string? EmployeeName);
 
 public record CreateServiceProviderRequest(string Name, int BusinessId);
 

@@ -70,7 +70,11 @@ public class ExpenseMappingProfile : Profile
             .ForMember(dest => dest.RecurrenceType, opt => opt.MapFrom(src => src.RecurrenceType))
             .ForMember(dest => dest.StoreName, opt => opt.MapFrom(src => src.Store != null ? src.Store.Name : null))
             .ForMember(dest => dest.AssociatedExpenses, opt => opt.MapFrom(src => src.GeneratedExpenses))
-            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId));
+            .ForMember(dest => dest.ExpenseTypeId, opt => opt.MapFrom(src => src.ExpenseTypeId))
+            .ForMember(dest => dest.ReceiptTypeId, opt => opt.MapFrom(src => src.ReceiptTypeId))
+            .ForMember(dest => dest.Currency, opt => opt.MapFrom(src => src.Currency))
+            .ForMember(dest => dest.AmountUsd, opt => opt.MapFrom(src => src.AmountUsd))
+            .ForMember(dest => dest.UsdExchangeRate, opt => opt.MapFrom(src => src.UsdExchangeRate));
 
         // Category and subcategory mappings
         CreateMap<ExpenseCategory, ExpenseCategoryDto>()

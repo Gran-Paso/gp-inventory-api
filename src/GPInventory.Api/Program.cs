@@ -28,11 +28,19 @@ builder.Services.AddMemoryCache();
 
 // Add services to the container.
 builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Desactivar validación automática para poder debugear mejor los errores
+        // Los controladores ahora deben validar manualmente ModelState
+        options.SuppressModelStateInvalidFilter = true;
+    })
     .AddJsonOptions(options =>
     {
         // Configure JSON to handle camelCase from frontend
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        // Permitir que los enums se puedan enviar como strings (ej: "Individual") o números (ej: 0)
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 
@@ -89,6 +97,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:3006",  // GP Services
                 "http://localhost:3007",  // GP Services (fallback port)
                 "http://localhost:3008",  // GP HR
+                "http://localhost:3009",  // GP Binnacle
                 "http://localhost:5175",  // Gran Paso website dev
                 "http://localhost:4173",  // Vite preview mode
                 "http://localhost:4174",  // Vite preview mode alternate
@@ -107,6 +116,9 @@ builder.Services.AddCors(options =>
                 "https://auth.granpasochile.cl",       // GP Auth producción
                 "https://admin.granpasochile.cl",      // GP Admin producción
                 "https://services.granpasochile.cl",   // GP Services producción
+                "https://sessions.granpasochile.cl",   // GP Sessions producción
+                "https://hr.granpasochile.cl",         // GP HR producción
+                "https://binnacle.granpasochile.cl",   // GP Binnacle producción
                 "https://granpasochile.cl",            // Gran Paso website producción
                 "https://www.granpasochile.cl",        // Gran Paso website producción con www
                 // QA
@@ -114,13 +126,21 @@ builder.Services.AddCors(options =>
                 "https://qa.expenses.granpasochile.cl",   // GP Expenses QA
                 "https://qa.factory.granpasochile.cl",    // GP Factory QA
                 "https://qa.auth.granpasochile.cl",       // GP Auth QA
-                "https://qa.admin.granpasochile.cl",      // GP Admin QA                "https://qa.services.granpasochile.cl",   // GP Services QA                // Dev
+                "https://qa.admin.granpasochile.cl",      // GP Admin QA
+                "https://qa.services.granpasochile.cl",   // GP Services QA
+                "https://qa.sessions.granpasochile.cl",   // GP Sessions QA
+                "https://qa.hr.granpasochile.cl",         // GP HR QA
+                "https://qa.binnacle.granpasochile.cl",   // GP Binnacle QA
+                // Dev
                 "https://dev.inventory.granpasochile.cl",  // GP Inventory Dev
                 "https://dev.expenses.granpasochile.cl",   // GP Expenses Dev
                 "https://dev.factory.granpasochile.cl",    // GP Factory Dev
                 "https://dev.auth.granpasochile.cl",       // GP Auth Dev
                 "https://dev.admin.granpasochile.cl",      // GP Admin Dev
                 "https://dev.services.granpasochile.cl",   // GP Services Dev
+                "https://dev.sessions.granpasochile.cl",   // GP Sessions Dev
+                "https://dev.hr.granpasochile.cl",         // GP HR Dev
+                "https://dev.binnacle.granpasochile.cl",   // GP Binnacle Dev
                 // ngrok tunnels (desarrollo local con HTTPS)
                 "https://2d45-186-78-39-127.ngrok-free.app"
                )
@@ -193,13 +213,13 @@ builder.Services.AddScoped<IStockRepository, StockRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 
 // Expense repositories
-builder.Services.AddScoped<IExpenseRepository, ExpenseRepository>();
+ builder.Services.AddScoped<IExpenseRepository, ExpenseRepository>();
 builder.Services.AddScoped<IExpenseSqlRepository, ExpenseSqlRepository>();
 builder.Services.AddScoped<IFixedExpenseRepository, FixedExpenseRepository>();
 builder.Services.AddScoped<IExpenseCategoryRepository, ExpenseCategoryRepository>();
 builder.Services.AddScoped<IExpenseSubcategoryRepository, ExpenseSubcategoryRepository>();
 builder.Services.AddScoped<IRecurrenceTypeRepository, RecurrenceTypeRepository>();
-builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();
+builder.Services.AddScoped<IBudgetRepository, BudgetRepository>();builder.Services.AddScoped<IExpenseTagRepository, ExpenseTagRepository>();builder.Services.AddScoped<IExpenseTagRepository, ExpenseTagRepository>();
 
 // Bank integration (Fintoc) repositories
 builder.Services.AddScoped<IBankConnectionRepository, BankConnectionRepository>();
@@ -235,6 +255,7 @@ builder.Services.AddScoped<IProductAuditService, ProductAuditService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IExpenseCategoryService, ExpenseCategoryService>();
 builder.Services.AddScoped<IBudgetService, BudgetService>();
+builder.Services.AddScoped<IExpenseTagService, ExpenseTagService>();
 
 // Bank integration (Fintoc) services
 builder.Services.AddHttpClient<IFintocService, FintocService>();
@@ -256,6 +277,18 @@ builder.Services.AddScoped<ISupplyEntryService, SupplyEntryService>();
 builder.Services.AddScoped<IComponentService, ComponentService>();
 builder.Services.AddScoped<IProviderService, ProviderService>();
 builder.Services.AddScoped<IManufactureService, ManufactureService>();
+
+// GP Services module services
+builder.Services.AddScoped<IServiceCategoryService, ServiceCategoryService>();
+builder.Services.AddScoped<IServiceService, ServiceService>();
+builder.Services.AddScoped<IServiceClientService, ServiceClientService>();
+builder.Services.AddScoped<IServiceSaleService, ServiceSaleService>();
+builder.Services.AddScoped<IServicePlanService, ServicePlanService>();
+builder.Services.AddScoped<IClientServicePlanService, ClientServicePlanService>();
+builder.Services.AddScoped<IServiceAttendanceService, ServiceAttendanceService>();
+builder.Services.AddScoped<IServiceSessionService, ServiceSessionService>();
+builder.Services.AddScoped<IServiceSessionExpenseService, ServiceSessionExpenseService>();
+builder.Services.AddScoped<IPlanBillingPeriodService, PlanBillingPeriodService>();
 
 var app = builder.Build();
 
@@ -292,6 +325,12 @@ app.Use(async (context, next) =>
 
 // Add error handling middleware
 app.UseMiddleware<ErrorHandlingMiddleware>();
+
+// Add request logging middleware (solo en desarrollo)
+if (app.Environment.IsDevelopment())
+{
+    app.UseMiddleware<RequestLoggingMiddleware>();
+}
 
 // CORS debe ir lo más arriba posible en el pipeline
 var corsLogger = app.Services.GetRequiredService<ILogger<Program>>();

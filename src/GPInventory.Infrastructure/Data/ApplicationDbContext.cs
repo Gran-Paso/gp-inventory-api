@@ -35,6 +35,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<Expense> Expenses { get; set; }
     public DbSet<FixedExpense> FixedExpenses { get; set; }
     public DbSet<ExpenseType> ExpenseTypes { get; set; }
+    public DbSet<ExpenseTag> ExpenseTags { get; set; }
+    public DbSet<ExpenseTagAssignment> ExpenseTagAssignments { get; set; }
     
     // Production entities
     public DbSet<Supply> Supplies { get; set; }
@@ -57,6 +59,27 @@ public class ApplicationDbContext : DbContext
     // Bank integration (Fintoc)
     public DbSet<BankConnection> BankConnections { get; set; }
     public DbSet<BankTransaction> BankTransactions { get; set; }
+
+    // GP Services entities
+    public DbSet<ServiceCategory> ServiceCategories { get; set; }
+    public DbSet<Service> Services { get; set; }
+    public DbSet<ServiceClient> ServiceClients { get; set; }
+    public DbSet<ServiceClientRelationshipType> ServiceClientRelationshipTypes { get; set; }
+    public DbSet<ServiceSale> ServiceSales { get; set; }
+    public DbSet<ServiceSaleItem> ServiceSaleItems { get; set; }
+    public DbSet<ServiceSaleSupply> ServiceSaleSupplies { get; set; }
+    public DbSet<ServiceCostItem> ServiceCostItems { get; set; }
+    public DbSet<ServiceSubService> ServiceSubServices { get; set; }
+    
+    // GP Services - Plans and Attendance
+    public DbSet<ServicePlan> ServicePlans { get; set; }
+    public DbSet<ClientServicePlan> ClientServicePlans { get; set; }
+    public DbSet<PlanTransaction> PlanTransactions { get; set; }
+    public DbSet<PlanBillingPeriod> PlanBillingPeriods { get; set; }
+    public DbSet<PlanEnrollmentGroup> PlanEnrollmentGroups { get; set; }
+    public DbSet<ServiceSession> ServiceSessions { get; set; }
+    public DbSet<ServiceAttendance> ServiceAttendances { get; set; }
+    public DbSet<ServiceSessionExpense> ServiceSessionExpenses { get; set; }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -157,11 +180,26 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ExpenseTypeConfiguration());
         modelBuilder.ApplyConfiguration(new ExpenseConfiguration());
         modelBuilder.ApplyConfiguration(new FixedExpenseConfiguration());
+        modelBuilder.ApplyConfiguration(new ExpenseTagConfiguration());
+        modelBuilder.ApplyConfiguration(new ExpenseTagAssignmentConfiguration());
 
         // Apply Bank integration configurations
         modelBuilder.ApplyConfiguration(new BankEntityConfiguration());
         modelBuilder.ApplyConfiguration(new BankConnectionConfiguration());
         modelBuilder.ApplyConfiguration(new BankTransactionConfiguration());
+
+        // Apply Services configurations
+        modelBuilder.ApplyConfiguration(new ServiceConfiguration());
+        modelBuilder.ApplyConfiguration(new ServiceSaleConfiguration());
+        modelBuilder.ApplyConfiguration(new ServiceCategoryConfiguration());
+        modelBuilder.ApplyConfiguration(new ServiceClientConfiguration());
+        modelBuilder.ApplyConfiguration(new ServicePlanConfiguration());
+        modelBuilder.ApplyConfiguration(new ClientServicePlanConfiguration());
+        modelBuilder.ApplyConfiguration(new PlanTransactionConfiguration());
+        modelBuilder.ApplyConfiguration(new PlanBillingPeriodConfiguration());
+        modelBuilder.ApplyConfiguration(new ServiceSessionConfiguration());
+        modelBuilder.ApplyConfiguration(new ServiceAttendanceConfiguration());
+        modelBuilder.ApplyConfiguration(new ServiceSessionExpenseConfiguration());
 
         // Business configuration
         modelBuilder.Entity<Business>(entity =>
@@ -686,6 +724,27 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.Stock)
                 .WithMany()
                 .HasForeignKey(e => e.StockId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        
+        // Configure ServiceSubService relationships
+        modelBuilder.Entity<ServiceSubService>(entity =>
+        {
+            entity.ToTable("service_sub_service");
+            entity.HasKey(e => e.Id);
+            
+            // Configure relationship with ParentService
+            // Service.SubServices collection represents the children of a parent service
+            entity.HasOne(ss => ss.ParentService)
+                .WithMany(s => s.SubServices)
+                .HasForeignKey(ss => ss.ParentServiceId)
+                .OnDelete(DeleteBehavior.Restrict);
+            
+            // Configure relationship with ChildService
+            // No collection navigation on Service for the inverse relationship
+            entity.HasOne(ss => ss.ChildService)
+                .WithMany()
+                .HasForeignKey(ss => ss.ChildServiceId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
         
