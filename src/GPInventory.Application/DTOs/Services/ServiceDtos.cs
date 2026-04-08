@@ -108,7 +108,7 @@ public class ServiceDto
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
-    public int CategoryId { get; set; }
+    public int? CategoryId { get; set; }
     public int BusinessId { get; set; }
     public int? StoreId { get; set; }
     public decimal BasePrice { get; set; }

@@ -126,6 +126,9 @@ public class MeetingController : ControllerBase
             return;
         }
 
+        var presenceUserId = 0;
+        var presenceName   = "Usuario";
+
         try
         {
             var tokenHandler = new JwtSecurityTokenHandler();
@@ -139,7 +142,17 @@ public class MeetingController : ControllerBase
                 ValidAudience            = jwtSettings["Audience"],
                 ValidateLifetime         = true,
                 ClockSkew                = TimeSpan.Zero
-            }, out _);
+            }, out var validatedToken);
+
+            // Extract user identity for presence tracking
+            var jwt = (JwtSecurityToken)validatedToken;
+            var userIdStr    = jwt.Claims.FirstOrDefault(c => c.Type == "userId")?.Value;
+            var displayName  = jwt.Claims.FirstOrDefault(c =>
+                                   c.Type == "unique_name"
+                                || c.Type == System.Security.Claims.ClaimTypes.Name
+                                || c.Type == "name")?.Value ?? "Usuario";
+            int.TryParse(userIdStr, out presenceUserId);
+            presenceName = displayName;
         }
         catch
         {
@@ -155,6 +168,46 @@ public class MeetingController : ControllerBase
         await Response.Body.FlushAsync(ct);
 
         var channel = _sse.SubscribeMeeting(id);
+
+        // Register presence and immediately broadcast the updated list to all
+        if (presenceUserId > 0)
+            _sse.AddPresence(id, presenceUserId, presenceName);
+        _sse.NotifyMeeting(id, "presence.update", new { users = _sse.GetPresence(id) });
+
+        // Auto-attendance: if the connecting user is a listed participant → mark them attended
+        if (presenceUserId > 0)
+        {
+            try
+            {
+                using var conn = GetConnection();
+                await conn.OpenAsync();
+                using var autoCmd = new MySqlCommand(@"
+                    UPDATE meeting_participant
+                    SET status = 'attended'
+                    WHERE meeting_id = @MID
+                      AND status    != 'attended'
+                      AND (
+                            user_id = @UID
+                            OR employee_id IN (
+                                SELECT id FROM hr_employee WHERE user_id = @UID
+                            )
+                          )
+                      AND EXISTS (
+                          SELECT 1 FROM meeting_instance
+                          WHERE id = @MID AND status = 'draft'
+                      )", conn);
+                autoCmd.Parameters.AddWithValue("@MID", id);
+                autoCmd.Parameters.AddWithValue("@UID", presenceUserId);
+                var affected = await autoCmd.ExecuteNonQueryAsync();
+                if (affected > 0)
+                    _sse.NotifyMeeting(id, "detail.changed", new { byUserId = 0 });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Auto-attendance failed for user {UserId} in meeting {MeetingId}", presenceUserId, id);
+            }
+        }
+
         try
         {
             await foreach (var msg in channel.Reader.ReadAllAsync(ct))
@@ -165,6 +218,9 @@ public class MeetingController : ControllerBase
         }
         finally
         {
+            if (presenceUserId > 0)
+                _sse.RemovePresence(id, presenceUserId);
+            _sse.NotifyMeeting(id, "presence.update", new { users = _sse.GetPresence(id) });
             _sse.UnsubscribeMeeting(id, channel);
         }
     }
@@ -893,7 +949,7 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@EID",    (object?)employeeId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",    orderIndex);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            _sse.NotifyMeeting(id, "detail.changed");
+            _sse.NotifyMeeting(id, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
             return Ok(new { id = newId, meetingId = id, name, status, userId, employeeId, orderIndex });
         }
         catch (Exception ex)
@@ -932,7 +988,7 @@ public class MeetingController : ControllerBase
             await cmd.ExecuteNonQueryAsync();
 
             if (notifyMeetingId.HasValue)
-                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
 
             return Ok(new { id });
         }
@@ -963,7 +1019,7 @@ public class MeetingController : ControllerBase
             await cmd.ExecuteNonQueryAsync();
 
             if (notifyMeetingId.HasValue)
-                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
 
             return NoContent();
         }
@@ -999,7 +1055,7 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@RB",    (object?)raisedBy ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",   orderIndex);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            _sse.NotifyMeeting(id, "detail.changed");
+            _sse.NotifyMeeting(id, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
             return Ok(new { id = newId, meetingId = id, title, raisedBy, orderIndex, tasks = new List<object>(), createdAt = DateTime.UtcNow, updatedAt = DateTime.UtcNow });
         }
         catch (Exception ex)
@@ -1037,7 +1093,7 @@ public class MeetingController : ControllerBase
             await cmd.ExecuteNonQueryAsync();
 
             if (notifyMeetingId.HasValue)
-                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
 
             return Ok(new { id });
         }
@@ -1068,7 +1124,7 @@ public class MeetingController : ControllerBase
             await cmd.ExecuteNonQueryAsync();
 
             if (notifyMeetingId.HasValue)
-                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
 
             return NoContent();
         }
@@ -1118,7 +1174,7 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@Orig",   (object?)originId   ?? DBNull.Value);
 
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            _sse.NotifyMeeting(meetingId, "detail.changed");
+            _sse.NotifyMeeting(meetingId, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
             return Ok(new { id = newId, topicId, meetingId, type, description, responsible, status, dueDate, originTaskId = originId, createdAt = DateTime.UtcNow, updatedAt = DateTime.UtcNow });
         }
         catch (Exception ex)
@@ -1168,7 +1224,7 @@ public class MeetingController : ControllerBase
             await cmd.ExecuteNonQueryAsync();
 
             if (notifyMeetingId.HasValue)
-                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
 
             return Ok(new { id });
         }
@@ -1199,7 +1255,7 @@ public class MeetingController : ControllerBase
             await cmd.ExecuteNonQueryAsync();
 
             if (notifyMeetingId.HasValue)
-                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed", new { byUserId = GetCurrentUserId() ?? 0 });
 
             return NoContent();
         }

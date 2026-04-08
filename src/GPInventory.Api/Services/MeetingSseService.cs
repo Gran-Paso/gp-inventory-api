@@ -14,6 +14,8 @@ public class MeetingSseService
     private readonly ConcurrentDictionary<int, List<Channel<string>>> _bizChannels  = new();
     // ── meeting-level channels ─────────────────────────────────────────────
     private readonly ConcurrentDictionary<int, List<Channel<string>>> _mtgChannels  = new();
+    // ── presence: meetingId → { userId → displayName } ────────────────────
+    private readonly ConcurrentDictionary<int, ConcurrentDictionary<int, string>> _presence = new();
 
     // ── business scope ─────────────────────────────────────────────────────
 
@@ -28,6 +30,27 @@ public class MeetingSseService
     public void UnsubscribeMeeting(int meetingId, Channel<string> ch) => RemoveChannel(_mtgChannels, meetingId, ch);
     public void NotifyMeeting(int meetingId, string eventType, object? data = null)
         => BroadcastTo(_mtgChannels, meetingId, eventType, data);
+
+    // ── presence: who is currently connected to a meeting draft ───────────
+
+    public void AddPresence(int meetingId, int userId, string displayName)
+    {
+        var dict = _presence.GetOrAdd(meetingId, _ => new ConcurrentDictionary<int, string>());
+        dict[userId] = displayName;
+    }
+
+    public void RemovePresence(int meetingId, int userId)
+    {
+        if (_presence.TryGetValue(meetingId, out var dict))
+            dict.TryRemove(userId, out _);
+    }
+
+    public List<object> GetPresence(int meetingId)
+    {
+        if (!_presence.TryGetValue(meetingId, out var dict))
+            return new List<object>();
+        return dict.Select(kv => (object)new { userId = kv.Key, name = kv.Value }).ToList();
+    }
 
     // ── shared helpers ─────────────────────────────────────────────────────
 
