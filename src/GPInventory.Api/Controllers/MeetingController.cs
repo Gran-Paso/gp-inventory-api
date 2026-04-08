@@ -111,6 +111,64 @@ public class MeetingController : ControllerBase
         }
     }
 
+    /// GET /api/meetings/instances/{id}/events?token=JWT
+    /// Per-meeting SSE stream — fires "detail.changed" whenever participants,
+    /// topics, or tasks inside this meeting are mutated.
+    [HttpGet("instances/{id:int}/events")]
+    [AllowAnonymous]
+    public async Task GetMeetingDetailEvents(int id, [FromQuery] string token, CancellationToken ct)
+    {
+        var jwtSettings = _configuration.GetSection("JwtSettings");
+        var secretKey   = jwtSettings["SecretKey"];
+        if (string.IsNullOrEmpty(secretKey) || string.IsNullOrEmpty(token))
+        {
+            Response.StatusCode = 401;
+            return;
+        }
+
+        try
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            tokenHandler.ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+                ValidateIssuer           = true,
+                ValidIssuer              = jwtSettings["Issuer"],
+                ValidateAudience         = true,
+                ValidAudience            = jwtSettings["Audience"],
+                ValidateLifetime         = true,
+                ClockSkew                = TimeSpan.Zero
+            }, out _);
+        }
+        catch
+        {
+            Response.StatusCode = 401;
+            return;
+        }
+
+        Response.ContentType                 = "text/event-stream";
+        Response.Headers["Cache-Control"]    = "no-cache";
+        Response.Headers["X-Accel-Buffering"] = "no";
+
+        await Response.WriteAsync(": connected\n\n", ct);
+        await Response.Body.FlushAsync(ct);
+
+        var channel = _sse.SubscribeMeeting(id);
+        try
+        {
+            await foreach (var msg in channel.Reader.ReadAllAsync(ct))
+            {
+                await Response.WriteAsync(msg, ct);
+                await Response.Body.FlushAsync(ct);
+            }
+        }
+        finally
+        {
+            _sse.UnsubscribeMeeting(id, channel);
+        }
+    }
+
     // ====================================================================
     // HELPERS — read related data
     // ====================================================================
@@ -835,6 +893,7 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@EID",    (object?)employeeId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",    orderIndex);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            _sse.NotifyMeeting(id, "detail.changed");
             return Ok(new { id = newId, meetingId = id, name, status, userId, employeeId, orderIndex });
         }
         catch (Exception ex)
@@ -852,6 +911,13 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            // Resolve meetingId for SSE notification
+            using var midCmd = new MySqlCommand("SELECT meeting_id FROM meeting_participant WHERE id=@Id", conn);
+            midCmd.Parameters.AddWithValue("@Id", id);
+            var midRaw = await midCmd.ExecuteScalarAsync();
+            var notifyMeetingId = midRaw != null ? Convert.ToInt32(midRaw) : (int?)null;
+
             var setClauses = new List<string>();
             var cmd = new MySqlCommand("", conn);
 
@@ -864,6 +930,10 @@ public class MeetingController : ControllerBase
             cmd.CommandText = $"UPDATE meeting_participant SET {string.Join(",", setClauses)} WHERE id=@Id";
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyMeetingId.HasValue)
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+
             return Ok(new { id });
         }
         catch (Exception ex)
@@ -881,9 +951,20 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            // Resolve meetingId before deletion
+            using var midCmd = new MySqlCommand("SELECT meeting_id FROM meeting_participant WHERE id=@Id", conn);
+            midCmd.Parameters.AddWithValue("@Id", id);
+            var midRaw = await midCmd.ExecuteScalarAsync();
+            var notifyMeetingId = midRaw != null ? Convert.ToInt32(midRaw) : (int?)null;
+
             using var cmd = new MySqlCommand("DELETE FROM meeting_participant WHERE id=@Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyMeetingId.HasValue)
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+
             return NoContent();
         }
         catch (Exception ex)
@@ -918,6 +999,7 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@RB",    (object?)raisedBy ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",   orderIndex);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            _sse.NotifyMeeting(id, "detail.changed");
             return Ok(new { id = newId, meetingId = id, title, raisedBy, orderIndex, tasks = new List<object>(), createdAt = DateTime.UtcNow, updatedAt = DateTime.UtcNow });
         }
         catch (Exception ex)
@@ -935,6 +1017,13 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            // Resolve meetingId for SSE notification
+            using var midCmd = new MySqlCommand("SELECT meeting_id FROM meeting_topic WHERE id=@Id", conn);
+            midCmd.Parameters.AddWithValue("@Id", id);
+            var midRaw = await midCmd.ExecuteScalarAsync();
+            var notifyMeetingId = midRaw != null ? Convert.ToInt32(midRaw) : (int?)null;
+
             var setClauses = new List<string>();
             var cmd = new MySqlCommand("", conn);
 
@@ -946,6 +1035,10 @@ public class MeetingController : ControllerBase
             cmd.CommandText = $"UPDATE meeting_topic SET {string.Join(",", setClauses)} WHERE id=@Id";
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyMeetingId.HasValue)
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+
             return Ok(new { id });
         }
         catch (Exception ex)
@@ -963,9 +1056,20 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            // Resolve meetingId before deletion
+            using var midCmd = new MySqlCommand("SELECT meeting_id FROM meeting_topic WHERE id=@Id", conn);
+            midCmd.Parameters.AddWithValue("@Id", id);
+            var midRaw = await midCmd.ExecuteScalarAsync();
+            var notifyMeetingId = midRaw != null ? Convert.ToInt32(midRaw) : (int?)null;
+
             using var cmd = new MySqlCommand("DELETE FROM meeting_topic WHERE id=@Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyMeetingId.HasValue)
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+
             return NoContent();
         }
         catch (Exception ex)
@@ -1014,6 +1118,7 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@Orig",   (object?)originId   ?? DBNull.Value);
 
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            _sse.NotifyMeeting(meetingId, "detail.changed");
             return Ok(new { id = newId, topicId, meetingId, type, description, responsible, status, dueDate, originTaskId = originId, createdAt = DateTime.UtcNow, updatedAt = DateTime.UtcNow });
         }
         catch (Exception ex)
@@ -1051,9 +1156,20 @@ public class MeetingController : ControllerBase
             if (body.TryGetProperty("dueDate",      out var dd)) { setClauses.Add("due_date=@DD");        cmd.Parameters.AddWithValue("@DD",     dd.ValueKind == JsonValueKind.Null ? DBNull.Value : dd.GetString()); }
 
             if (setClauses.Count == 0) return BadRequest(new { message = "Nada que actualizar" });
+
+            // Resolve meetingId for SSE notification
+            using var midCmd = new MySqlCommand("SELECT meeting_id FROM meeting_task WHERE id=@Id", conn);
+            midCmd.Parameters.AddWithValue("@Id", id);
+            var midRaw = await midCmd.ExecuteScalarAsync();
+            var notifyMeetingId = midRaw != null ? Convert.ToInt32(midRaw) : (int?)null;
+
             cmd.CommandText = $"UPDATE meeting_task SET {string.Join(",", setClauses)} WHERE id=@Id";
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyMeetingId.HasValue)
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+
             return Ok(new { id });
         }
         catch (Exception ex)
@@ -1071,9 +1187,20 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            // Resolve meetingId before deletion
+            using var midCmd = new MySqlCommand("SELECT meeting_id FROM meeting_task WHERE id=@Id", conn);
+            midCmd.Parameters.AddWithValue("@Id", id);
+            var midRaw = await midCmd.ExecuteScalarAsync();
+            var notifyMeetingId = midRaw != null ? Convert.ToInt32(midRaw) : (int?)null;
+
             using var cmd = new MySqlCommand("DELETE FROM meeting_task WHERE id=@Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyMeetingId.HasValue)
+                _sse.NotifyMeeting(notifyMeetingId.Value, "detail.changed");
+
             return NoContent();
         }
         catch (Exception ex)
