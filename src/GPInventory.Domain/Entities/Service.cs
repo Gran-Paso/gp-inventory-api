@@ -19,10 +19,12 @@ public class Service
     [Column("name")]
     public string Name { get; set; } = string.Empty;
 
-    [Required]
+    /// <summary>
+    /// If NULL, service doesn't belong to a category (optional).
+    /// </summary>
     [ForeignKey(nameof(Category))]
     [Column("category_id")]
-    public int CategoryId { get; set; }
+    public int? CategoryId { get; set; }
 
     [Required]
     [ForeignKey(nameof(Business))]
@@ -59,13 +61,13 @@ public class Service
     public bool IsTaxable { get; set; } = true;
 
     [Column("active")]
-    public bool Active { get; set; } = true;
+    public bool? Active { get; set; } = true;
 
     [Column("created_at")]
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
 
     [Column("updated_at")]
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation properties
     public virtual ServiceCategory? Category { get; set; }

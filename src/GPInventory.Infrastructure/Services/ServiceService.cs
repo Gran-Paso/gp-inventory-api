@@ -64,7 +64,7 @@ public class ServiceService : IServiceService
     {
         var services = await _context.Services
             .Include(s => s.Category)
-            .Where(s => s.BusinessId == businessId && s.Active)
+            .Where(s => s.BusinessId == businessId && s.Active == true)
             .OrderBy(s => s.Name)
             .ToListAsync();
 
@@ -141,9 +141,9 @@ public class ServiceService : IServiceService
             Description = service.Description,
             PricingType = service.PricingType,
             IsTaxable = service.IsTaxable,
-            Active = service.Active,
-            CreatedAt = service.CreatedAt,
-            UpdatedAt = service.UpdatedAt,
+            Active = service.Active ?? false,
+            CreatedAt = service.CreatedAt ?? DateTime.MinValue,
+            UpdatedAt = service.UpdatedAt ?? DateTime.MinValue,
             Category = service.Category != null ? new ServiceCategoryDto
             {
                 Id = service.Category.Id,

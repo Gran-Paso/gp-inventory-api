@@ -256,9 +256,9 @@ public class ServiceClientService : IServiceClientService
                     Description = i.Service.Description,
                     PricingType = i.Service.PricingType,
                     IsTaxable = i.Service.IsTaxable,
-                    Active = i.Service.Active,
-                    CreatedAt = i.Service.CreatedAt,
-                    UpdatedAt = i.Service.UpdatedAt
+                    Active = i.Service.Active ?? false,
+                    CreatedAt = i.Service.CreatedAt ?? DateTime.MinValue,
+                    UpdatedAt = i.Service.UpdatedAt ?? DateTime.MinValue
                 } : null
             }).ToList()
         });
