@@ -290,6 +290,9 @@ builder.Services.AddScoped<IServiceSessionService, ServiceSessionService>();
 builder.Services.AddScoped<IServiceSessionExpenseService, ServiceSessionExpenseService>();
 builder.Services.AddScoped<IPlanBillingPeriodService, PlanBillingPeriodService>();
 
+// Meeting real-time SSE service
+builder.Services.AddSingleton<GPInventory.Api.Services.MeetingSseService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
