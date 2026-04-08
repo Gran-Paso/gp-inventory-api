@@ -45,6 +45,7 @@ public class ServiceSessionService : IServiceSessionService
             .Include(s => s.Service)
             .Include(s => s.ServicePlan)
             .Include(s => s.Attendances)
+            .AsSplitQuery()
             .Where(s => s.BusinessId == businessId);
 
         if (from.HasValue) query = query.Where(s => s.SessionDate >= from.Value.Date);
@@ -60,6 +61,7 @@ public class ServiceSessionService : IServiceSessionService
             .Include(s => s.Service)
             .Include(s => s.ServicePlan)
             .Include(s => s.Attendances)
+            .AsSplitQuery()
             .Where(s => s.ServiceId == serviceId);
 
         if (from.HasValue) query = query.Where(s => s.SessionDate >= from.Value.Date);
@@ -76,6 +78,7 @@ public class ServiceSessionService : IServiceSessionService
             .Include(s => s.Service)
             .Include(s => s.ServicePlan)
             .Include(s => s.Attendances)
+            .AsSplitQuery()
             .Where(s => s.ServicePlanId == servicePlanId
                      && s.SessionDate >= DateTime.UtcNow.Date
                      && s.SessionDate <= until
