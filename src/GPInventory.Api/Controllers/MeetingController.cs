@@ -3,8 +3,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using MySqlConnector;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
+using Microsoft.IdentityModel.Tokens;
+using GPInventory.Api.Services;
 
 namespace GPInventory.Api.Controllers;
 
@@ -20,11 +24,13 @@ public class MeetingController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<MeetingController> _logger;
+    private readonly MeetingSseService _sse;
 
-    public MeetingController(IConfiguration configuration, ILogger<MeetingController> logger)
+    public MeetingController(IConfiguration configuration, ILogger<MeetingController> logger, MeetingSseService sse)
     {
         _configuration = configuration;
         _logger = logger;
+        _sse = sse;
     }
 
     private MySqlConnection GetConnection()
@@ -42,13 +48,77 @@ public class MeetingController : ControllerBase
     }
 
     // ====================================================================
+    // SSE — real-time stream
+    // EventSource cannot set Authorization headers, so token is passed
+    // as a query-string param and validated manually.
+    // ====================================================================
+
+    /// GET /api/meetings/events?businessId=X&token=JWT
+    [HttpGet("events")]
+    [AllowAnonymous]
+    public async Task GetMeetingEvents([FromQuery] int businessId, [FromQuery] string token, CancellationToken ct)
+    {
+        // Validate JWT manually
+        var jwtSettings = _configuration.GetSection("JwtSettings");
+        var secretKey = jwtSettings["SecretKey"];
+        if (string.IsNullOrEmpty(secretKey) || string.IsNullOrEmpty(token))
+        {
+            Response.StatusCode = 401;
+            return;
+        }
+
+        try
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            tokenHandler.ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+                ValidateIssuer = true,
+                ValidIssuer = jwtSettings["Issuer"],
+                ValidateAudience = true,
+                ValidAudience = jwtSettings["Audience"],
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
+            }, out _);
+        }
+        catch
+        {
+            Response.StatusCode = 401;
+            return;
+        }
+
+        Response.ContentType = "text/event-stream";
+        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers["X-Accel-Buffering"] = "no"; // disable nginx buffering
+
+        // Send an initial comment to open the connection
+        await Response.WriteAsync(": connected\n\n", ct);
+        await Response.Body.FlushAsync(ct);
+
+        var channel = _sse.Subscribe(businessId);
+        try
+        {
+            await foreach (var msg in channel.Reader.ReadAllAsync(ct))
+            {
+                await Response.WriteAsync(msg, ct);
+                await Response.Body.FlushAsync(ct);
+            }
+        }
+        finally
+        {
+            _sse.Unsubscribe(businessId, channel);
+        }
+    }
+
+    // ====================================================================
     // HELPERS — read related data
     // ====================================================================
 
     private static async Task<List<object>> ReadTemplateParticipants(MySqlConnection conn, int templateId)
     {
         using var cmd = new MySqlCommand(@"
-            SELECT id, template_id, name, order_index
+            SELECT id, template_id, name, user_id, employee_id, order_index
             FROM meeting_template_participant
             WHERE template_id = @T
             ORDER BY order_index, id", conn);
@@ -57,14 +127,21 @@ public class MeetingController : ControllerBase
         var list = new List<object>();
         using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
-            list.Add(new { id = r.GetInt32("id"), templateId = r.GetInt32("template_id"), name = r.GetString("name"), orderIndex = r.GetInt32("order_index") });
+            list.Add(new {
+                id         = r.GetInt32("id"),
+                templateId = r.GetInt32("template_id"),
+                name       = r.GetString("name"),
+                userId     = IsNull(r, "user_id")     ? (int?)null : r.GetInt32("user_id"),
+                employeeId = IsNull(r, "employee_id") ? (int?)null : r.GetInt32("employee_id"),
+                orderIndex = r.GetInt32("order_index"),
+            });
         return list;
     }
 
     private static async Task<List<object>> ReadParticipants(MySqlConnection conn, int meetingId)
     {
         using var cmd = new MySqlCommand(@"
-            SELECT id, meeting_id, name, status, order_index
+            SELECT id, meeting_id, name, status, user_id, employee_id, order_index
             FROM meeting_participant
             WHERE meeting_id = @M
             ORDER BY order_index, id", conn);
@@ -73,7 +150,15 @@ public class MeetingController : ControllerBase
         var list = new List<object>();
         using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
-            list.Add(new { id = r.GetInt32("id"), meetingId = r.GetInt32("meeting_id"), name = r.GetString("name"), status = r.GetString("status"), orderIndex = r.GetInt32("order_index") });
+            list.Add(new {
+                id         = r.GetInt32("id"),
+                meetingId  = r.GetInt32("meeting_id"),
+                name       = r.GetString("name"),
+                status     = r.GetString("status"),
+                userId     = IsNull(r, "user_id")     ? (int?)null : r.GetInt32("user_id"),
+                employeeId = IsNull(r, "employee_id") ? (int?)null : r.GetInt32("employee_id"),
+                orderIndex = r.GetInt32("order_index"),
+            });
         return list;
     }
 
@@ -146,6 +231,60 @@ public class MeetingController : ControllerBase
             result.Add(topicData);
         }
         return result;
+    }
+
+    // ====================================================================
+    // BUSINESS PEOPLE — usuarios y empleados del negocio
+    // ====================================================================
+
+    /// GET /api/meetings/business-people?businessId=
+    /// Retorna la lista de personas asociadas al negocio:
+    /// usuarios (user_has_business) + empleados activos sin usuario duplicado (hr_employee).
+    [HttpGet("business-people")]
+    public async Task<IActionResult> GetBusinessPeople([FromQuery] int businessId)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new MySqlCommand(@"
+                SELECT u.id AS user_id, NULL AS employee_id,
+                       TRIM(CONCAT(COALESCE(u.name,''), ' ', COALESCE(u.lastname,''))) COLLATE utf8mb4_unicode_ci AS full_name,
+                       'user' AS person_type
+                FROM user_has_business uhb
+                JOIN user u ON u.id = uhb.id_user
+                WHERE uhb.id_business = @B AND u.active = 1
+
+                UNION ALL
+
+                SELECT he.user_id, he.id AS employee_id,
+                       TRIM(CONCAT(he.first_name, ' ', he.last_name)) COLLATE utf8mb4_unicode_ci AS full_name,
+                       'employee' AS person_type
+                FROM hr_employee he
+                WHERE he.business_id = @B AND he.active = 1 AND he.status = 'active'
+                  AND (he.user_id IS NULL
+                       OR he.user_id NOT IN (
+                           SELECT id_user FROM user_has_business WHERE id_business = @B AND id_user IS NOT NULL
+                       ))
+                ORDER BY full_name", conn);
+            cmd.Parameters.AddWithValue("@B", businessId);
+
+            var list = new List<object>();
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                list.Add(new {
+                    userId     = IsNull(r, "user_id")     ? (int?)null : r.GetInt32("user_id"),
+                    employeeId = IsNull(r, "employee_id") ? (int?)null : r.GetInt32("employee_id"),
+                    name       = r.GetString("full_name"),
+                    type       = r.GetString("person_type"),
+                });
+            return Ok(list);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error obteniendo personas del negocio {Id}", businessId);
+            return StatusCode(500, new { message = "Error interno del servidor" });
+        }
     }
 
     // ====================================================================
@@ -304,18 +443,22 @@ public class MeetingController : ControllerBase
         try
         {
             var name       = body.GetProperty("name").GetString()!;
-            var orderIndex = body.TryGetProperty("orderIndex", out var oi) ? oi.GetInt32() : 0;
+            var orderIndex = body.TryGetProperty("orderIndex",  out var oi) ? oi.GetInt32() : 0;
+            int? userId    = body.TryGetProperty("userId",     out var ui) && ui.ValueKind != JsonValueKind.Null ? ui.GetInt32() : (int?)null;
+            int? employeeId= body.TryGetProperty("employeeId", out var ei) && ei.ValueKind != JsonValueKind.Null ? ei.GetInt32() : (int?)null;
             using var conn = GetConnection();
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
-                INSERT INTO meeting_template_participant (template_id, name, order_index)
-                VALUES (@T, @Name, @Ord);
+                INSERT INTO meeting_template_participant (template_id, name, user_id, employee_id, order_index)
+                VALUES (@T, @Name, @UID, @EID, @Ord);
                 SELECT LAST_INSERT_ID();", conn);
             cmd.Parameters.AddWithValue("@T",    id);
             cmd.Parameters.AddWithValue("@Name", name);
+            cmd.Parameters.AddWithValue("@UID",  (object?)userId     ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@EID",  (object?)employeeId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",  orderIndex);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            return Ok(new { id = newId, templateId = id, name, orderIndex });
+            return Ok(new { id = newId, templateId = id, name, userId, employeeId, orderIndex });
         }
         catch (Exception ex)
         {
@@ -506,6 +649,7 @@ public class MeetingController : ControllerBase
             }
 
             var participants = await ReadParticipants(conn, newId);
+            _sse.Notify(businessId, "meeting.created", new { id = newId });
             return CreatedAtAction(nameof(GetInstance), new { id = newId }, new { id = newId, businessId, templateId = templId, name, facilitator, date, location, schedule, objective, status = "draft", participants, topics = new List<object>() });
         }
         catch (Exception ex)
@@ -535,9 +679,20 @@ public class MeetingController : ControllerBase
             if (body.TryGetProperty("status",      out var st)) { setClauses.Add("status=@Status");       cmd.Parameters.AddWithValue("@Status", st.GetString()); }
 
             if (setClauses.Count == 0) return BadRequest(new { message = "Nada que actualizar" });
+
+            // Resolve businessId for SSE notification
+            using var bidCmd = new MySqlCommand("SELECT business_id FROM meeting_instance WHERE id=@Id", conn);
+            bidCmd.Parameters.AddWithValue("@Id", id);
+            var bidRaw = await bidCmd.ExecuteScalarAsync();
+            var notifyBusinessId = bidRaw != null ? Convert.ToInt32(bidRaw) : (int?)null;
+
             cmd.CommandText = $"UPDATE meeting_instance SET {string.Join(",", setClauses)} WHERE id=@Id";
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyBusinessId.HasValue)
+                _sse.Notify(notifyBusinessId.Value, "meeting.updated", new { id });
+
             return Ok(new { id });
         }
         catch (Exception ex)
@@ -555,9 +710,20 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            // Resolve businessId before deletion so we can notify afterwards
+            using var bidCmd = new MySqlCommand("SELECT business_id FROM meeting_instance WHERE id=@Id", conn);
+            bidCmd.Parameters.AddWithValue("@Id", id);
+            var bidRaw = await bidCmd.ExecuteScalarAsync();
+            var notifyBusinessId = bidRaw != null ? Convert.ToInt32(bidRaw) : (int?)null;
+
             using var cmd = new MySqlCommand("DELETE FROM meeting_instance WHERE id=@Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyBusinessId.HasValue)
+                _sse.Notify(notifyBusinessId.Value, "meeting.deleted", new { id });
+
             return NoContent();
         }
         catch (Exception ex)
@@ -650,22 +816,26 @@ public class MeetingController : ControllerBase
     {
         try
         {
-            var name       = body.GetProperty("name").GetString()!;
-            var status     = body.TryGetProperty("status",     out var st) ? st.GetString() ?? "unknown" : "unknown";
-            var orderIndex = body.TryGetProperty("orderIndex", out var oi) ? oi.GetInt32() : 0;
+            var name        = body.GetProperty("name").GetString()!;
+            var status      = body.TryGetProperty("status",     out var st) ? st.GetString() ?? "unknown" : "unknown";
+            var orderIndex  = body.TryGetProperty("orderIndex", out var oi) ? oi.GetInt32() : 0;
+            int? userId     = body.TryGetProperty("userId",     out var ui) && ui.ValueKind != JsonValueKind.Null ? ui.GetInt32() : (int?)null;
+            int? employeeId = body.TryGetProperty("employeeId", out var ei) && ei.ValueKind != JsonValueKind.Null ? ei.GetInt32() : (int?)null;
 
             using var conn = GetConnection();
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
-                INSERT INTO meeting_participant (meeting_id, name, status, order_index)
-                VALUES (@M, @Name, @Status, @Ord);
+                INSERT INTO meeting_participant (meeting_id, name, status, user_id, employee_id, order_index)
+                VALUES (@M, @Name, @Status, @UID, @EID, @Ord);
                 SELECT LAST_INSERT_ID();", conn);
             cmd.Parameters.AddWithValue("@M",      id);
             cmd.Parameters.AddWithValue("@Name",   name);
             cmd.Parameters.AddWithValue("@Status", status);
+            cmd.Parameters.AddWithValue("@UID",    (object?)userId     ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@EID",    (object?)employeeId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",    orderIndex);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            return Ok(new { id = newId, meetingId = id, name, status, orderIndex });
+            return Ok(new { id = newId, meetingId = id, name, status, userId, employeeId, orderIndex });
         }
         catch (Exception ex)
         {
@@ -685,8 +855,10 @@ public class MeetingController : ControllerBase
             var setClauses = new List<string>();
             var cmd = new MySqlCommand("", conn);
 
-            if (body.TryGetProperty("name",   out var n))  { setClauses.Add("name=@Name");     cmd.Parameters.AddWithValue("@Name",   n.GetString()); }
-            if (body.TryGetProperty("status", out var st)) { setClauses.Add("status=@Status"); cmd.Parameters.AddWithValue("@Status", st.GetString()); }
+            if (body.TryGetProperty("name",       out var n))  { setClauses.Add("name=@Name");       cmd.Parameters.AddWithValue("@Name",   n.GetString()); }
+            if (body.TryGetProperty("status",     out var st)) { setClauses.Add("status=@Status");   cmd.Parameters.AddWithValue("@Status", st.GetString()); }
+            if (body.TryGetProperty("userId",     out var ui)) { setClauses.Add("user_id=@UID");     cmd.Parameters.AddWithValue("@UID",    ui.ValueKind == JsonValueKind.Null ? (object)DBNull.Value : ui.GetInt32()); }
+            if (body.TryGetProperty("employeeId", out var ei)) { setClauses.Add("employee_id=@EID"); cmd.Parameters.AddWithValue("@EID",    ei.ValueKind == JsonValueKind.Null ? (object)DBNull.Value : ei.GetInt32()); }
 
             if (setClauses.Count == 0) return BadRequest(new { message = "Nada que actualizar" });
             cmd.CommandText = $"UPDATE meeting_participant SET {string.Join(",", setClauses)} WHERE id=@Id";
