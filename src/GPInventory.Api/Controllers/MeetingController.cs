@@ -47,6 +47,13 @@ public class MeetingController : ControllerBase
         return int.TryParse(claim?.Value, out int id) ? id : null;
     }
 
+    private string? GetCurrentUserName()
+    {
+        return (User.FindFirst("unique_name")
+             ?? User.FindFirst(ClaimTypes.Name)
+             ?? User.FindFirst("name"))?.Value;
+    }
+
     // ====================================================================
     // SSE — real-time stream
     // EventSource cannot set Authorization headers, so token is passed
@@ -488,6 +495,7 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@UID",  userId);
 
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            _sse.Notify(businessId, "templates.changed", new { id = newId });
             return CreatedAtAction(nameof(GetTemplates), new { businessId }, new { id = newId, businessId, name, facilitator, location, schedule, objective, active = true, participants = new List<object>() });
         }
         catch (Exception ex)
@@ -519,6 +527,13 @@ public class MeetingController : ControllerBase
             cmd.CommandText = $"UPDATE meeting_template SET {string.Join(",", setClauses)} WHERE id=@Id";
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            using var bizCmd2 = new MySqlCommand("SELECT business_id FROM meeting_template WHERE id=@Id", conn);
+            bizCmd2.Parameters.AddWithValue("@Id", id);
+            var bizResult2 = await bizCmd2.ExecuteScalarAsync();
+            if (bizResult2 != null && bizResult2 != DBNull.Value)
+                _sse.Notify(Convert.ToInt32(bizResult2), "templates.changed", new { id });
+
             return Ok(new { id });
         }
         catch (Exception ex)
@@ -536,9 +551,19 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            using var bizCmd3 = new MySqlCommand("SELECT business_id FROM meeting_template WHERE id=@Id", conn);
+            bizCmd3.Parameters.AddWithValue("@Id", id);
+            var bizResult3 = await bizCmd3.ExecuteScalarAsync();
+            int? notifyBizId3 = (bizResult3 != null && bizResult3 != DBNull.Value) ? Convert.ToInt32(bizResult3) : (int?)null;
+
             using var cmd = new MySqlCommand("UPDATE meeting_template SET active=0 WHERE id=@Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyBizId3.HasValue)
+                _sse.Notify(notifyBizId3.Value, "templates.changed", new { id });
+
             return NoContent();
         }
         catch (Exception ex)
@@ -572,6 +597,13 @@ public class MeetingController : ControllerBase
             cmd.Parameters.AddWithValue("@EID",  (object?)employeeId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Ord",  orderIndex);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
+            using var bizCmd4 = new MySqlCommand("SELECT business_id FROM meeting_template WHERE id=@T", conn);
+            bizCmd4.Parameters.AddWithValue("@T", id);
+            var bizResult4 = await bizCmd4.ExecuteScalarAsync();
+            if (bizResult4 != null && bizResult4 != DBNull.Value)
+                _sse.Notify(Convert.ToInt32(bizResult4), "templates.changed", new { templateId = id });
+
             return Ok(new { id = newId, templateId = id, name, userId, employeeId, orderIndex });
         }
         catch (Exception ex)
@@ -589,9 +621,22 @@ public class MeetingController : ControllerBase
         {
             using var conn = GetConnection();
             await conn.OpenAsync();
+
+            using var bizCmd5 = new MySqlCommand(@"
+                SELECT mt.business_id FROM meeting_template mt
+                JOIN meeting_template_participant mtp ON mtp.template_id = mt.id
+                WHERE mtp.id=@Id", conn);
+            bizCmd5.Parameters.AddWithValue("@Id", id);
+            var bizResult5 = await bizCmd5.ExecuteScalarAsync();
+            int? notifyBizId5 = (bizResult5 != null && bizResult5 != DBNull.Value) ? Convert.ToInt32(bizResult5) : (int?)null;
+
             using var cmd = new MySqlCommand("DELETE FROM meeting_template_participant WHERE id=@Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             await cmd.ExecuteNonQueryAsync();
+
+            if (notifyBizId5.HasValue)
+                _sse.Notify(notifyBizId5.Value, "templates.changed", new { participantId = id });
+
             return NoContent();
         }
         catch (Exception ex)
@@ -1041,7 +1086,9 @@ public class MeetingController : ControllerBase
         try
         {
             var title      = body.GetProperty("title").GetString()!;
-            var raisedBy   = body.TryGetProperty("raisedBy",   out var rb) ? rb.GetString() : null;
+            var raisedBy   = body.TryGetProperty("raisedBy", out var rb) && rb.ValueKind != JsonValueKind.Null
+                           ? rb.GetString()
+                           : GetCurrentUserName();
             var orderIndex = body.TryGetProperty("orderIndex", out var oi) ? oi.GetInt32() : 0;
 
             using var conn = GetConnection();
@@ -1148,7 +1195,10 @@ public class MeetingController : ControllerBase
             var type        = body.TryGetProperty("type",        out var tp) ? tp.GetString() ?? "task" : "task";
             var description = body.GetProperty("description").GetString()!;
             // Comments have no responsible/status/dueDate
-            var responsible = (type == "comment") ? null : (body.TryGetProperty("responsible", out var resp) ? resp.GetString() : null);
+            var responsible = (type == "comment") ? null
+                            : body.TryGetProperty("responsible", out var resp) && resp.ValueKind != JsonValueKind.Null && !string.IsNullOrWhiteSpace(resp.GetString())
+                            ? resp.GetString()
+                            : GetCurrentUserName();
             var status      = (type == "comment") ? "pending" : (body.TryGetProperty("status",  out var st)  ? st.GetString()  ?? "pending" : "pending");
             var dueDate     = (type == "comment") ? null : (body.TryGetProperty("dueDate", out var dd) && dd.ValueKind != JsonValueKind.Null ? dd.GetString() : null);
             int? originId   = body.TryGetProperty("originTaskId", out var oid) && oid.ValueKind != JsonValueKind.Null ? oid.GetInt32() : null;
