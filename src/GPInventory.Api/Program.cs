@@ -98,6 +98,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:3007",  // GP Services (fallback port)
                 "http://localhost:3008",  // GP HR
                 "http://localhost:3009",  // GP Binnacle
+                "http://localhost:3010",  // GP Assets
                 "http://localhost:5175",  // Gran Paso website dev
                 "http://localhost:4173",  // Vite preview mode
                 "http://localhost:4174",  // Vite preview mode alternate
@@ -119,6 +120,7 @@ builder.Services.AddCors(options =>
                 "https://sessions.granpasochile.cl",   // GP Sessions producción
                 "https://hr.granpasochile.cl",         // GP HR producción
                 "https://binnacle.granpasochile.cl",   // GP Binnacle producción
+                "https://assets.granpasochile.cl",     // GP Assets producción
                 "https://granpasochile.cl",            // Gran Paso website producción
                 "https://www.granpasochile.cl",        // Gran Paso website producción con www
                 // QA
@@ -131,6 +133,7 @@ builder.Services.AddCors(options =>
                 "https://qa.sessions.granpasochile.cl",   // GP Sessions QA
                 "https://qa.hr.granpasochile.cl",         // GP HR QA
                 "https://qa.binnacle.granpasochile.cl",   // GP Binnacle QA
+                "https://qa.assets.granpasochile.cl",     // GP Assets QA
                 // Dev
                 "https://dev.inventory.granpasochile.cl",  // GP Inventory Dev
                 "https://dev.expenses.granpasochile.cl",   // GP Expenses Dev
@@ -141,6 +144,7 @@ builder.Services.AddCors(options =>
                 "https://dev.sessions.granpasochile.cl",   // GP Sessions Dev
                 "https://dev.hr.granpasochile.cl",         // GP HR Dev
                 "https://dev.binnacle.granpasochile.cl",   // GP Binnacle Dev
+                "https://dev.assets.granpasochile.cl",     // GP Assets Dev
                 // ngrok tunnels (desarrollo local con HTTPS)
                 "https://2d45-186-78-39-127.ngrok-free.app"
                )
@@ -292,6 +296,8 @@ builder.Services.AddScoped<IPlanBillingPeriodService, PlanBillingPeriodService>(
 
 // Meeting real-time SSE service
 builder.Services.AddSingleton<GPInventory.Api.Services.MeetingSseService>();
+// Assets real-time SSE service
+builder.Services.AddSingleton<GPInventory.Api.Services.AssetSseService>();
 
 var app = builder.Build();
 
