@@ -8,7 +8,7 @@ public class ExpenseTypeConfiguration : IEntityTypeConfiguration<ExpenseType>
 {
     public void Configure(EntityTypeBuilder<ExpenseType> builder)
     {
-        builder.ToTable("expense_type");
+        builder.ToTable("expense_types");
         
         builder.HasKey(et => et.Id);
         builder.Property(et => et.Id)
