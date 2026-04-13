@@ -600,6 +600,7 @@ public class ServiceSessionService : IServiceSessionService
         ServiceClientId     = a.ServiceClientId,
         DisplayName         = a.ClientName ?? a.ServiceClient?.Name ?? "Walk-in",
         ClientEmail         = a.ServiceClient?.Email,
+        LinkedUserId        = a.ServiceClient?.LinkedUserId,
         ClientServicePlanId = a.ClientServicePlanId,
         AttendanceType      = a.AttendanceType,
         Status              = a.Status,

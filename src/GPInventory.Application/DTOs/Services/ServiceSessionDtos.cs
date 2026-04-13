@@ -52,6 +52,7 @@ public class SessionAttendeeDto
     public int? ServiceClientId { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string? ClientEmail { get; set; }
+    public int? LinkedUserId { get; set; }
     public int? ClientServicePlanId { get; set; }
     public AttendanceType AttendanceType { get; set; }
     public AttendanceStatus Status { get; set; }

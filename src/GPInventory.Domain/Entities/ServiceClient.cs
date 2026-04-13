@@ -80,6 +80,13 @@ public class ServiceClient
     public int? CreatedByUserId { get; set; }
 
     /// <summary>
+    /// Usuario del sistema vinculado a este cliente.
+    /// Permite auto check-in cuando el usuario está conectado a la página de la sesión.
+    /// </summary>
+    [Column("linked_user_id")]
+    public int? LinkedUserId { get; set; }
+
+    /// <summary>
     /// Si es sub-cliente, apunta al cliente raíz (pagador / tutor).
     /// NULL = cliente raíz independiente.
     /// </summary>

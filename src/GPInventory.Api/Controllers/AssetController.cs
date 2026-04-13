@@ -517,6 +517,7 @@ public class AssetController : ControllerBase
             var registerExpense = body.TryGetProperty("registerExpense", out var re)  && re.GetBoolean();
             var expenseDate     = body.TryGetProperty("expenseDate",    out var ed)  ? ed.GetString() : acquisitionDate.ToString("yyyy-MM-dd");
             var receiptTypeId   = body.TryGetProperty("receiptTypeId",  out var rt)  && rt.ValueKind != JsonValueKind.Null ? rt.GetInt32() : 1;
+            var priceIncludesIva= body.TryGetProperty("priceIncludesIva", out var piv) && piv.GetBoolean();
 
             using var conn = GetConnection();
             await conn.OpenAsync();
@@ -571,10 +572,28 @@ public class AssetController : ControllerBase
 
                 // Cálculo de neto / IVA / total según tipo de comprobante
                 // receipt_type_id: 1=Boleta, 2=Factura exenta, 3=Factura afecta, 4=Sin documento
-                // El acquisitionCost se trata como monto NETO (SII: base depreciable = costo neto)
-                decimal amtNet   = acquisitionCost;
-                decimal amtIva   = receiptTypeId == 3 ? Math.Round(acquisitionCost * 0.19m, 2) : 0m;
-                decimal amtTotal = amtNet + amtIva;
+                // priceIncludesIva: true → el monto ingresado ya tiene IVA, back-calculamos el neto
+                decimal amtNet, amtIva, amtTotal;
+                if (receiptTypeId == 3 && priceIncludesIva)
+                {
+                    // El usuario ingresó el precio total con IVA incluido
+                    amtTotal = acquisitionCost;
+                    amtNet   = Math.Round(acquisitionCost / 1.19m, 2);
+                    amtIva   = amtTotal - amtNet;
+                }
+                else if (receiptTypeId == 3)
+                {
+                    // El usuario ingresó el precio neto (sin IVA) — comportamiento anterior
+                    amtNet   = acquisitionCost;
+                    amtIva   = Math.Round(acquisitionCost * 0.19m, 2);
+                    amtTotal = amtNet + amtIva;
+                }
+                else
+                {
+                    amtNet   = acquisitionCost;
+                    amtIva   = 0m;
+                    amtTotal = amtNet;
+                }
 
                 using var expCmd = new MySqlCommand(@"
                     INSERT INTO expenses
