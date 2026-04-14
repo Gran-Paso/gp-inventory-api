@@ -286,10 +286,13 @@ public class MeetingController : ControllerBase
     private static async Task<List<object>> ReadTasks(MySqlConnection conn, int topicId)
     {
         using var cmd = new MySqlCommand(@"
-            SELECT id, topic_id, meeting_id, type, description, responsible, status, due_date, origin_task_id, created_at, updated_at
-            FROM meeting_task
-            WHERE topic_id = @T
-            ORDER BY created_at", conn);
+            SELECT mt.id, mt.topic_id, mt.meeting_id, mt.type, mt.description, mt.responsible,
+                   mt.status, mt.due_date, mt.origin_task_id, mt.created_at, mt.updated_at,
+                   orig.updated_at AS origin_updated_at
+            FROM meeting_task mt
+            LEFT JOIN meeting_task orig ON orig.id = mt.origin_task_id
+            WHERE mt.topic_id = @T
+            ORDER BY mt.created_at", conn);
         cmd.Parameters.AddWithValue("@T", topicId);
 
         var list = new List<object>();
@@ -298,17 +301,18 @@ public class MeetingController : ControllerBase
         {
             list.Add(new
             {
-                id           = r.GetInt32("id"),
-                topicId      = r.GetInt32("topic_id"),
-                meetingId    = r.GetInt32("meeting_id"),
-                type         = r.GetString("type"),
-                description  = r.GetString("description"),
-                responsible  = IsNull(r, "responsible") ? null : r.GetString("responsible"),
-                status       = r.GetString("status"),
-                dueDate      = IsNull(r, "due_date") ? null : r.GetDateTime("due_date").ToString("yyyy-MM-dd"),
-                originTaskId = IsNull(r, "origin_task_id") ? (int?)null : r.GetInt32("origin_task_id"),
-                createdAt    = r.GetDateTime("created_at"),
-                updatedAt    = r.GetDateTime("updated_at"),
+                id              = r.GetInt32("id"),
+                topicId         = r.GetInt32("topic_id"),
+                meetingId       = r.GetInt32("meeting_id"),
+                type            = r.GetString("type"),
+                description     = r.GetString("description"),
+                responsible     = IsNull(r, "responsible") ? null : r.GetString("responsible"),
+                status          = r.GetString("status"),
+                dueDate         = IsNull(r, "due_date") ? null : r.GetDateTime("due_date").ToString("yyyy-MM-dd"),
+                originTaskId    = IsNull(r, "origin_task_id") ? (int?)null : r.GetInt32("origin_task_id"),
+                createdAt       = r.GetDateTime("created_at"),
+                updatedAt       = r.GetDateTime("updated_at"),
+                originUpdatedAt = IsNull(r, "origin_updated_at") ? (DateTime?)null : r.GetDateTime("origin_updated_at"),
             });
         }
         return list;
@@ -1262,6 +1266,8 @@ public class MeetingController : ControllerBase
             if (body.TryGetProperty("dueDate",      out var dd)) { setClauses.Add("due_date=@DD");        cmd.Parameters.AddWithValue("@DD",     dd.ValueKind == JsonValueKind.Null ? DBNull.Value : dd.GetString()); }
 
             if (setClauses.Count == 0) return BadRequest(new { message = "Nada que actualizar" });
+
+            setClauses.Add("updated_at=NOW()");
 
             // Resolve meetingId for SSE notification
             using var midCmd = new MySqlCommand("SELECT meeting_id FROM meeting_task WHERE id=@Id", conn);
