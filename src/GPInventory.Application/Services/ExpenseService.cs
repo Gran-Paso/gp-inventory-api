@@ -392,6 +392,9 @@ public class ExpenseService : IExpenseService
             // Asegurar que IsFixed tenga un valor válido, convirtiendo NULL a false
             expense.IsFixed = createExpenseDto.IsFixed ?? false;
 
+            // Asegurar que Currency nunca sea null (DB column NOT NULL)
+            expense.Currency = expense.Currency ?? "CLP";
+
             // Safety-net: si el tipo de recibo incluye IVA (Boleta=1, Factura Afecta=3)
             // y el front no envió el desglose, calcularlo aquí en base a AmountTotal o Amount.
             const int receiptTypeBoleta = 1;
