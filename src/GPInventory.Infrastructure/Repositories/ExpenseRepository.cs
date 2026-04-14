@@ -125,7 +125,7 @@ public class ExpenseRepository : IExpenseRepository
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("prov_id")),
                     Name = reader.GetString(reader.GetOrdinal("provider_name")),
-                    Contact = reader.IsDBNull(reader.GetOrdinal("provider_contact")) ? null : reader.GetInt32(reader.GetOrdinal("provider_contact")),
+                    Contact = reader.IsDBNull(reader.GetOrdinal("provider_contact")) ? null : reader.GetValue(reader.GetOrdinal("provider_contact"))?.ToString(),
                     Mail = reader.IsDBNull(reader.GetOrdinal("provider_mail")) ? null : reader.GetString(reader.GetOrdinal("provider_mail")),
                     Address = reader.IsDBNull(reader.GetOrdinal("provider_address")) ? null : reader.GetString(reader.GetOrdinal("provider_address"))
                 };

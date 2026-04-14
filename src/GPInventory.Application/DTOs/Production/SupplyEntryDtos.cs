@@ -81,7 +81,7 @@ public class CreateProviderDto
 
     public int? StoreId { get; set; }
 
-    public int? Contact { get; set; }
+    public string? Contact { get; set; }
 
     [StringLength(500)]
     public string? Address { get; set; }
@@ -106,7 +106,7 @@ public class UpdateProviderDto
 
     public int? StoreId { get; set; }
 
-    public int? Contact { get; set; }
+    public string? Contact { get; set; }
 
     [StringLength(500)]
     public string? Address { get; set; }
@@ -129,7 +129,7 @@ public class ProviderDto
     public string Name { get; set; } = string.Empty;
     public int BusinessId { get; set; }
     public int? StoreId { get; set; }
-    public int? Contact { get; set; }
+    public string? Contact { get; set; }
     public string? Address { get; set; }
     public string? Mail { get; set; }
     public string? Prefix { get; set; }

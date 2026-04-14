@@ -33,7 +33,8 @@ public class Provider : BaseEntity
     /// Información de contacto del proveedor (número de teléfono)
     /// </summary>
     [Column("contact")]
-    public int? Contact { get; set; }
+    [StringLength(50)]
+    public string? Contact { get; set; }
 
     /// <summary>
     /// Dirección del proveedor

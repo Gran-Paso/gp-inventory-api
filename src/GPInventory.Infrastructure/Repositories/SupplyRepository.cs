@@ -191,7 +191,7 @@ public class SupplyRepository : ISupplyRepository
                         storeId: reader.IsDBNull(24) ? null : reader.GetInt32(24)
                     )
                     {
-                        Contact = reader.IsDBNull(25) ? null : reader.GetInt32(25),
+                        Contact = reader.IsDBNull(25) ? null : reader.GetString(25),
                         Address = reader.IsDBNull(26) ? null : reader.GetString(26),
                         Mail = reader.IsDBNull(27) ? null : reader.GetString(27),
                         Prefix = reader.IsDBNull(28) ? null : reader.GetString(28),
@@ -419,7 +419,7 @@ public class SupplyRepository : ISupplyRepository
             {
                 var providerId = reader.GetInt32(22);
                 var providerName = reader.GetString(23);
-                var providerContact = reader.IsDBNull(24) ? null : (int?)reader.GetInt32(24);
+                var providerContact = reader.IsDBNull(24) ? null : reader.GetString(24);
                 
                 supply.PreferredProvider = new Provider(
                     name: providerName,

@@ -58,7 +58,7 @@ public class ProviderRepository : IProviderRepository
                 typeof(Provider).GetProperty("Id")?.SetValue(provider, reader.GetInt32(0));
 
                 // Set additional properties
-                provider.Contact = reader.IsDBNull(4) ? null : reader.GetInt32(4);
+                provider.Contact = reader.IsDBNull(4) ? null : reader.GetValue(4)?.ToString();
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
@@ -112,7 +112,7 @@ public class ProviderRepository : IProviderRepository
                 );
 
                 typeof(Provider).GetProperty("Id")?.SetValue(provider, reader.GetInt32(0));
-                provider.Contact = reader.IsDBNull(4) ? null : reader.GetInt32(4);
+                provider.Contact = reader.IsDBNull(4) ? null : reader.GetValue(4)?.ToString();
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
@@ -174,7 +174,7 @@ public class ProviderRepository : IProviderRepository
                 );
 
                 typeof(Provider).GetProperty("Id")?.SetValue(provider, reader.GetInt32(0));
-                provider.Contact = reader.IsDBNull(4) ? null : reader.GetInt32(4);
+                provider.Contact = reader.IsDBNull(4) ? null : reader.GetValue(4)?.ToString();
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
@@ -236,7 +236,7 @@ public class ProviderRepository : IProviderRepository
                 );
 
                 typeof(Provider).GetProperty("Id")?.SetValue(provider, reader.GetInt32(0));
-                provider.Contact = reader.IsDBNull(4) ? null : reader.GetInt32(4);
+                provider.Contact = reader.IsDBNull(4) ? null : reader.GetValue(4)?.ToString();
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);
@@ -507,7 +507,7 @@ public class ProviderRepository : IProviderRepository
                 );
 
                 typeof(Provider).GetProperty("Id")?.SetValue(provider, reader.GetInt32(0));
-                provider.Contact = reader.IsDBNull(4) ? null : reader.GetInt32(4);
+                provider.Contact = reader.IsDBNull(4) ? null : reader.GetValue(4)?.ToString();
                 provider.Address = reader.IsDBNull(5) ? null : reader.GetString(5);
                 provider.Mail = reader.IsDBNull(6) ? null : reader.GetString(6);
                 provider.Prefix = reader.IsDBNull(7) ? null : reader.GetString(7);

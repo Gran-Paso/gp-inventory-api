@@ -392,6 +392,7 @@ public class StockController : ControllerBase
                     amount = request.Amount,
                     cost = cost,
                     date = date,
+                    providerId = providerId,
                     message = "Movimiento de stock creado exitosamente"
                 };
                 

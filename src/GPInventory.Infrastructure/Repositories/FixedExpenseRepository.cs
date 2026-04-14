@@ -263,7 +263,7 @@ public class FixedExpenseRepository : IFixedExpenseRepository
                     )
                     {
                         Id = reader.GetInt32(11), // provider_id_val
-                        Contact = !reader.IsDBNull(15) ? reader.GetInt32(15) : null,
+                        Contact = !reader.IsDBNull(15) ? reader.GetValue(15)?.ToString() : null,
                         Address = !reader.IsDBNull(16) ? reader.GetString(16) : null,
                         Mail = !reader.IsDBNull(17) ? reader.GetString(17) : null,
                         Prefix = !reader.IsDBNull(18) ? reader.GetString(18) : null,
