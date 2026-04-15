@@ -303,6 +303,8 @@ builder.Services.AddScoped<IPlanBillingPeriodService, PlanBillingPeriodService>(
 builder.Services.AddSingleton<GPInventory.Api.Services.MeetingSseService>();
 // Assets real-time SSE service
 builder.Services.AddSingleton<GPInventory.Api.Services.AssetSseService>();
+// Control (GP Control) real-time SSE service
+builder.Services.AddSingleton<GPInventory.Api.Services.ControlSseService>();
 
 var app = builder.Build();
 
