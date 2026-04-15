@@ -209,6 +209,18 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.FromMinutes(5), // Tolerancia de 5 minutos
             NameClaimType = "email" // Usar email como identificador principal
         };
+        // Allow token via query string for SSE / EventSource connections
+        // (browsers cannot set Authorization headers for EventSource)
+        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                var token = ctx.Request.Query["token"].ToString();
+                if (!string.IsNullOrEmpty(token))
+                    ctx.Token = token;
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();

@@ -504,8 +504,19 @@ public class RetroController : ControllerBase
         Response.Headers["Cache-Control"]     = "no-cache";
         Response.Headers["X-Accel-Buffering"] = "no";
 
+        // Add presence and notify everyone
+        if (userId.HasValue && !string.IsNullOrEmpty(userName))
+        {
+            _sse.AddPresence(id, userId.Value, userName);
+            _sse.Notify(id, "presence_updated", new { presence = _sse.GetPresence(id) });
+        }
+
         var ch = _sse.Subscribe(id);
-        await Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes($"event: connected\ndata: {{\"sessionId\":{id}}}\n\n"), ct);
+        // Send initial connected + current presence snapshot to the new subscriber
+        var presenceJson = System.Text.Json.JsonSerializer.Serialize(
+            new { presence = _sse.GetPresence(id) },
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        await Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes($"event: connected\ndata: {{\"sessionId\":{id}}}\n\nevent: presence_updated\ndata: {presenceJson}\n\n"), ct);
         await Response.Body.FlushAsync(ct);
 
         try
@@ -517,6 +528,14 @@ public class RetroController : ControllerBase
             }
         }
         catch (OperationCanceledException) { }
-        finally { _sse.Unsubscribe(id, ch); }
+        finally
+        {
+            _sse.Unsubscribe(id, ch);
+            if (userId.HasValue)
+            {
+                _sse.RemovePresence(id, userId.Value);
+                _sse.Notify(id, "presence_updated", new { presence = _sse.GetPresence(id) });
+            }
+        }
     }
 }
