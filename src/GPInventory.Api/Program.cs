@@ -305,6 +305,7 @@ builder.Services.AddSingleton<GPInventory.Api.Services.MeetingSseService>();
 builder.Services.AddSingleton<GPInventory.Api.Services.AssetSseService>();
 // Control (GP Control) real-time SSE service
 builder.Services.AddSingleton<GPInventory.Api.Services.ControlSseService>();
+builder.Services.AddSingleton<GPInventory.Api.Services.RetroSseService>();
 
 var app = builder.Build();
 
