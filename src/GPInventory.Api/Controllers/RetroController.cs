@@ -65,7 +65,7 @@ public class RetroController : ControllerBase
         content      = r.GetString("content"),
         groupId      = IsNull(r, "group_id") ? (int?)null : r.GetInt32("group_id"),
         votes        = r.GetInt32("votes"),
-        userVoted    = r.GetInt32("user_voted") > 0,
+        userVotes    = r.GetInt32("user_votes"),
         createdAt    = r.GetDateTime("created_at"),
     };
 
@@ -219,8 +219,8 @@ public class RetroController : ControllerBase
         cmd.CommandText = @"
             SELECT c.id, c.session_id, c.author_user_id, c.author_name, c.column_name,
                    c.content, c.group_id, c.created_at,
-                   COUNT(v.user_id) AS votes,
-                   MAX(CASE WHEN v.user_id = @uid THEN 1 ELSE 0 END) AS user_voted
+                   COALESCE(SUM(v.count), 0) AS votes,
+                   COALESCE(SUM(CASE WHEN v.user_id = @uid THEN v.count ELSE 0 END), 0) AS user_votes
             FROM retro_card c
             LEFT JOIN retro_card_vote v ON v.card_id = c.id
             WHERE c.session_id = @sid
@@ -361,9 +361,29 @@ public class RetroController : ControllerBase
     // VOTES
     // ====================================================================
 
-    /// POST /api/retro/cards/{cardId}/vote  — toggle vote
+    // Shared helper to get updated vote totals and notify SSE
+    private async Task<(int totalVotes, int userVotes)> GetVoteTotals(MySqlConnection cn, int cardId, int userId)
+    {
+        int totalVotes, userVotes;
+        await using (var c = cn.CreateCommand())
+        {
+            c.CommandText = "SELECT COALESCE(SUM(count),0) FROM retro_card_vote WHERE card_id = @cid";
+            c.Parameters.AddWithValue("@cid", cardId);
+            totalVotes = Convert.ToInt32(await c.ExecuteScalarAsync());
+        }
+        await using (var c = cn.CreateCommand())
+        {
+            c.CommandText = "SELECT COALESCE(SUM(count),0) FROM retro_card_vote WHERE card_id = @cid AND user_id = @uid";
+            c.Parameters.AddWithValue("@cid", cardId);
+            c.Parameters.AddWithValue("@uid", userId);
+            userVotes = Convert.ToInt32(await c.ExecuteScalarAsync());
+        }
+        return (totalVotes, userVotes);
+    }
+
+    /// POST /api/retro/cards/{cardId}/vote  — add one vote
     [HttpPost("cards/{cardId:int}/vote")]
-    public async Task<IActionResult> ToggleVote(int cardId)
+    public async Task<IActionResult> AddVote(int cardId)
     {
         try
         {
@@ -379,38 +399,60 @@ public class RetroController : ControllerBase
                 sessionId = Convert.ToInt32(await cmd2.ExecuteScalarAsync());
             }
 
-            // check existing vote
-            bool hasVote;
-            await using (var cmd3 = cn.CreateCommand())
-            {
-                cmd3.CommandText = "SELECT COUNT(*) FROM retro_card_vote WHERE card_id = @cid AND user_id = @uid";
-                cmd3.Parameters.AddWithValue("@cid", cardId);
-                cmd3.Parameters.AddWithValue("@uid", userId);
-                hasVote = Convert.ToInt32(await cmd3.ExecuteScalarAsync()) > 0;
-            }
-
             await using var cmd = cn.CreateCommand();
-            if (hasVote)
-                cmd.CommandText = "DELETE FROM retro_card_vote WHERE card_id = @cid AND user_id = @uid";
-            else
-                cmd.CommandText = "INSERT IGNORE INTO retro_card_vote (card_id, user_id) VALUES (@cid, @uid)";
+            cmd.CommandText = @"INSERT INTO retro_card_vote (card_id, user_id, count) VALUES (@cid, @uid, 1)
+                                ON DUPLICATE KEY UPDATE count = count + 1";
             cmd.Parameters.AddWithValue("@cid", cardId);
             cmd.Parameters.AddWithValue("@uid", userId);
             await cmd.ExecuteNonQueryAsync();
 
-            // get updated vote count
-            int voteCount;
-            await using (var cmd4 = cn.CreateCommand())
+            var (totalVotes, userVotes) = await GetVoteTotals(cn, cardId, userId);
+            _sse.Notify(sessionId, "vote_updated", new { cardId, votes = totalVotes, userId, userVotes });
+            return Ok(new { votes = totalVotes, userVotes });
+        }
+        catch (Exception ex) { _logger.LogError(ex, "AddVote"); return StatusCode(500, ex.Message); }
+    }
+
+    /// DELETE /api/retro/cards/{cardId}/vote  — remove one vote
+    [HttpDelete("cards/{cardId:int}/vote")]
+    public async Task<IActionResult> RemoveVote(int cardId)
+    {
+        try
+        {
+            int userId = GetCurrentUserId() ?? 0;
+            await using var cn = GetConnection();
+            await cn.OpenAsync();
+
+            int sessionId;
+            await using (var cmd2 = cn.CreateCommand())
             {
-                cmd4.CommandText = "SELECT COUNT(*) FROM retro_card_vote WHERE card_id = @cid";
-                cmd4.Parameters.AddWithValue("@cid", cardId);
-                voteCount = Convert.ToInt32(await cmd4.ExecuteScalarAsync());
+                cmd2.CommandText = "SELECT session_id FROM retro_card WHERE id = @id";
+                cmd2.Parameters.AddWithValue("@id", cardId);
+                sessionId = Convert.ToInt32(await cmd2.ExecuteScalarAsync());
             }
 
-            _sse.Notify(sessionId, "vote_updated", new { cardId, votes = voteCount, userId, userVoted = !hasVote });
-            return Ok(new { votes = voteCount, userVoted = !hasVote });
+            // Decrement; delete row if it reaches zero
+            await using (var cmd = cn.CreateCommand())
+            {
+                cmd.CommandText = @"UPDATE retro_card_vote SET count = count - 1
+                                    WHERE card_id = @cid AND user_id = @uid AND count > 0";
+                cmd.Parameters.AddWithValue("@cid", cardId);
+                cmd.Parameters.AddWithValue("@uid", userId);
+                await cmd.ExecuteNonQueryAsync();
+            }
+            await using (var cmd = cn.CreateCommand())
+            {
+                cmd.CommandText = "DELETE FROM retro_card_vote WHERE card_id = @cid AND user_id = @uid AND count <= 0";
+                cmd.Parameters.AddWithValue("@cid", cardId);
+                cmd.Parameters.AddWithValue("@uid", userId);
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            var (totalVotes, userVotes) = await GetVoteTotals(cn, cardId, userId);
+            _sse.Notify(sessionId, "vote_updated", new { cardId, votes = totalVotes, userId, userVotes });
+            return Ok(new { votes = totalVotes, userVotes });
         }
-        catch (Exception ex) { _logger.LogError(ex, "ToggleVote"); return StatusCode(500, ex.Message); }
+        catch (Exception ex) { _logger.LogError(ex, "RemoveVote"); return StatusCode(500, ex.Message); }
     }
 
     // ====================================================================
