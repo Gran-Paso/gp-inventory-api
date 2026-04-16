@@ -1258,7 +1258,7 @@ public class HrController : ControllerBase
             using var cmd = new MySqlCommand(@"
                 SELECT r.id, r.business_id, r.name, r.description, r.permissions, r.active,
                        r.created_at, r.updated_at,
-                       (SELECT COUNT(*) FROM user_has_business WHERE hr_business_role_id=r.id) AS user_count
+                       (SELECT COUNT(*) FROM user_has_business WHERE hr_business_role_id=r.id AND id_business=r.business_id AND active=1) AS user_count
                 FROM hr_business_role r
                 WHERE r.business_id=@B AND r.active=1
                 ORDER BY r.name", conn);
