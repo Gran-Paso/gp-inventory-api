@@ -100,6 +100,7 @@ builder.Services.AddCors(options =>
                 "http://localhost:3009",  // GP Binnacle
                 "http://localhost:3010",  // GP Assets
                 "http://localhost:3011",  // GP Providers
+                "http://localhost:3012",  // GP Sales
                 "http://localhost:5175",  // Gran Paso website dev
                 "http://localhost:4173",  // Vite preview mode
                 "http://localhost:4174",  // Vite preview mode alternate
@@ -123,12 +124,14 @@ builder.Services.AddCors(options =>
                 "https://binnacle.granpasochile.cl",   // GP Binnacle producción
                 "https://assets.granpasochile.cl",     // GP Assets producción
                 "https://providers.granpasochile.cl",  // GP Providers producción
+                "https://sales.granpasochile.cl",     // GP Sales producción
                 "https://granpasochile.cl",            // Gran Paso website producción
                 "https://www.granpasochile.cl",        // Gran Paso website producción con www
                 // QA
                 "https://qa.inventory.granpasochile.cl",  // GP Inventory QA
                 "https://qa.expenses.granpasochile.cl",   // GP Expenses QA
                 "https://qa.factory.granpasochile.cl",    // GP Factory QA
+                "https://qa.sales.granpasochile.cl",      // GP Sales QA
                 "https://qa.auth.granpasochile.cl",       // GP Auth QA
                 "https://qa.admin.granpasochile.cl",      // GP Admin QA
                 "https://qa.services.granpasochile.cl",   // GP Services QA
@@ -150,7 +153,21 @@ builder.Services.AddCors(options =>
                 "https://dev.assets.granpasochile.cl",     // GP Assets Dev
                 "https://dev.providers.granpasochile.cl",  // GP Providers Dev
                 // ngrok tunnels (desarrollo local con HTTPS)
-                "https://2d45-186-78-39-127.ngrok-free.app"
+                "https://2d45-186-78-39-127.ngrok-free.app",
+                // GP CRM
+                "http://localhost:3012",
+                "https://crm.granpasochile.cl",
+                "https://dev.crm.granpasochile.cl",
+                "https://qa.crm.granpasochile.cl",
+                // GP Shop
+                "http://localhost:3015",
+                "https://shop.granpasochile.cl",
+                "https://dev.shop.granpasochile.cl",
+                "https://qa.shop.granpasochile.cl",
+                // Webadas (vitrina externa)
+                "https://webadas.cl",
+                "https://www.webadas.cl",
+                "http://localhost:3020"  // Webadas dev local
                )
                .AllowAnyHeader()
                .AllowAnyMethod()
@@ -166,6 +183,8 @@ builder.Services.AddCors(options =>
                .AllowAnyMethod();
     });
 });
+
+builder.Services.AddSignalR();
 
 // Database
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -195,6 +214,7 @@ Microsoft.IdentityModel.Logging.IdentityModelEventSource.ShowPII = true;
 System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddScheme<GPInventory.Api.Authorization.ApiKeyAuthOptions, GPInventory.Api.Authorization.ApiKeyAuthHandler>("ApiKey", _ => { })
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
@@ -215,9 +235,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             OnMessageReceived = ctx =>
             {
+                // Legacy SSE: ?token=
                 var token = ctx.Request.Query["token"].ToString();
                 if (!string.IsNullOrEmpty(token))
                     ctx.Token = token;
+
+                // SignalR WebSocket / SSE: ?access_token=  (only for hub paths)
+                var accessToken = ctx.Request.Query["access_token"].ToString();
+                var path = ctx.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    ctx.Token = accessToken;
+
                 return Task.CompletedTask;
             }
         };
@@ -407,6 +435,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<GPInventory.Api.Hubs.CrmHub>("/hubs/crm");
 
 // Seed data
 using (var scope = app.Services.CreateScope())

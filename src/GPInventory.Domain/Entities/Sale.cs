@@ -75,7 +75,69 @@ public class Sale : BaseEntity
     [Column("seller_user_id")]
     public int? SellerUserId { get; set; }
 
-    // Propiedades de navegación
+    /// <summary>
+    /// ID del cliente CRM (service_client) que originó esta venta desde GP CRM
+    /// </summary>
+    [Column("crm_client_id")]
+    public int? CrmClientId { get; set; }
+
+    /// <summary>
+    /// Canal de origen de la venta: null = interna, "webadas" = tienda online, etc.
+    /// </summary>
+    [Column("channel")]
+    [StringLength(50)]
+    public string? Channel { get; set; }
+
+    // ─── Campos de envío (e-commerce) ───────────────────────────────────────
+
+    /// <summary>Nombre del destinatario del envío.</summary>
+    [Column("shipping_name")]
+    [StringLength(100)]
+    public string? ShippingName { get; set; }
+
+    /// <summary>Teléfono de contacto para el despacho.</summary>
+    [Column("shipping_phone")]
+    [StringLength(20)]
+    public string? ShippingPhone { get; set; }
+
+    /// <summary>Dirección de despacho completa.</summary>
+    [Column("shipping_address")]
+    [StringLength(255)]
+    public string? ShippingAddress { get; set; }
+
+    /// <summary>Ciudad de despacho.</summary>
+    [Column("shipping_city")]
+    [StringLength(100)]
+    public string? ShippingCity { get; set; }
+
+    /// <summary>Región de despacho.</summary>
+    [Column("shipping_region")]
+    [StringLength(100)]
+    public string? ShippingRegion { get; set; }
+
+    /// <summary>
+    /// Estado del despacho.
+    /// Valores: pending | processing | shipped | delivered | cancelled
+    /// </summary>
+    [Column("shipping_status")]
+    [StringLength(50)]
+    public string? ShippingStatus { get; set; }
+
+    /// <summary>Número de seguimiento del courier.</summary>
+    [Column("tracking_number")]
+    [StringLength(100)]
+    public string? TrackingNumber { get; set; }
+
+    /// <summary>Empresa de courier (ej: Starken, Chilexpress, etc.).</summary>
+    [Column("shipping_carrier")]
+    [StringLength(50)]
+    public string? ShippingCarrier { get; set; }
+
+    /// <summary>Notas de despacho internas.</summary>
+    [Column("shipping_notes")]
+    public string? ShippingNotes { get; set; }
+
+    // ─── Propiedades de navegación ──────────────────────────────────────────
     /// <summary>
     /// Tienda donde se realizó la venta
     /// </summary>

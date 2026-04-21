@@ -410,3 +410,6 @@ docker-compose.override.yml
 # Archivos de Entity Framework
 Migrations/temp_*
 *.edmx.diagram
+
+# Uploaded files
+src/GPInventory.Api/wwwroot/uploads/
