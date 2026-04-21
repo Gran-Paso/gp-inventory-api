@@ -56,6 +56,19 @@ public class ApplicationDbContext : DbContext
     // Gran Paso entities
     public DbSet<Prospect> Prospects { get; set; }
 
+    // Canales externos (Webadas, etc.)
+    public DbSet<BusinessApiKey> BusinessApiKeys { get; set; }
+    public DbSet<WebstorePromotion> WebstorePromotions { get; set; }
+
+    // GP Shop — gestión e-commerce
+    public DbSet<ShopSeason> ShopSeasons { get; set; }
+    public DbSet<ShopBanner> ShopBanners { get; set; }
+    public DbSet<ShopCollection> ShopCollections { get; set; }
+    public DbSet<ShopCollectionItem> ShopCollectionItems { get; set; }
+    public DbSet<ShopCampaign> ShopCampaigns { get; set; }
+    public DbSet<ShopCampaignPromotion> ShopCampaignPromotions { get; set; }
+    public DbSet<ShopCampaignBanner> ShopCampaignBanners { get; set; }
+
     // Bank integration (Fintoc)
     public DbSet<BankConnection> BankConnections { get; set; }
     public DbSet<BankTransaction> BankTransactions { get; set; }
@@ -200,6 +213,15 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ServiceSessionConfiguration());
         modelBuilder.ApplyConfiguration(new ServiceAttendanceConfiguration());
         modelBuilder.ApplyConfiguration(new ServiceSessionExpenseConfiguration());
+
+        // Apply GP Shop configurations
+        modelBuilder.ApplyConfiguration(new ShopSeasonConfiguration());
+        modelBuilder.ApplyConfiguration(new ShopBannerConfiguration());
+        modelBuilder.ApplyConfiguration(new ShopCollectionConfiguration());
+        modelBuilder.ApplyConfiguration(new ShopCollectionItemConfiguration());
+        modelBuilder.ApplyConfiguration(new ShopCampaignConfiguration());
+        modelBuilder.ApplyConfiguration(new ShopCampaignPromotionConfiguration());
+        modelBuilder.ApplyConfiguration(new ShopCampaignBannerConfiguration());
 
         // Business configuration
         modelBuilder.Entity<Business>(entity =>

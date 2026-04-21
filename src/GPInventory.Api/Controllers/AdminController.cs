@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using MySqlConnector;
 using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace GPInventory.Api.Controllers;
 
@@ -1294,6 +1296,185 @@ public class AdminController : ControllerBase
             return StatusCode(500, new { message = "Error deleting store", error = ex.Message });
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // API KEYS (canales externos: Webadas, integraciones B2B, etc.)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Lista todas las API Keys de un negocio (sin exponer el hash).
+    /// </summary>
+    [HttpGet("businesses/{businessId}/api-keys")]
+    public async Task<IActionResult> GetApiKeys(int businessId)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var query = @"
+                SELECT id, business_id, label, scopes, active, expires_at, created_at, updated_at
+                FROM business_api_keys
+                WHERE business_id = @BusinessId
+                ORDER BY created_at DESC";
+
+            using var cmd = new MySqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@BusinessId", businessId);
+
+            var keys = new List<Dictionary<string, object?>>();
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                keys.Add(new Dictionary<string, object?>
+                {
+                    ["id"]         = reader.GetInt32("id"),
+                    ["businessId"] = reader.GetInt32("business_id"),
+                    ["label"]      = reader.GetString("label"),
+                    ["scopes"]     = reader.IsDBNull("scopes") ? null : reader.GetString("scopes"),
+                    ["active"]     = reader.GetBoolean("active"),
+                    ["expiresAt"]  = reader.IsDBNull("expires_at") ? null : reader.GetDateTime("expires_at").ToString("yyyy-MM-dd HH:mm:ss"),
+                    ["createdAt"]  = reader.GetDateTime("created_at").ToString("yyyy-MM-dd HH:mm:ss"),
+                    ["updatedAt"]  = reader.GetDateTime("updated_at").ToString("yyyy-MM-dd HH:mm:ss"),
+                });
+            }
+
+            return Ok(keys);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading api keys for business {BusinessId}", businessId);
+            return StatusCode(500, new { message = "Error al obtener API Keys", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Crea una nueva API Key para un negocio.
+    /// Retorna la clave raw UNA SOLA VEZ — no se puede recuperar después.
+    /// </summary>
+    [HttpPost("businesses/{businessId}/api-keys")]
+    public async Task<IActionResult> CreateApiKey(int businessId, [FromBody] CreateApiKeyRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        if (string.IsNullOrWhiteSpace(request.Label))
+            return BadRequest(new { message = "El label es requerido" });
+
+        try
+        {
+            // Generar clave segura: gp_live_<32 random hex chars>
+            var rawBytes = RandomNumberGenerator.GetBytes(24);
+            var rawKey = "gp_live_" + Convert.ToHexString(rawBytes).ToLowerInvariant();
+
+            // Hash SHA-256 — solo esto se almacena
+            var keyHash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(rawKey))
+            ).ToLowerInvariant();
+
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var scopesJson = request.Scopes != null && request.Scopes.Count > 0
+                ? $"[{string.Join(",", request.Scopes.Select(s => $"\"{s}\""))}]"
+                : "[\"products:read\",\"promotions:read\",\"sales:write\"]";
+
+            var insertQuery = @"
+                INSERT INTO business_api_keys (business_id, key_hash, label, scopes, active, expires_at)
+                VALUES (@BusinessId, @KeyHash, @Label, @Scopes, 1, @ExpiresAt);
+                SELECT LAST_INSERT_ID();";
+
+            using var cmd = new MySqlCommand(insertQuery, conn);
+            cmd.Parameters.AddWithValue("@BusinessId", businessId);
+            cmd.Parameters.AddWithValue("@KeyHash", keyHash);
+            cmd.Parameters.AddWithValue("@Label", request.Label.Trim());
+            cmd.Parameters.AddWithValue("@Scopes", scopesJson);
+            cmd.Parameters.AddWithValue("@ExpiresAt", request.ExpiresAt.HasValue ? request.ExpiresAt.Value : DBNull.Value);
+
+            var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
+            _logger.LogInformation("API Key creada: id={Id}, businessId={BusinessId}, label={Label}", newId, businessId, request.Label);
+
+            return Created($"/api/admin/businesses/{businessId}/api-keys", new
+            {
+                id = newId,
+                businessId,
+                label = request.Label.Trim(),
+                scopes = request.Scopes ?? new List<string> { "products:read", "promotions:read", "sales:write" },
+                active = true,
+                expiresAt = request.ExpiresAt,
+                // ⚠️ Solo se retorna aquí — no se puede recuperar después
+                rawKey,
+                warning = "Guarda esta clave ahora. No se puede volver a mostrar."
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating api key for business {BusinessId}", businessId);
+            return StatusCode(500, new { message = "Error al crear API Key", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Activa o desactiva una API Key (revocar acceso sin eliminarla).
+    /// </summary>
+    [HttpPatch("api-keys/{id}/active")]
+    public async Task<IActionResult> ToggleApiKeyActive(int id, [FromBody] UpdateActiveStatusRequest request)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var query = "UPDATE business_api_keys SET active = @Active WHERE id = @Id";
+            using var cmd = new MySqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@Active", request.Active ? 1 : 0);
+            cmd.Parameters.AddWithValue("@Id", id);
+
+            var affected = await cmd.ExecuteNonQueryAsync();
+            if (affected == 0) return NotFound(new { message = "API Key no encontrada" });
+
+            _logger.LogInformation("API Key {Id} active={Active}", id, request.Active);
+            return Ok(new { id, active = request.Active });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error toggling api key {Id}", id);
+            return StatusCode(500, new { message = "Error al actualizar API Key", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Elimina permanentemente una API Key.
+    /// </summary>
+    [HttpDelete("api-keys/{id}")]
+    public async Task<IActionResult> DeleteApiKey(int id)
+    {
+        if (!IsSuperAdmin()) return Forbid();
+
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            var query = "DELETE FROM business_api_keys WHERE id = @Id";
+            using var cmd = new MySqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@Id", id);
+
+            var affected = await cmd.ExecuteNonQueryAsync();
+            if (affected == 0) return NotFound(new { message = "API Key no encontrada" });
+
+            _logger.LogInformation("API Key {Id} eliminada", id);
+            return Ok(new { message = "API Key eliminada" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting api key {Id}", id);
+            return StatusCode(500, new { message = "Error al eliminar API Key", error = ex.Message });
+        }
+    }
 }
 
 public class AssignBusinessRequest
@@ -1348,4 +1529,11 @@ public class UpdateStoreRequest
 public class ResetPasswordRequest
 {
     public string NewPassword { get; set; } = string.Empty;
+}
+
+public class CreateApiKeyRequest
+{
+    public string Label { get; set; } = string.Empty;
+    public List<string>? Scopes { get; set; }
+    public DateTime? ExpiresAt { get; set; }
 }

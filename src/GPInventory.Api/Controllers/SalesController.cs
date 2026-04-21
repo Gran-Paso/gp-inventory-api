@@ -1560,6 +1560,7 @@ public class SalesController : ControllerBase
                 PaymentMethodId = request.PaymentMethodId,
                 Notes = request.Notes?.Trim(),
                 SellerUserId = request.SellerUserId,
+                CrmClientId = request.CrmClientId,
                 Total = 0 // Se calculará después
             };
 
@@ -1942,6 +1943,11 @@ public class FifoSaleRequest
     /// ID del usuario vendedor (opcional)
     /// </summary>
     public int? SellerUserId { get; set; }
+
+    /// <summary>
+    /// ID del cliente CRM (service_client) que originó esta venta desde GP CRM (opcional)
+    /// </summary>
+    public int? CrmClientId { get; set; }
 }
 
 /// <summary>
