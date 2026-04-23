@@ -108,13 +108,16 @@ public class HrAuthorizeFilter : IAsyncAuthorizationFilter
             }
 
             // Obtener businessId de la solicitud
-            int? businessId = await ExtractBusinessIdAsync(context);
+            int? businessId = await ExtractBusinessIdAsync(context, _configuration);
             if (businessId is null)
             {
-                _logger.LogWarning("[HrAuthorize] No se pudo extraer businessId para {Email}", userEmail);
+                _logger.LogWarning("[HrAuthorize] No se pudo extraer businessId para {Email} (endpoint: {Path})", 
+                    userEmail, context.HttpContext.Request.Path);
                 context.Result = new ForbidResult();
                 return;
             }
+            
+            _logger.LogDebug("[HrAuthorize] businessId extraído: {BizId}", businessId);
 
             try
             {
@@ -133,15 +136,20 @@ public class HrAuthorizeFilter : IAsyncAuthorizationFilter
                 {
                     if (!roleEl.TryGetProperty("roleId", out var ridProp) || !ridProp.TryGetInt32(out int roleId))
                         continue;
+                    
+                    _logger.LogDebug("[HrAuthorize] {Email} tiene roleId={RoleId} en JWT", userEmail, roleId);
+                    
                     if (!HrSystemRoles.Contains(roleId))
                         continue;
 
                     if (roleEl.TryGetProperty("businessId", out var bidProp) && bidProp.TryGetInt32(out int claimBiz))
                     {
+                        _logger.LogDebug("[HrAuthorize] Comparando claimBiz={ClaimBiz} vs requestBiz={ReqBiz}", claimBiz, businessId);
                         if (claimBiz == businessId) { hasSystemAccess = true; break; }
                     }
                     else
                     {
+                        _logger.LogDebug("[HrAuthorize] Rol sistema sin businessId → acceso global");
                         hasSystemAccess = true; break;
                     }
                 }
@@ -178,7 +186,7 @@ public class HrAuthorizeFilter : IAsyncAuthorizationFilter
                 return;
             }
 
-            int? businessId = await ExtractBusinessIdAsync(context);
+            int? businessId = await ExtractBusinessIdAsync(context, _configuration);
             if (businessId is null)
             {
                 // Sin businessId → confiar en el [Authorize] base
@@ -243,9 +251,9 @@ public class HrAuthorizeFilter : IAsyncAuthorizationFilter
     }
 
     /// <summary>
-    /// Intenta extraer businessId de: query string → route values → cuerpo JSON.
+    /// Intenta extraer businessId de: query string → route values → cuerpo JSON → DB (por userId).
     /// </summary>
-    private static async Task<int?> ExtractBusinessIdAsync(AuthorizationFilterContext context)
+    private async Task<int?> ExtractBusinessIdAsync(AuthorizationFilterContext context, IConfiguration configuration)
     {
         var req = context.HttpContext.Request;
 
@@ -286,6 +294,29 @@ public class HrAuthorizeFilter : IAsyncAuthorizationFilter
                         return jBid2;
                 }
                 catch { /* ignorar */ }
+            }
+        }
+
+        // 4. Inferir businessId desde DB si hay userId en la ruta
+        if (int.TryParse(req.RouteValues["userId"]?.ToString(), out int userId))
+        {
+            try
+            {
+                using var conn = new MySqlConnection(configuration.GetConnectionString("DefaultConnection"));
+                await conn.OpenAsync();
+                using var cmd = new MySqlCommand(@"
+                    SELECT id_business FROM user_has_business WHERE id_user=@UID LIMIT 1", conn);
+                cmd.Parameters.AddWithValue("@UID", userId);
+                var bizIdObj = await cmd.ExecuteScalarAsync();
+                if (bizIdObj != null && int.TryParse(bizIdObj.ToString(), out int inferredBizId))
+                {
+                    _logger.LogDebug("[HrAuthorize] businessId inferido desde userId={UserId}: {BizId}", userId, inferredBizId);
+                    return inferredBizId;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HrAuthorize] Error inferiendo businessId desde userId={UserId}", userId);
             }
         }
 

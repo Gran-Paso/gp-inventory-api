@@ -107,10 +107,12 @@ public class HrController : ControllerBase
             {
                 return Ok(new
                 {
-                    fullAccess   = true,
-                    systemRoleId = (int?)null,
-                    permissions  = (object?)null,
-                    businessApps = Array.Empty<string>(), // super_admin no está limitado por apps
+                    fullAccess      = true,
+                    systemRoleId    = (int?)null,
+                    systemRoleName  = "Super Admin",
+                    hrRoleName      = (string?)null,
+                    permissions     = (object?)null,
+                    businessApps    = Array.Empty<string>(), // super_admin no está limitado por apps
                 });
             }
 
@@ -129,7 +131,7 @@ public class HrController : ControllerBase
 
             // 1. Obtener permisos HR del usuario en el negocio
             using var cmd = new MySqlCommand(@"
-                SELECT r.permissions, ub.id_role AS system_role_id, ro.name AS role_name
+                SELECT r.permissions, r.name AS hr_role_name, ub.id_role AS system_role_id, ro.name AS role_name
                 FROM user_has_business ub
                 LEFT JOIN hr_business_role r  ON r.id  = ub.hr_business_role_id
                 LEFT JOIN role              ro ON ro.id = ub.id_role
@@ -142,8 +144,9 @@ public class HrController : ControllerBase
             if (!await r.ReadAsync())
                 return NotFound(new { message = "Usuario no pertenece a este negocio" });
 
-            var systemRoleId = IsNull(r, "system_role_id") ? (int?)null : r.GetInt32("system_role_id");
-            var roleName      = IsNull(r, "role_name")     ? null          : r.GetString("role_name");
+            var systemRoleId   = IsNull(r, "system_role_id") ? (int?)null : r.GetInt32("system_role_id");
+            var roleName       = IsNull(r, "role_name")      ? null       : r.GetString("role_name");
+            var hrRoleName     = IsNull(r, "hr_role_name")   ? null       : r.GetString("hr_role_name");
             var permissionsJson = r.IsDBNull(r.GetOrdinal("permissions")) ? null : r.GetString("permissions");
             await r.CloseAsync();
 
@@ -159,28 +162,46 @@ public class HrController : ControllerBase
 
             // 3. Dueño siempre tiene acceso completo a todas las apps habilitadas,
             //    independientemente de si tiene un hr_business_role asignado.
-            //    También aplica cuando no hay hr_business_role (permissionsJson == null).
-            if (roleName == "Dueño" || permissionsJson == null)
+            if (roleName == "Dueño")
             {
                 return Ok(new
                 {
-                    fullAccess   = true,
+                    fullAccess      = true,
                     systemRoleId,
-                    permissions  = (object?)null,
-                    businessApps = businessApps.ToArray(),
+                    systemRoleName  = roleName,
+                    hrRoleName      = hrRoleName,
+                    permissions     = (object?)null,
+                    businessApps    = businessApps.ToArray(),
                 });
             }
 
+            // 4. Si no hay hr_business_role asignado y NO es Dueño → sin acceso
+            if (permissionsJson == null)
+            {
+                return Ok(new
+                {
+                    fullAccess      = false,
+                    systemRoleId,
+                    systemRoleName  = roleName,
+                    hrRoleName      = (string?)null,
+                    permissions     = new Dictionary<string, bool>(), // permisos vacíos
+                    businessApps    = businessApps.ToArray(),
+                });
+            }
+
+            // 5. Tiene hr_business_role → validar permisos granulares
             var perms = JsonSerializer.Deserialize<Dictionary<string, bool>>(
                 permissionsJson,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
 
             return Ok(new
             {
-                fullAccess   = false,
+                fullAccess      = false,
                 systemRoleId,
-                permissions  = perms,
-                businessApps = businessApps.ToArray(),
+                systemRoleName  = roleName,
+                hrRoleName      = hrRoleName,
+                permissions     = perms,
+                businessApps    = businessApps.ToArray(),
             });
         }
         catch (Exception ex)
@@ -237,7 +258,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPost("departments")]
-    [HrAuthorize("manage_departments")]
+    [HrAuthorize("manage_departments", requireSystemRole: false)]
     public async Task<IActionResult> CreateDepartment([FromBody] JsonElement body)
     {
         try
@@ -268,7 +289,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPut("departments/{id}")]
-    [HrAuthorize("manage_departments")]
+    [HrAuthorize("manage_departments", requireSystemRole: false)]
     public async Task<IActionResult> UpdateDepartment(int id, [FromBody] JsonElement body)
     {
         try
@@ -301,7 +322,7 @@ public class HrController : ControllerBase
     }
 
     [HttpDelete("departments/{id}")]
-    [HrAuthorize("manage_departments")]
+    [HrAuthorize("manage_departments", requireSystemRole: false)]
     public async Task<IActionResult> DeleteDepartment(int id)
     {
         try
@@ -370,7 +391,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPost("positions")]
-    [HrAuthorize("manage_positions")]
+    [HrAuthorize("manage_positions", requireSystemRole: false)]
     public async Task<IActionResult> CreatePosition([FromBody] JsonElement body)
     {
         try
@@ -407,7 +428,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPut("positions/{id}")]
-    [HrAuthorize("manage_positions")]
+    [HrAuthorize("manage_positions", requireSystemRole: false)]
     public async Task<IActionResult> UpdatePosition(int id, [FromBody] JsonElement body)
     {
         try
@@ -442,7 +463,7 @@ public class HrController : ControllerBase
     }
 
     [HttpDelete("positions/{id}")]
-    [HrAuthorize("manage_positions")]
+    [HrAuthorize("manage_positions", requireSystemRole: false)]
     public async Task<IActionResult> DeletePosition(int id)
     {
         try
@@ -589,7 +610,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPost("employees")]
-    [HrAuthorize("manage_employees")]
+    [HrAuthorize("manage_employees", requireSystemRole: false)]
     public async Task<IActionResult> CreateEmployee([FromBody] JsonElement body)
     {
         try
@@ -631,7 +652,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPut("employees/{id}")]
-    [HrAuthorize("manage_employees")]
+    [HrAuthorize("manage_employees", requireSystemRole: false)]
     public async Task<IActionResult> UpdateEmployee(int id, [FromBody] JsonElement body)
     {
         try
@@ -680,7 +701,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPost("employees/{id}/terminate")]
-    [HrAuthorize("manage_employees")]
+    [HrAuthorize("manage_employees", requireSystemRole: false)]
     public async Task<IActionResult> TerminateEmployee(int id, [FromBody] JsonElement body)
     {
         try
@@ -808,7 +829,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPost("payroll")]
-    [HrAuthorize("manage_payroll")]
+    [HrAuthorize("manage_payroll", requireSystemRole: false)]
     public async Task<IActionResult> CreatePayroll([FromBody] JsonElement body)
     {
         try
@@ -1038,7 +1059,7 @@ public class HrController : ControllerBase
     }
 
     [HttpDelete("payroll/{id}")]
-    [HrAuthorize("manage_payroll")]
+    [HrAuthorize("manage_payroll", requireSystemRole: false)]
     public async Task<IActionResult> DeletePayroll(int id)
     {
         try
@@ -1178,7 +1199,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPost("leaves")]
-    [HrAuthorize("manage_leaves")]
+    [HrAuthorize("manage_leaves", requireSystemRole: false)]
     public async Task<IActionResult> CreateLeaveRequest([FromBody] JsonElement body)
     {
         try
@@ -1213,7 +1234,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPut("leaves/{id}/review")]
-    [HrAuthorize("approve_leaves")]
+    [HrAuthorize("approve_leaves", requireSystemRole: false)]
     public async Task<IActionResult> ReviewLeaveRequest(int id, [FromBody] JsonElement body)
     {
         try
@@ -1292,7 +1313,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPost("roles")]
-    [HrAuthorize("manage_roles")]
+    [HrAuthorize("manage_roles", requireSystemRole: false)]
     public async Task<IActionResult> CreateRole([FromBody] JsonElement body)
     {
         try
@@ -1319,7 +1340,7 @@ public class HrController : ControllerBase
     }
 
     [HttpPut("roles/{id}")]
-    [HrAuthorize("manage_roles")]
+    [HrAuthorize("manage_roles", requireSystemRole: false)]
     public async Task<IActionResult> UpdateRole(int id, [FromBody] JsonElement body)
     {
         try
@@ -1349,7 +1370,7 @@ public class HrController : ControllerBase
     }
 
     [HttpDelete("roles/{id}")]
-    [HrAuthorize("manage_roles")]
+    [HrAuthorize("manage_roles", requireSystemRole: false)]
     public async Task<IActionResult> DeleteRole(int id)
     {
         try
@@ -1415,22 +1436,40 @@ public class HrController : ControllerBase
     }
 
     [HttpPut("user-business/{userId}/role")]
-    [HrAuthorize("manage_users")]
-    public async Task<IActionResult> AssignRoleToUser(int userId, [FromBody] JsonElement body)
+    [HrAuthorize("manage_users", requireSystemRole: false)]
+    public async Task<IActionResult> AssignRoleToUser(int userId, [FromQuery] int? businessId, [FromBody] JsonElement body)
     {
         try
         {
             var roleId = body.TryGetProperty("businessRoleId", out var r) && r.ValueKind == JsonValueKind.Number
                 ? (int?)r.GetInt32() : null;
+            
+            // Si no viene businessId en query, inferirlo de user_has_business por userId
+            int finalBusinessId = businessId ?? 0;
+            if (finalBusinessId == 0)
+            {
+                using var connCheck = GetConnection();
+                await connCheck.OpenAsync();
+                using var cmdCheck = new MySqlCommand(@"
+                    SELECT id_business FROM user_has_business WHERE id_user=@UID LIMIT 1", connCheck);
+                cmdCheck.Parameters.AddWithValue("@UID", userId);
+                var bizIdObj = await cmdCheck.ExecuteScalarAsync();
+                if (bizIdObj == null || !int.TryParse(bizIdObj.ToString(), out finalBusinessId))
+                {
+                    return BadRequest(new { message = "Usuario no pertenece a ningún negocio" });
+                }
+            }
+            
             using var conn = GetConnection();
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
                 UPDATE user_has_business SET hr_business_role_id=@RID
-                WHERE id_user=@UID", conn);
+                WHERE id_user=@UID AND id_business=@BID", conn);
             cmd.Parameters.AddWithValue("@RID", roleId ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@UID", userId);
+            cmd.Parameters.AddWithValue("@BID", finalBusinessId);
             await cmd.ExecuteNonQueryAsync();
-            return Ok(new { userId, businessRoleId = roleId });
+            return Ok(new { userId, businessId = finalBusinessId, businessRoleId = roleId });
         }
         catch (Exception ex)
         {
@@ -1440,7 +1479,7 @@ public class HrController : ControllerBase
     }
 
     [HttpDelete("user-business/{userId}")]
-    [HrAuthorize("manage_users")]
+    [HrAuthorize("manage_users", requireSystemRole: false)]
     public async Task<IActionResult> RemoveUserFromBusiness(int userId, [FromQuery] int businessId)
     {
         try
@@ -1470,7 +1509,7 @@ public class HrController : ControllerBase
     /// Indica si el usuario ya pertenece al negocio (condición para vincular).
     /// </summary>
     [HttpGet("search-users")]
-    [HrAuthorize("manage_employees")]
+    [HrAuthorize("manage_employees", requireSystemRole: false)]
     public async Task<IActionResult> SearchUsers([FromQuery] string q, [FromQuery] int businessId)
     {
         if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
@@ -1521,7 +1560,7 @@ public class HrController : ControllerBase
     /// El usuario debe pertenecer al negocio (tener fila en user_has_business).
     /// </summary>
     [HttpPut("employees/{id}/link-user")]
-    [HrAuthorize("manage_employees")]
+    [HrAuthorize("manage_employees", requireSystemRole: false)]
     public async Task<IActionResult> LinkEmployeeUser(int id, [FromBody] JsonElement body)
     {
         try
@@ -1581,7 +1620,7 @@ public class HrController : ControllerBase
     /// No elimina al usuario del negocio ni revoca su hr_business_role.
     /// </summary>
     [HttpDelete("employees/{id}/link-user")]
-    [HrAuthorize("manage_employees")]
+    [HrAuthorize("manage_employees", requireSystemRole: false)]
     public async Task<IActionResult> UnlinkEmployeeUser(int id)
     {
         try
