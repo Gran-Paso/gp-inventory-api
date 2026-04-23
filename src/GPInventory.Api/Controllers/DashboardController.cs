@@ -35,6 +35,19 @@ public class DashboardController : ControllerBase
     {
         try
         {
+            // Validar parámetros requeridos
+            if (businessId <= 0)
+            {
+                _logger.LogWarning("❌ businessId inválido: {businessId}", businessId);
+                return BadRequest(new { message = "El parámetro 'businessId' es obligatorio y debe ser mayor a 0" });
+            }
+
+            if (storeId.HasValue && storeId.Value <= 0)
+            {
+                _logger.LogWarning("❌ storeId inválido: {storeId}", storeId);
+                return BadRequest(new { message = "El parámetro 'storeId' debe ser mayor a 0 si se proporciona" });
+            }
+
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             _logger.LogInformation("🔄 Obteniendo KPIs diarios para negocio: {businessId}, tienda: {storeId}", 
                 businessId, storeId);
@@ -46,20 +59,41 @@ public class DashboardController : ControllerBase
 
             if (!businessExists)
             {
-                return NotFound(new { message = "Negocio no encontrado" });
+                _logger.LogWarning("❌ Negocio {businessId} no encontrado", businessId);
+                return NotFound(new { message = $"El negocio con ID {businessId} no existe" });
             }
 
-            // Si se especifica tienda, verificar que existe
+            // Si se especifica tienda, verificar que existe y está activa
             if (storeId.HasValue)
             {
-                var storeExists = await _context.Database.SqlQueryRaw<int>(
-                    "SELECT COUNT(*) as Value FROM store WHERE id = {0} AND id_business = {1} AND active = 1",
-                    storeId.Value, businessId)
-                    .FirstOrDefaultAsync() > 0;
+                var storeCheckQuery = @"
+                    SELECT 
+                        COUNT(*) as StoreExists,
+                        SUM(CASE WHEN id_business = {1} THEN 1 ELSE 0 END) as BelongsToBusiness,
+                        SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) as IsActive
+                    FROM store 
+                    WHERE id = {0}";
 
-                if (!storeExists)
+                var storeCheck = await _context.Database.SqlQueryRaw<StoreValidationData>(
+                    storeCheckQuery, storeId.Value, businessId)
+                    .FirstOrDefaultAsync();
+
+                if (storeCheck == null || storeCheck.StoreExists == 0)
                 {
-                    return BadRequest(new { message = "Tienda no encontrada o no pertenece al negocio" });
+                    _logger.LogWarning("❌ Tienda {storeId} no encontrada", storeId.Value);
+                    return BadRequest(new { message = $"La tienda con ID {storeId.Value} no existe" });
+                }
+
+                if (storeCheck.BelongsToBusiness == 0)
+                {
+                    _logger.LogWarning("❌ Tienda {storeId} no pertenece al negocio {businessId}", storeId.Value, businessId);
+                    return BadRequest(new { message = $"La tienda con ID {storeId.Value} no pertenece al negocio {businessId}" });
+                }
+
+                if (storeCheck.IsActive == 0)
+                {
+                    _logger.LogWarning("❌ Tienda {storeId} no está activa", storeId.Value);
+                    return BadRequest(new { message = $"La tienda con ID {storeId.Value} no está activa. Actívala desde la configuración de tiendas" });
                 }
             }
 
@@ -293,6 +327,19 @@ public class DashboardController : ControllerBase
     {
         try
         {
+            // Validar parámetros
+            if (businessId <= 0)
+            {
+                _logger.LogWarning("❌ businessId inválido: {businessId}", businessId);
+                return BadRequest(new { message = "El parámetro 'businessId' es obligatorio y debe ser mayor a 0" });
+            }
+
+            if (storeId.HasValue && storeId.Value <= 0)
+            {
+                _logger.LogWarning("❌ storeId inválido: {storeId}", storeId);
+                return BadRequest(new { message = "El parámetro 'storeId' debe ser mayor a 0 si se proporciona" });
+            }
+
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             _logger.LogInformation("🔄 Obteniendo productos top para negocio: {businessId}, tienda: {storeId}, criterio: {criteria}", 
                 businessId, storeId, criteria);
@@ -301,13 +348,15 @@ public class DashboardController : ControllerBase
             var validCriteria = new[] { "volume", "revenue", "margin" };
             if (!validCriteria.Contains(criteria.ToLower()))
             {
-                return BadRequest(new { message = "Criterio inválido. Use: volume, revenue o margin" });
+                _logger.LogWarning("❌ Criterio inválido: {criteria}", criteria);
+                return BadRequest(new { message = $"Criterio '{criteria}' inválido. Use: 'volume' (unidades vendidas), 'revenue' (ingresos) o 'margin' (margen)" });
             }
 
             // Validar límite
             if (limit < 1 || limit > 50)
             {
-                return BadRequest(new { message = "El límite debe estar entre 1 y 50" });
+                _logger.LogWarning("❌ Límite inválido: {limit}", limit);
+                return BadRequest(new { message = "El parámetro 'limit' debe estar entre 1 y 50" });
             }
 
             // Verificar que el negocio existe
@@ -317,7 +366,8 @@ public class DashboardController : ControllerBase
 
             if (!businessExists)
             {
-                return NotFound(new { message = "Negocio no encontrado" });
+                _logger.LogWarning("❌ Negocio {businessId} no encontrado en top-products", businessId);
+                return NotFound(new { message = $"El negocio con ID {businessId} no existe" });
             }
 
             // Query base para obtener productos con sus ventas del día
@@ -407,6 +457,13 @@ public class DashboardController : ControllerBase
     {
         try
         {
+            // Validar parámetros
+            if (businessId <= 0)
+            {
+                _logger.LogWarning("❌ businessId inválido: {businessId}", businessId);
+                return BadRequest(new { message = "El parámetro 'businessId' es obligatorio y debe ser mayor a 0" });
+            }
+
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             _logger.LogInformation("🔄 Obteniendo comparativa de tiendas para negocio: {businessId}", businessId);
 
@@ -417,7 +474,8 @@ public class DashboardController : ControllerBase
 
             if (!businessExists)
             {
-                return NotFound(new { message = "Negocio no encontrado" });
+                _logger.LogWarning("❌ Negocio {businessId} no encontrado en stores-comparison", businessId);
+                return NotFound(new { message = $"El negocio con ID {businessId} no existe" });
             }
 
             // Query para obtener métricas de todas las tiendas
@@ -1001,6 +1059,13 @@ public class KPIsRawData
     public decimal YesterdayRevenue { get; set; }
     public int TodaySalesCount { get; set; }
     public int YesterdaySalesCount { get; set; }
+}
+
+public class StoreValidationData
+{
+    public int StoreExists { get; set; }
+    public int BelongsToBusiness { get; set; }
+    public int IsActive { get; set; }
 }
 
 public class StockCapitalData

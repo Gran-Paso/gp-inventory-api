@@ -784,6 +784,76 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Actualiza el rol de un usuario en un negocio específico
+    /// </summary>
+    [HttpPut("users/{userId}/business/{businessId}/role/{currentRoleId}")]
+    public async Task<IActionResult> UpdateUserBusinessRole(int userId, int businessId, int currentRoleId, [FromBody] UpdateBusinessRoleRequest request)
+    {
+        var currentUserSystemRole = User.Claims.FirstOrDefault(c => c.Type == "systemRole")?.Value;
+        var currentUserName = User.Identity?.Name;
+        
+        _logger.LogInformation("UpdateUserBusinessRole called by {UserName} (systemRole: {SystemRole}) to update user {TargetUserId}", 
+            currentUserName, currentUserSystemRole, userId);
+
+        if (!IsSuperAdmin())
+        {
+            _logger.LogWarning("Unauthorized attempt to update user role by {UserName} (systemRole: {SystemRole})", 
+                currentUserName, currentUserSystemRole);
+            return Forbid();
+        }
+
+        try
+        {
+            if (request.NewRoleId <= 0)
+            {
+                return BadRequest(new { message = "NewRoleId is required" });
+            }
+
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+
+            // Verificar que el nuevo rol existe
+            var roleCheck = "SELECT COUNT(*) FROM role WHERE id = @RoleId";
+            using var roleCmd = new MySqlCommand(roleCheck, conn);
+            roleCmd.Parameters.AddWithValue("@RoleId", request.NewRoleId);
+            var roleExists = Convert.ToInt32(await roleCmd.ExecuteScalarAsync()) > 0;
+
+            if (!roleExists)
+            {
+                return NotFound(new { message = "Role not found" });
+            }
+
+            // Actualizar solo el registro específico (user + business + rol actual)
+            var updateQuery = @"
+                UPDATE user_has_business 
+                SET id_role = @NewRoleId
+                WHERE id_user = @UserId AND id_business = @BusinessId AND id_role = @CurrentRoleId";
+
+            using var cmd = new MySqlCommand(updateQuery, conn);
+            cmd.Parameters.AddWithValue("@NewRoleId", request.NewRoleId);
+            cmd.Parameters.AddWithValue("@UserId", userId);
+            cmd.Parameters.AddWithValue("@BusinessId", businessId);
+            cmd.Parameters.AddWithValue("@CurrentRoleId", currentRoleId);
+
+            var rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+            if (rowsAffected > 0)
+            {
+                _logger.LogInformation("User {UserId} role updated in business {BusinessId} from role {OldRoleId} to role {NewRoleId}", 
+                    userId, businessId, currentRoleId, request.NewRoleId);
+                return Ok(new { message = "Role successfully updated", userId, businessId, oldRoleId = currentRoleId, newRoleId = request.NewRoleId });
+            }
+
+            return NotFound(new { message = "User not assigned to this business" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating role for user {UserId} in business {BusinessId}", userId, businessId);
+            return StatusCode(500, new { message = "Error updating role", error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Actualiza el systemRole de un usuario
     /// </summary>
     [HttpPatch("users/{userId}/system-role")]
@@ -1536,4 +1606,9 @@ public class CreateApiKeyRequest
     public string Label { get; set; } = string.Empty;
     public List<string>? Scopes { get; set; }
     public DateTime? ExpiresAt { get; set; }
+}
+
+public class UpdateBusinessRoleRequest
+{
+    public int NewRoleId { get; set; }
 }

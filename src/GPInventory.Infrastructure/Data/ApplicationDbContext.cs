@@ -58,6 +58,9 @@ public class ApplicationDbContext : DbContext
 
     // Canales externos (Webadas, etc.)
     public DbSet<BusinessApiKey> BusinessApiKeys { get; set; }
+
+    // Configuración de pagos por negocio (MercadoPago Point, etc.)
+    public DbSet<BusinessPaymentConfig> BusinessPaymentConfigs { get; set; }
     public DbSet<WebstorePromotion> WebstorePromotions { get; set; }
 
     // GP Shop — gestión e-commerce
@@ -222,6 +225,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ShopCampaignConfiguration());
         modelBuilder.ApplyConfiguration(new ShopCampaignPromotionConfiguration());
         modelBuilder.ApplyConfiguration(new ShopCampaignBannerConfiguration());
+
+        // Apply Payment configurations
+        modelBuilder.ApplyConfiguration(new BusinessApiKeyConfiguration());
+        modelBuilder.ApplyConfiguration(new BusinessPaymentConfigConfiguration());
 
         // Business configuration
         modelBuilder.Entity<Business>(entity =>
