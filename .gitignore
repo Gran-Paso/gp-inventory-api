@@ -343,6 +343,7 @@ FodyWeavers.xsd
 # Archivos de configuración con información sensible
 appsettings.Production.json
 appsettings.Staging.json
+appsettings.Development.json
 appsettings.Local.json
 
 # Scripts de prueba temporales
