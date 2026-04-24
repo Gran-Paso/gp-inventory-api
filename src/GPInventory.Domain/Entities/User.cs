@@ -34,6 +34,18 @@ public class User : BaseEntity
     [StringLength(50)]
     public string SystemRole { get; set; } = "none";
 
+    // ── Password reset ────────────────────────────────────────────────────────
+    // Stored as SHA-256 hex of the raw token sent in the email link.
+    [StringLength(64)]
+    public string? PasswordResetTokenHash { get; set; }
+    public DateTime? PasswordResetTokenExpiresAt { get; set; }
+
+    // ── Email verification ────────────────────────────────────────────────────
+    public bool IsEmailVerified { get; set; } = false;
+    [StringLength(64)]
+    public string? EmailVerificationTokenHash { get; set; }
+    public DateTime? EmailVerificationTokenExpiresAt { get; set; }
+
     // Navigation properties
     public ICollection<UserHasBusiness> UserBusinesses { get; set; } = new List<UserHasBusiness>();
 

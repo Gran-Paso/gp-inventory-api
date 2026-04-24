@@ -58,7 +58,25 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .HasMaxLength(50)
             .IsRequired()
             .HasDefaultValue("none");
-        
+
+        builder.Property(e => e.PasswordResetTokenHash)
+            .HasColumnName("password_reset_token_hash")
+            .HasMaxLength(64);
+
+        builder.Property(e => e.PasswordResetTokenExpiresAt)
+            .HasColumnName("password_reset_token_expires_at");
+
+        builder.Property(e => e.IsEmailVerified)
+            .HasColumnName("is_email_verified")
+            .HasDefaultValue(false);
+
+        builder.Property(e => e.EmailVerificationTokenHash)
+            .HasColumnName("email_verification_token_hash")
+            .HasMaxLength(64);
+
+        builder.Property(e => e.EmailVerificationTokenExpiresAt)
+            .HasColumnName("email_verification_token_expires_at");
+
         // BaseEntity properties - ignore since they don't exist in the database
         builder.Ignore(e => e.CreatedAt);
         builder.Ignore(e => e.UpdatedAt);

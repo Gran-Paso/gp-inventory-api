@@ -221,11 +221,10 @@ public class ServiceSessionsController : ControllerBase
                        ci.provider_id, ci.provider_name,
                        ci.employee_id, ci.employee_name,
                        e.contract_type AS employee_contract_type,
-                       COALESCE(p.hourly_rate, 0) AS employee_hourly_rate,
+                       COALESCE(e.hourly_rate, 0) AS employee_hourly_rate,
                        ci.sort_order
                 FROM session_cost_item ci
                 LEFT JOIN hr_employee e ON e.id = ci.employee_id
-                LEFT JOIN hr_position p ON p.id = e.position_id
                 WHERE ci.session_id = @Sess
                 ORDER BY ci.sort_order, ci.id", conn);
             cmd.Parameters.AddWithValue("@Sess", sessionId);
@@ -288,30 +287,48 @@ public class ServiceSessionsController : ControllerBase
             var newId = Convert.ToInt32(await insCmd.ExecuteScalarAsync());
 
             // 2. Create matching service_session_expense (gasto de sesión pendiente)
-            var payeeType = req.EmployeeId.HasValue ? "employee"
-                          : !string.IsNullOrWhiteSpace(req.ProviderName) ? "external"
-                          : (string?)null;
-            var desc = string.IsNullOrWhiteSpace(req.Description) ? req.Name : $"{req.Name} — {req.Description}";
-            using var expCmd = new MySqlCommand(@"
-                INSERT INTO service_session_expense
-                    (business_id, store_id, service_session_id, session_cost_item_id,
-                     description, amount, status,
-                     payee_type, payee_employee_id, payee_employee_name, payee_external_name,
-                     created_at, updated_at)
-                SELECT ss.business_id, ss.store_id, @Sess, @SciId,
-                       @Desc, @Amt, 'pending',
-                       @PayeeType, @EmpId, @EmpName, @ExtName,
-                       NOW(), NOW()
-                FROM service_session ss WHERE ss.id = @Sess", conn, tx);
-            expCmd.Parameters.AddWithValue("@Sess",      sessionId);
-            expCmd.Parameters.AddWithValue("@SciId",     newId);
-            expCmd.Parameters.AddWithValue("@Desc",      desc);
-            expCmd.Parameters.AddWithValue("@Amt",       req.Amount * (req.Quantity ?? 1m));
-            expCmd.Parameters.AddWithValue("@PayeeType", (object?)payeeType      ?? DBNull.Value);
-            expCmd.Parameters.AddWithValue("@EmpId",     (object?)req.EmployeeId ?? DBNull.Value);
-            expCmd.Parameters.AddWithValue("@EmpName",   (object?)req.EmployeeName ?? DBNull.Value);
-            expCmd.Parameters.AddWithValue("@ExtName",   (object?)(string.IsNullOrWhiteSpace(req.ProviderName) ? null : req.ProviderName) ?? DBNull.Value);
-            await expCmd.ExecuteNonQueryAsync();
+            // SOLO para: honorarios o externos. Empleados por contrato (indefinido/plazo_fijo) no generan gasto
+            // porque ya están en planilla
+            string? contractType = null;
+            if (req.EmployeeId.HasValue)
+            {
+                using var empCmd = new MySqlCommand("SELECT contract_type FROM hr_employee WHERE id=@Id", conn, tx);
+                empCmd.Parameters.AddWithValue("@Id", req.EmployeeId.Value);
+                var ctObj = await empCmd.ExecuteScalarAsync();
+                contractType = ctObj?.ToString();
+            }
+
+            // Solo crear gasto si es honorarios o proveedor externo
+            var shouldCreateExpense = (req.EmployeeId.HasValue && contractType == "honorarios")
+                                   || !string.IsNullOrWhiteSpace(req.ProviderName);
+
+            if (shouldCreateExpense)
+            {
+                var payeeType = req.EmployeeId.HasValue ? "employee"
+                              : !string.IsNullOrWhiteSpace(req.ProviderName) ? "external"
+                              : (string?)null;
+                var desc = string.IsNullOrWhiteSpace(req.Description) ? req.Name : $"{req.Name} — {req.Description}";
+                using var expCmd = new MySqlCommand(@"
+                    INSERT INTO service_session_expense
+                        (business_id, store_id, service_session_id, session_cost_item_id,
+                         description, amount, status,
+                         payee_type, payee_employee_id, payee_employee_name, payee_external_name,
+                         created_at, updated_at)
+                    SELECT ss.business_id, ss.store_id, @Sess, @SciId,
+                           @Desc, @Amt, 'pending',
+                           @PayeeType, @EmpId, @EmpName, @ExtName,
+                           NOW(), NOW()
+                    FROM service_session ss WHERE ss.id = @Sess", conn, tx);
+                expCmd.Parameters.AddWithValue("@Sess",      sessionId);
+                expCmd.Parameters.AddWithValue("@SciId",     newId);
+                expCmd.Parameters.AddWithValue("@Desc",      desc);
+                expCmd.Parameters.AddWithValue("@Amt",       req.Amount * (req.Quantity ?? 1m));
+                expCmd.Parameters.AddWithValue("@PayeeType", (object?)payeeType      ?? DBNull.Value);
+                expCmd.Parameters.AddWithValue("@EmpId",     (object?)req.EmployeeId ?? DBNull.Value);
+                expCmd.Parameters.AddWithValue("@EmpName",   (object?)req.EmployeeName ?? DBNull.Value);
+                expCmd.Parameters.AddWithValue("@ExtName",   (object?)(string.IsNullOrWhiteSpace(req.ProviderName) ? null : req.ProviderName) ?? DBNull.Value);
+                await expCmd.ExecuteNonQueryAsync();
+            }
 
             await tx.CommitAsync();
             return Ok(new { id = newId });
@@ -353,26 +370,80 @@ public class ServiceSessionsController : ControllerBase
             updCmd.Parameters.AddWithValue("@Ord",     req.SortOrder ?? 0);
             await updCmd.ExecuteNonQueryAsync();
 
-            // 2. Update linked service_session_expense (solo si está pending)
-            var payeeType = req.EmployeeId.HasValue ? "employee"
-                          : !string.IsNullOrWhiteSpace(req.ProviderName) ? "external"
-                          : (string?)null;
-            var desc = string.IsNullOrWhiteSpace(req.Description) ? req.Name : $"{req.Name} — {req.Description}";
-            using var expCmd = new MySqlCommand(@"
-                UPDATE service_session_expense
-                SET description=@Desc, amount=@Amt,
-                    payee_type=@PayeeType, payee_employee_id=@EmpId,
-                    payee_employee_name=@EmpName, payee_external_name=@ExtName,
-                    updated_at=NOW()
-                WHERE session_cost_item_id=@SciId AND status='pending'", conn, tx);
-            expCmd.Parameters.AddWithValue("@SciId",     itemId);
-            expCmd.Parameters.AddWithValue("@Desc",      desc);
-            expCmd.Parameters.AddWithValue("@Amt",       req.Amount * (req.Quantity ?? 1m));
-            expCmd.Parameters.AddWithValue("@PayeeType", (object?)payeeType      ?? DBNull.Value);
-            expCmd.Parameters.AddWithValue("@EmpId",     (object?)req.EmployeeId ?? DBNull.Value);
-            expCmd.Parameters.AddWithValue("@EmpName",   (object?)req.EmployeeName ?? DBNull.Value);
-            expCmd.Parameters.AddWithValue("@ExtName",   (object?)(string.IsNullOrWhiteSpace(req.ProviderName) ? null : req.ProviderName) ?? DBNull.Value);
-            await expCmd.ExecuteNonQueryAsync();
+            // 2. Update/Create/Delete linked service_session_expense según tipo de contrato
+            // Consultar tipo de contrato si hay empleado
+            string? contractType = null;
+            if (req.EmployeeId.HasValue)
+            {
+                using var empCmd = new MySqlCommand("SELECT contract_type FROM hr_employee WHERE id=@Id", conn, tx);
+                empCmd.Parameters.AddWithValue("@Id", req.EmployeeId.Value);
+                var ctObj = await empCmd.ExecuteScalarAsync();
+                contractType = ctObj?.ToString();
+            }
+
+            // Decidir si debe haber gasto: solo honorarios o externos
+            var shouldHaveExpense = (req.EmployeeId.HasValue && contractType == "honorarios")
+                                 || !string.IsNullOrWhiteSpace(req.ProviderName);
+
+            if (shouldHaveExpense)
+            {
+                // Crear o actualizar el gasto
+                var payeeType = req.EmployeeId.HasValue ? "employee"
+                              : !string.IsNullOrWhiteSpace(req.ProviderName) ? "external"
+                              : (string?)null;
+                var desc = string.IsNullOrWhiteSpace(req.Description) ? req.Name : $"{req.Name} — {req.Description}";
+                
+                // Intentar actualizar primero
+                using var expCmd = new MySqlCommand(@"
+                    UPDATE service_session_expense
+                    SET description=@Desc, amount=@Amt,
+                        payee_type=@PayeeType, payee_employee_id=@EmpId,
+                        payee_employee_name=@EmpName, payee_external_name=@ExtName,
+                        updated_at=NOW()
+                    WHERE session_cost_item_id=@SciId AND status='pending'", conn, tx);
+                expCmd.Parameters.AddWithValue("@SciId",     itemId);
+                expCmd.Parameters.AddWithValue("@Desc",      desc);
+                expCmd.Parameters.AddWithValue("@Amt",       req.Amount * (req.Quantity ?? 1m));
+                expCmd.Parameters.AddWithValue("@PayeeType", (object?)payeeType      ?? DBNull.Value);
+                expCmd.Parameters.AddWithValue("@EmpId",     (object?)req.EmployeeId ?? DBNull.Value);
+                expCmd.Parameters.AddWithValue("@EmpName",   (object?)req.EmployeeName ?? DBNull.Value);
+                expCmd.Parameters.AddWithValue("@ExtName",   (object?)(string.IsNullOrWhiteSpace(req.ProviderName) ? null : req.ProviderName) ?? DBNull.Value);
+                var rowsAffected = await expCmd.ExecuteNonQueryAsync();
+                
+                // Si no existía, crear uno nuevo
+                if (rowsAffected == 0)
+                {
+                    using var insExpCmd = new MySqlCommand(@"
+                        INSERT INTO service_session_expense
+                            (business_id, store_id, service_session_id, session_cost_item_id,
+                             description, amount, status,
+                             payee_type, payee_employee_id, payee_employee_name, payee_external_name,
+                             created_at, updated_at)
+                        SELECT ss.business_id, ss.store_id, @Sess, @SciId,
+                               @Desc, @Amt, 'pending',
+                               @PayeeType, @EmpId, @EmpName, @ExtName,
+                               NOW(), NOW()
+                        FROM service_session ss WHERE ss.id = @Sess", conn, tx);
+                    insExpCmd.Parameters.AddWithValue("@Sess",      sessionId);
+                    insExpCmd.Parameters.AddWithValue("@SciId",     itemId);
+                    insExpCmd.Parameters.AddWithValue("@Desc",      desc);
+                    insExpCmd.Parameters.AddWithValue("@Amt",       req.Amount * (req.Quantity ?? 1m));
+                    insExpCmd.Parameters.AddWithValue("@PayeeType", (object?)payeeType      ?? DBNull.Value);
+                    insExpCmd.Parameters.AddWithValue("@EmpId",     (object?)req.EmployeeId ?? DBNull.Value);
+                    insExpCmd.Parameters.AddWithValue("@EmpName",   (object?)req.EmployeeName ?? DBNull.Value);
+                    insExpCmd.Parameters.AddWithValue("@ExtName",   (object?)(string.IsNullOrWhiteSpace(req.ProviderName) ? null : req.ProviderName) ?? DBNull.Value);
+                    await insExpCmd.ExecuteNonQueryAsync();
+                }
+            }
+            else
+            {
+                // No debe tener gasto (empleado por contrato), eliminar si existe
+                using var delExpCmd = new MySqlCommand(@"
+                    DELETE FROM service_session_expense
+                    WHERE session_cost_item_id=@SciId AND status='pending'", conn, tx);
+                delExpCmd.Parameters.AddWithValue("@SciId", itemId);
+                await delExpCmd.ExecuteNonQueryAsync();
+            }
 
             await tx.CommitAsync();
             return Ok(new { message = "Ítem actualizado" });

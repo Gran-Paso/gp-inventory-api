@@ -84,7 +84,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpPost("categories")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> CreateCategory([FromBody] CategoryRequest req)
     {
         try
@@ -103,7 +103,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpPut("categories/{id}")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> UpdateCategory(int id, [FromBody] CategoryRequest req)
     {
         try
@@ -123,7 +123,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpDelete("categories/{id}")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> DeleteCategory(int id, [FromQuery] int businessId)
     {
         try
@@ -243,11 +243,10 @@ public class ServicesController : ControllerBase
                        ci.employee_id, ci.employee_name,
                        p.name AS provider_display_name,
                        e.contract_type AS emp_contract_type,
-                       ep.hourly_rate   AS emp_hourly_rate
+                       e.hourly_rate   AS emp_hourly_rate
                 FROM service_cost_item ci
                 LEFT JOIN provider     p  ON ci.provider_id  = p.id
                 LEFT JOIN hr_employee  e  ON ci.employee_id  = e.id
-                LEFT JOIN hr_position  ep ON e.position_id   = ep.id
                 WHERE ci.service_id=@Id ORDER BY ci.sort_order, ci.id", conn);
             costCmd.Parameters.AddWithValue("@Id", id);
             using var cr = await costCmd.ExecuteReaderAsync();
@@ -302,7 +301,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpPost]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> CreateService([FromBody] ServiceRequest req)
     {
         try
@@ -325,7 +324,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> UpdateService(int id, [FromBody] ServiceRequest req)
     {
         try
@@ -351,7 +350,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> DeleteService(int id, [FromQuery] int businessId)
     {
         try
@@ -438,7 +437,7 @@ public class ServicesController : ControllerBase
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
                 SELECT e.id, e.first_name, e.last_name, e.contract_type, e.current_salary,
-                       e.position_id, p.name AS position_name, p.hourly_rate,
+                       e.position_id, p.name AS position_name, e.hourly_rate,
                        e.department_id, d.name AS department_name
                 FROM hr_employee e
                 LEFT JOIN hr_position   p ON p.id = e.position_id
@@ -473,7 +472,7 @@ public class ServicesController : ControllerBase
     // ================================================================
 
     [HttpPost("{serviceId}/cost-items")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> AddCostItem(int serviceId, [FromBody] CostItemRequest req)
     {
         try
@@ -505,7 +504,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpPut("{serviceId}/cost-items/{itemId}")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> UpdateCostItem(int serviceId, int itemId, [FromBody] CostItemRequest req)
     {
         try
@@ -541,7 +540,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpDelete("{serviceId}/cost-items/{itemId}")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> DeleteCostItem(int serviceId, int itemId)
     {
         try
@@ -563,7 +562,7 @@ public class ServicesController : ControllerBase
     // ================================================================
 
     [HttpPost("{serviceId}/sub-services")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> AddSubService(int serviceId, [FromBody] SubServiceRequest req)
     {
         if (req.ChildServiceId == serviceId)
@@ -591,7 +590,7 @@ public class ServicesController : ControllerBase
     }
 
     [HttpDelete("{serviceId}/sub-services/{linkId}")]
-    [HrAuthorize("manage_services")]
+    [HrAuthorize("manage_services", false)]
     public async Task<IActionResult> RemoveSubService(int serviceId, int linkId)
     {
         try
@@ -1176,6 +1175,130 @@ public class ServicesController : ControllerBase
         catch (Exception ex) { return Err(ex, "ToggleExpensePaid"); }
     }
 
+    // GET api/services/expenses?businessId=X&status=paid|unpaid
+    [HttpGet("expenses")]
+    [HrAuthorize("view_sales", false)]
+    public async Task<IActionResult> GetAllServiceExpenses([FromQuery] int businessId, [FromQuery] string? status = null)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            var sql = @"
+                SELECT e.id, e.description, COALESCE(e.amount_total, e.amount) AS amount,
+                       e.date, e.notes, e.is_paid, e.service_sale_id,
+                       e.provider_id, p.name AS provider_name,
+                       e.receipt_type_id, e.subcategory_id, s.name AS subcategory_name,
+                       ss.client_name, ss.status AS sale_status
+                FROM expenses e
+                LEFT JOIN provider p ON e.provider_id = p.id
+                LEFT JOIN expense_subcategory s ON e.subcategory_id = s.id
+                LEFT JOIN service_sale ss ON e.service_sale_id = ss.id
+                WHERE e.business_id = @B AND e.service_sale_id IS NOT NULL";
+            if (status == "paid")     sql += " AND e.is_paid = 1";
+            else if (status == "unpaid") sql += " AND e.is_paid = 0";
+            sql += " ORDER BY e.date DESC, e.id DESC";
+
+            using var cmd = new MySqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@B", businessId);
+            using var r = await cmd.ExecuteReaderAsync();
+            var list = new List<object>();
+            while (await r.ReadAsync())
+                list.Add(new
+                {
+                    id               = r.GetInt32("id"),
+                    description      = r.GetString("description"),
+                    amount           = r.GetDecimal("amount"),
+                    date             = r.GetDateTime("date").ToString("yyyy-MM-dd"),
+                    notes            = IsNull(r, "notes") ? "" : r.GetString("notes"),
+                    isPaid           = r.GetBoolean("is_paid"),
+                    serviceSaleId    = IsNull(r, "service_sale_id") ? (int?)null : r.GetInt32("service_sale_id"),
+                    providerId       = IsNull(r, "provider_id") ? (int?)null : r.GetInt32("provider_id"),
+                    providerName     = IsNull(r, "provider_name") ? "" : r.GetString("provider_name"),
+                    receiptTypeId    = IsNull(r, "receipt_type_id") ? (int?)null : r.GetInt32("receipt_type_id"),
+                    subcategoryId    = IsNull(r, "subcategory_id") ? (int?)null : r.GetInt32("subcategory_id"),
+                    subcategoryName  = IsNull(r, "subcategory_name") ? "" : r.GetString("subcategory_name"),
+                    clientName       = IsNull(r, "client_name") ? "" : r.GetString("client_name"),
+                    saleStatus       = IsNull(r, "sale_status") ? "" : r.GetString("sale_status"),
+                });
+            return Ok(list);
+        }
+        catch (Exception ex) { return Err(ex, "GetAllServiceExpenses"); }
+    }
+
+    // GET api/services/projected-expenses?businessId=X
+    // Gastos proyectados basados en cost items de ventas activas (pending/in_progress)
+    [HttpGet("projected-expenses")]
+    [HrAuthorize("view_sales", false)]
+    public async Task<IActionResult> GetProjectedServiceExpenses([FromQuery] int businessId)
+    {
+        try
+        {
+            using var conn = GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new MySqlCommand(@"
+                SELECT 
+                    ci.id AS cost_item_id,
+                    ci.name AS cost_item_name,
+                    ci.description,
+                    ci.cost_type,
+                    ci.amount,
+                    ci.quantity,
+                    (ci.amount * ci.quantity) AS total_amount,
+                    ci.employee_id,
+                    ci.employee_name,
+                    ci.provider_name,
+                    s.id AS service_id,
+                    s.name AS service_name,
+                    ss.id AS sale_id,
+                    ss.client_name,
+                    ss.status AS sale_status,
+                    ss.date AS sale_date,
+                    ss.scheduled_date,
+                    e.contract_type AS employee_contract_type
+                FROM service_sale_item ssi
+                INNER JOIN service_sale ss ON ssi.sale_id = ss.id
+                INNER JOIN service s ON ssi.service_id = s.id
+                INNER JOIN service_cost_item ci ON ci.service_id = s.id
+                LEFT JOIN hr_employee e ON ci.employee_id = e.id
+                WHERE ss.business_id = @B
+                  AND ss.status IN ('pending', 'in_progress')
+                  AND (
+                    -- Solo incluir si es: proveedor externo o empleado de honorarios
+                    (ci.employee_id IS NOT NULL AND e.contract_type = 'honorarios')
+                    OR (ci.provider_name IS NOT NULL AND ci.provider_name != '')
+                  )
+                ORDER BY ss.scheduled_date, ss.date, ss.id, ci.sort_order", conn);
+            cmd.Parameters.AddWithValue("@B", businessId);
+            using var r = await cmd.ExecuteReaderAsync();
+            var list = new List<object>();
+            while (await r.ReadAsync())
+                list.Add(new
+                {
+                    costItemId       = r.GetInt32("cost_item_id"),
+                    costItemName     = r.GetString("cost_item_name"),
+                    description      = IsNull(r, "description") ? "" : r.GetString("description"),
+                    costType         = r.GetString("cost_type"),
+                    amount           = r.GetDecimal("amount"),
+                    quantity         = r.GetDecimal("quantity"),
+                    totalAmount      = r.GetDecimal("total_amount"),
+                    employeeId       = IsNull(r, "employee_id") ? (int?)null : r.GetInt32("employee_id"),
+                    employeeName     = IsNull(r, "employee_name") ? "" : r.GetString("employee_name"),
+                    providerName     = IsNull(r, "provider_name") ? "" : r.GetString("provider_name"),
+                    serviceId        = r.GetInt32("service_id"),
+                    serviceName      = r.GetString("service_name"),
+                    saleId           = r.GetInt32("sale_id"),
+                    clientName       = IsNull(r, "client_name") ? "" : r.GetString("client_name"),
+                    saleStatus       = r.GetString("sale_status"),
+                    saleDate         = r.GetDateTime("sale_date").ToString("yyyy-MM-dd"),
+                    scheduledDate    = IsNull(r, "scheduled_date") ? null : r.GetDateTime("scheduled_date").ToString("yyyy-MM-dd"),
+                    employeeContractType = IsNull(r, "employee_contract_type") ? "" : r.GetString("employee_contract_type"),
+                });
+            return Ok(list);
+        }
+        catch (Exception ex) { return Err(ex, "GetProjectedServiceExpenses"); }
+    }
+
     [HttpPatch("sales/{saleId}/items/{itemId}/toggle-completed")]
     [HrAuthorize("manage_sales", false)]
     public async Task<IActionResult> ToggleSaleItemCompleted(int saleId, int itemId)
@@ -1617,11 +1740,15 @@ public class ServicesController : ControllerBase
         var svcName = (string)(await nameCmd.ExecuteScalarAsync() ?? "Servicio");
 
         using var costCmd = new MySqlCommand(@"
-            SELECT name,cost_type,amount,quantity,description,provider_id,provider_name,receipt_type_id
-            FROM service_cost_item WHERE service_id=@Id ORDER BY sort_order,id", conn, tx);
+            SELECT ci.name, ci.cost_type, ci.amount, ci.quantity, ci.description, 
+                   ci.provider_id, ci.provider_name, ci.receipt_type_id,
+                   ci.employee_id, e.contract_type AS employee_contract_type
+            FROM service_cost_item ci
+            LEFT JOIN hr_employee e ON e.id = ci.employee_id
+            WHERE ci.service_id=@Id ORDER BY ci.sort_order, ci.id", conn, tx);
         costCmd.Parameters.AddWithValue("@Id", serviceId);
         using var cr = await costCmd.ExecuteReaderAsync();
-        var items = new List<(string name, string type, decimal amt, decimal qty, string desc, int? provId, string prov, int? receiptType)>();
+        var items = new List<(string name, string type, decimal amt, decimal qty, string desc, int? provId, string prov, int? receiptType, int? empId, string empContract)>();
         while (await cr.ReadAsync())
             items.Add((
                 cr.GetString("name"),
@@ -1631,7 +1758,9 @@ public class ServicesController : ControllerBase
                 cr.IsDBNull(cr.GetOrdinal("description"))    ? "" : cr.GetString("description"),
                 cr.IsDBNull(cr.GetOrdinal("provider_id"))    ? (int?)null : cr.GetInt32("provider_id"),
                 cr.IsDBNull(cr.GetOrdinal("provider_name"))  ? "" : cr.GetString("provider_name"),
-                cr.IsDBNull(cr.GetOrdinal("receipt_type_id")) ? (int?)null : cr.GetInt32("receipt_type_id")
+                cr.IsDBNull(cr.GetOrdinal("receipt_type_id")) ? (int?)null : cr.GetInt32("receipt_type_id"),
+                cr.IsDBNull(cr.GetOrdinal("employee_id"))    ? (int?)null : cr.GetInt32("employee_id"),
+                cr.IsDBNull(cr.GetOrdinal("employee_contract_type")) ? "" : cr.GetString("employee_contract_type")
             ));
         await cr.CloseAsync();
 
@@ -1654,8 +1783,17 @@ public class ServicesController : ControllerBase
             return;
         }
 
-        foreach (var (name, type, amt, qty, desc, provId, prov, receiptType) in items)
+        foreach (var (name, type, amt, qty, desc, provId, prov, receiptType, empId, empContract) in items)
         {
+            // SOLO crear expense si es: proveedor externo, o empleado de honorarios
+            // Empleados por contrato (indefinido/plazo_fijo) no generan gasto porque ya están en planilla
+            var isContractEmployee = empId.HasValue && (empContract == "indefinido" || empContract == "plazo_fijo");
+            if (isContractEmployee)
+            {
+                // No crear expense para empleados por contrato, solo para honorarios o externos
+                continue;
+            }
+
             var subcatId  = CostTypeToSubcategory.GetValueOrDefault(type, 52);
             var descText  = $"{svcName} — {name} (orden #{saleId})";
             var notes     = string.IsNullOrEmpty(prov)
@@ -1691,8 +1829,8 @@ public class ServicesController : ControllerBase
             if (paymentType == 2 && installmentsCount > 1)
                 await CreatePaymentPlan(conn, tx, expId, totalAmt, installmentsCount, paymentStartDate ?? saleDate);
         }
-        _logger.LogInformation("[Services] {N} expenses creados | orden #{S} servicio #{V}",
-            items.Count, saleId, serviceId);
+        _logger.LogInformation("[Services] expenses creados desde orden #{S} servicio #{V}",
+            saleId, serviceId);
     }
 
     // ================================================================

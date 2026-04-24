@@ -3,6 +3,8 @@ using GPInventory.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace GPInventory.Api.Controllers;
 
@@ -12,11 +14,15 @@ namespace GPInventory.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly ITokenService _tokenService;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, ITokenService tokenService, IServiceScopeFactory scopeFactory, ILogger<AuthController> logger)
     {
         _authService = authService;
+        _tokenService = tokenService;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -159,6 +165,43 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
+    {
+        try
+        {
+            await _authService.ForgotPasswordAsync(dto);
+            // Always 200 — never reveal whether the email exists
+            return Ok(new { message = "Si el correo está registrado, recibirás un enlace en los próximos minutos." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during forgot-password for email: {Email}", dto.Email);
+            return StatusCode(500, new { message = "Error al procesar la solicitud" });
+        }
+    }
+
+    [HttpGet("verify-email")]
+    public async Task<IActionResult> VerifyEmail([FromQuery] string token)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return BadRequest(new { message = "Token requerido." });
+
+            var success = await _authService.VerifyEmailAsync(token);
+            if (!success)
+                return BadRequest(new { message = "El enlace de verificación es inválido o ha expirado." });
+
+            return Ok(new { message = "Correo verificado correctamente." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during email verification");
+            return StatusCode(500, new { message = "Error al verificar el correo." });
+        }
+    }
+
     [HttpPost("reset-password")]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto resetDto)
     {
@@ -166,8 +209,7 @@ public class AuthController : ControllerBase
         {
             if (!ModelState.IsValid)
             {
-                return BadRequest(ModelState);
-            }
+                return BadRequest(ModelState);            }
 
             var result = await _authService.ResetPasswordAsync(resetDto);
             return Ok(result);
@@ -221,6 +263,77 @@ public class AuthController : ControllerBase
         {
             _logger.LogError(ex, "Error during profile update");
             return StatusCode(500, new { message = "An error occurred during profile update" });
+        }
+    }
+
+    /// <summary>
+    /// SSE endpoint: notifies the client when a business is assigned to their account.
+    /// The JWT token is passed as a query param because EventSource cannot set headers.
+    /// </summary>
+    [HttpGet("sse/business-watch")]
+    public async Task WatchBusinessAssignment([FromQuery] string token, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token) || !_tokenService.ValidateToken(token))
+        {
+            Response.StatusCode = 401;
+            await Response.WriteAsync("event: error\ndata: unauthorized\n\n");
+            return;
+        }
+
+        // Extract email from JWT claims (read-only, already validated above)
+        var handler = new JwtSecurityTokenHandler();
+        var jwt = handler.ReadJwtToken(token);
+        var email = jwt.Claims
+            .FirstOrDefault(c => c.Type == ClaimTypes.Email || c.Type == "email")?.Value;
+
+        if (string.IsNullOrEmpty(email))
+        {
+            Response.StatusCode = 401;
+            return;
+        }
+
+        Response.ContentType = "text/event-stream";
+        Response.Headers["Cache-Control"] = "no-cache";
+        Response.Headers["X-Accel-Buffering"] = "no";
+        Response.Headers["Connection"] = "keep-alive";
+
+        var deadline = DateTime.UtcNow.AddMinutes(30);
+
+        try
+        {
+            while (!ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+            {
+                // Create a fresh DI scope per iteration so EF Core doesn't return cached entities
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var authService = scope.ServiceProvider.GetRequiredService<IAuthService>();
+                var user = await authService.GetUserByEmailAsync(email);
+
+                _logger.LogInformation("SSE business-watch: email={Email} businesses={Count} roles={Roles}",
+                    email,
+                    user?.Businesses?.Count ?? -1,
+                    user?.Roles?.Count ?? -1);
+
+                if (user?.Roles?.Count > 0)
+                {
+                    await Response.WriteAsync("event: business_assigned\ndata: ok\n\n");
+                    await Response.Body.FlushAsync(ct);
+                    break;
+                }
+
+                // Keepalive comment — prevents browser/proxy from closing the connection
+                await Response.WriteAsync(": ping\n\n");
+                await Response.Body.FlushAsync(ct);
+
+                await Task.Delay(5_000, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected — expected, no action needed
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SSE business-watch error for {Email}", email);
         }
     }
 }
