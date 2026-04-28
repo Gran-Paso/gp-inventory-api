@@ -391,6 +391,19 @@ public class AdminController : ControllerBase
 
             _logger.LogInformation("Business created with ID {BusinessId}", newId);
 
+            // Auto-create a self provider for the new business
+            var providerInsertQuery = @"
+                INSERT INTO provider (name, id_business, active, is_self, created_at, updated_at)
+                VALUES (@ProviderName, @BusinessId, 1, 1, @Now, @Now)";
+
+            using var providerCmd = new MySqlCommand(providerInsertQuery, conn);
+            providerCmd.Parameters.AddWithValue("@ProviderName", request.CompanyName);
+            providerCmd.Parameters.AddWithValue("@BusinessId", (long)newId);
+            providerCmd.Parameters.AddWithValue("@Now", DateTime.UtcNow);
+            await providerCmd.ExecuteNonQueryAsync();
+
+            _logger.LogInformation("Self provider created for business {BusinessId}", newId);
+
             return Ok(new { 
                 message = "Business created successfully", 
                 id = newId,
