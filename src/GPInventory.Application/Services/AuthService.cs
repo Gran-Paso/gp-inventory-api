@@ -44,7 +44,18 @@ public class AuthService : IAuthService
 
         if (!user.IsEmailVerified)
         {
-            throw new UnauthorizedAccessException("EMAIL_NOT_VERIFIED");
+            // Legacy accounts (created before email verification was introduced)
+            // have no verification token hash — auto-verify and allow login.
+            if (string.IsNullOrEmpty(user.EmailVerificationTokenHash))
+            {
+                user.IsEmailVerified = true;
+                await _userRepository.UpdateAsync(user);
+                await _userRepository.SaveChangesAsync();
+            }
+            else
+            {
+                throw new UnauthorizedAccessException("EMAIL_NOT_VERIFIED");
+            }
         }
 
         // Add detailed logging for password verification

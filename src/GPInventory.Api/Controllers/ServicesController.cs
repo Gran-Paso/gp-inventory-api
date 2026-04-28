@@ -241,6 +241,7 @@ public class ServicesController : ControllerBase
                 SELECT ci.id, ci.name, ci.description, ci.cost_type, ci.amount, ci.quantity, ci.unit,
                        ci.is_externalized, ci.provider_id, ci.provider_name, ci.receipt_type_id, ci.sort_order,
                        ci.employee_id, ci.employee_name,
+                       ci.linked_service_id, ci.linked_service_name,
                        p.name AS provider_display_name,
                        e.contract_type AS emp_contract_type,
                        e.hourly_rate   AS emp_hourly_rate
@@ -270,6 +271,8 @@ public class ServicesController : ControllerBase
                     employeeName         = IsNull(cr, "employee_name")         ? null : cr.GetString("employee_name"),
                     employeeContractType = IsNull(cr, "emp_contract_type")     ? null : cr.GetString("emp_contract_type"),
                     employeeHourlyRate   = IsNull(cr, "emp_hourly_rate")       ? (decimal?)null : cr.GetDecimal("emp_hourly_rate"),
+                    linkedServiceId      = IsNull(cr, "linked_service_id")     ? (int?)null : cr.GetInt32("linked_service_id"),
+                    linkedServiceName    = IsNull(cr, "linked_service_name")   ? null : cr.GetString("linked_service_name"),
                 });
             await cr.CloseAsync();
 
@@ -437,7 +440,8 @@ public class ServicesController : ControllerBase
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
                 SELECT e.id, e.first_name, e.last_name, e.contract_type, e.current_salary,
-                       e.position_id, p.name AS position_name, e.hourly_rate,
+                       e.position_id, p.name AS position_name, p.schedule_type,
+                       e.hourly_rate,
                        e.department_id, d.name AS department_name
                 FROM hr_employee e
                 LEFT JOIN hr_position   p ON p.id = e.position_id
@@ -448,20 +452,43 @@ public class ServicesController : ControllerBase
             using var r = await cmd.ExecuteReaderAsync();
             var list = new List<object>();
             while (await r.ReadAsync())
+            {
+                var contractType  = r.GetString("contract_type");
+                var currentSalary = r.GetDecimal("current_salary");
+                var storedRate    = IsNull(r, "hourly_rate") ? 0m : r.GetDecimal("hourly_rate");
+                var scheduleType  = IsNull(r, "schedule_type") ? null : r.GetString("schedule_type");
+
+                // Fórmula legal chilena (Art. 55 Código del Trabajo):
+                // valor hora = sueldo mensual ÷ (horas semanales × 4)
+                // Para honorarios se usa la tarifa almacenada (cobran por hora, no sueldo mensual).
+                decimal computedRate = storedRate;
+                if (contractType != "honorarios" && currentSalary > 0)
+                {
+                    var divisor = scheduleType switch
+                    {
+                        "full_time"  => 168m, // 42 hrs × 4
+                        "part_time"  => 84m,  // 21 hrs × 4
+                        _            => 0m,
+                    };
+                    if (divisor > 0)
+                        computedRate = Math.Round(currentSalary / divisor);
+                }
+
                 list.Add(new
                 {
                     id             = r.GetInt32("id"),
                     firstName      = r.GetString("first_name"),
                     lastName       = r.GetString("last_name"),
                     fullName       = $"{r.GetString("first_name")} {r.GetString("last_name")}",
-                    contractType   = r.GetString("contract_type"),
-                    currentSalary  = r.GetDecimal("current_salary"),
+                    contractType,
+                    currentSalary,
                     positionId     = IsNull(r, "position_id")   ? (int?)null : r.GetInt32("position_id"),
                     positionName   = IsNull(r, "position_name") ? null : r.GetString("position_name"),
-                    hourlyRate     = IsNull(r, "hourly_rate")   ? 0m : r.GetDecimal("hourly_rate"),
+                    hourlyRate     = computedRate,
                     departmentId   = IsNull(r, "department_id")   ? (int?)null : r.GetInt32("department_id"),
                     departmentName = IsNull(r, "department_name") ? null : r.GetString("department_name"),
                 });
+            }
             return Ok(list);
         }
         catch (Exception ex) { return Err(ex, "GetEmployeesForCostItems"); }
@@ -481,8 +508,8 @@ public class ServicesController : ControllerBase
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
                 INSERT INTO service_cost_item
-                    (service_id,name,description,cost_type,amount,quantity,unit,is_externalized,provider_id,provider_name,receipt_type_id,sort_order,employee_id,employee_name)
-                VALUES (@Svc,@Name,@Desc,@Type,@Amt,@Qty,@Unit,@Ext,@ProvId,@Prov,@RecType,@Ord,@EmpId,@EmpName);
+                    (service_id,name,description,cost_type,amount,quantity,unit,is_externalized,provider_id,provider_name,receipt_type_id,sort_order,employee_id,employee_name,linked_service_id,linked_service_name)
+                VALUES (@Svc,@Name,@Desc,@Type,@Amt,@Qty,@Unit,@Ext,@ProvId,@Prov,@RecType,@Ord,@EmpId,@EmpName,@LnkId,@LnkName);
                 SELECT LAST_INSERT_ID();", conn);
             cmd.Parameters.AddWithValue("@Svc",     serviceId);
             cmd.Parameters.AddWithValue("@Name",    req.Name);
@@ -498,6 +525,8 @@ public class ServicesController : ControllerBase
             cmd.Parameters.AddWithValue("@Ord",     req.SortOrder ?? 0);
             cmd.Parameters.AddWithValue("@EmpId",   (object?)req.EmployeeId   ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@EmpName", (object?)req.EmployeeName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@LnkId",   (object?)req.LinkedServiceId   ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@LnkName", (object?)req.LinkedServiceName ?? DBNull.Value);
             return Ok(new { id = Convert.ToInt32(await cmd.ExecuteScalarAsync()) });
         }
         catch (Exception ex) { return Err(ex, "AddCostItem"); }
@@ -516,7 +545,8 @@ public class ServicesController : ControllerBase
                 SET name=@Name,description=@Desc,cost_type=@Type,amount=@Amt,
                     quantity=@Qty,unit=@Unit,is_externalized=@Ext,
                     provider_id=@ProvId,provider_name=@Prov,receipt_type_id=@RecType,
-                    sort_order=@Ord,employee_id=@EmpId,employee_name=@EmpName
+                    sort_order=@Ord,employee_id=@EmpId,employee_name=@EmpName,
+                    linked_service_id=@LnkId,linked_service_name=@LnkName
                 WHERE id=@ItemId AND service_id=@Svc", conn);
             cmd.Parameters.AddWithValue("@ItemId",  itemId);
             cmd.Parameters.AddWithValue("@Svc",     serviceId);
@@ -533,6 +563,8 @@ public class ServicesController : ControllerBase
             cmd.Parameters.AddWithValue("@Ord",     req.SortOrder ?? 0);
             cmd.Parameters.AddWithValue("@EmpId",   (object?)req.EmployeeId    ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@EmpName", (object?)req.EmployeeName  ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@LnkId",   (object?)req.LinkedServiceId   ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@LnkName", (object?)req.LinkedServiceName ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
             return Ok(new { message = "Ítem actualizado" });
         }
@@ -1903,7 +1935,8 @@ public record CostItemRequest(
     decimal Amount, decimal? Quantity, string? Unit,
     bool IsExternalized, int? ProviderId, string? ProviderName,
     int? ReceiptTypeId, int? SortOrder,
-    int? EmployeeId, string? EmployeeName);
+    int? EmployeeId, string? EmployeeName,
+    int? LinkedServiceId, string? LinkedServiceName);
 
 public record CreateServiceProviderRequest(string Name, int BusinessId);
 
