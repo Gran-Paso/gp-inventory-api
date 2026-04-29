@@ -2,6 +2,7 @@ using AutoMapper;
 using GPInventory.Application.DTOs.Auth;
 using GPInventory.Application.Interfaces;
 using GPInventory.Domain.Entities;
+using Microsoft.Extensions.Configuration;
 using System.Security.Cryptography;
 using Google.Apis.Auth;
 
@@ -13,17 +14,23 @@ public class AuthService : IAuthService
     private readonly ITokenService _tokenService;
     private readonly IPasswordService _passwordService;
     private readonly IMapper _mapper;
+    private readonly IEmailService _emailService;
+    private readonly IConfiguration _config;
 
     public AuthService(
         IUserRepository userRepository,
         ITokenService tokenService,
         IPasswordService passwordService,
-        IMapper mapper)
+        IMapper mapper,
+        IEmailService emailService,
+        IConfiguration config)
     {
         _userRepository = userRepository;
-        _tokenService = tokenService;
+        _tokenService   = tokenService;
         _passwordService = passwordService;
-        _mapper = mapper;
+        _mapper         = mapper;
+        _emailService   = emailService;
+        _config         = config;
     }
 
     public async Task<AuthResponseDto> LoginAsync(LoginDto loginDto)
@@ -33,6 +40,22 @@ public class AuthService : IAuthService
         if (user == null || !user.Active)
         {
             throw new UnauthorizedAccessException("Invalid credentials");
+        }
+
+        if (!user.IsEmailVerified)
+        {
+            // Legacy accounts (created before email verification was introduced)
+            // have no verification token hash — auto-verify and allow login.
+            if (string.IsNullOrEmpty(user.EmailVerificationTokenHash))
+            {
+                user.IsEmailVerified = true;
+                await _userRepository.UpdateAsync(user);
+                await _userRepository.SaveChangesAsync();
+            }
+            else
+            {
+                throw new UnauthorizedAccessException("EMAIL_NOT_VERIFIED");
+            }
         }
 
         // Add detailed logging for password verification
@@ -167,6 +190,13 @@ public class AuthService : IAuthService
             Active = true
         };
 
+        // Generate email verification token
+        var rawVerifyToken  = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+                                .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        user.EmailVerificationTokenHash      = HashToken(rawVerifyToken);
+        user.EmailVerificationTokenExpiresAt = DateTime.UtcNow.AddHours(24);
+        user.IsEmailVerified                 = false;
+
         await _userRepository.AddAsync(user);
         await _userRepository.SaveChangesAsync();
 
@@ -177,11 +207,17 @@ public class AuthService : IAuthService
         
         var token = _tokenService.GenerateToken(userDto);
 
+        // Send welcome + verification emails (fire-and-forget; never blocks registration)
+        var appUrl      = _config["AppUrl"] ?? "https://auth.granpasochile.cl";
+        var verifyLink  = $"{appUrl}/verify-email?token={Uri.EscapeDataString(rawVerifyToken)}";
+        _ = _emailService.SendWelcomeEmailAsync(user.Mail, user.Name);
+        _ = _emailService.SendEmailVerificationAsync(user.Mail, user.Name, verifyLink);
+
         return new AuthResponseDto
         {
             AccessToken = token,
-            RefreshToken = "", // Se generará en el controller
-            ExpiresAt = DateTime.UtcNow.AddDays(7), // Token válido por 7 días
+            RefreshToken = "",
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
             User = userDto,
             Permissions = new List<string>()
         };
@@ -308,29 +344,94 @@ public class AuthService : IAuthService
     public async Task<AuthResponseDto> ResetPasswordAsync(ResetPasswordDto resetDto)
     {
         var user = await _userRepository.GetByEmailWithRolesAsync(resetDto.Email);
-        
+
         if (user == null)
-        {
             throw new InvalidOperationException("User not found");
+
+        // Validate token
+        if (string.IsNullOrEmpty(resetDto.Token) ||
+            string.IsNullOrEmpty(user.PasswordResetTokenHash) ||
+            user.PasswordResetTokenExpiresAt == null ||
+            user.PasswordResetTokenExpiresAt < DateTime.UtcNow)
+        {
+            throw new InvalidOperationException("El enlace de recuperación es inválido o ha expirado.");
         }
 
-        // Update password using BCrypt
+        var tokenHash = HashToken(resetDto.Token);
+        if (!string.Equals(tokenHash, user.PasswordResetTokenHash, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("El enlace de recuperación es inválido o ha expirado.");
+
+        // Apply new password and clear reset token
         user.UpdatePassword(resetDto.NewPassword);
-        
+        user.PasswordResetTokenHash      = null;
+        user.PasswordResetTokenExpiresAt = null;
+
         await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();
 
         var userDto = _mapper.Map<UserDto>(user);
-        var token = _tokenService.GenerateToken(userDto);
+        var token   = _tokenService.GenerateToken(userDto);
 
         return new AuthResponseDto
         {
-            AccessToken = token,
-            RefreshToken = "", // Se generará en el controller
-            ExpiresAt = DateTime.UtcNow.AddDays(7), // Token válido por 7 días
-            User = userDto,
-            Permissions = new List<string>()
+            AccessToken  = token,
+            RefreshToken = "",
+            ExpiresAt    = DateTime.UtcNow.AddDays(7),
+            User         = userDto,
+            Permissions  = new List<string>()
         };
+    }
+
+    public async Task ForgotPasswordAsync(ForgotPasswordDto dto)
+    {
+        // Always return without revealing whether the email exists
+        var user = await _userRepository.GetByEmailWithRolesAsync(dto.Email);
+        if (user == null) return;
+
+        // Generate a cryptographically secure random token (URL-safe base64)
+        var rawToken  = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+                            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        var tokenHash = HashToken(rawToken);
+
+        user.PasswordResetTokenHash      = tokenHash;
+        user.PasswordResetTokenExpiresAt = DateTime.UtcNow.AddHours(1);
+
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
+
+        var appUrl   = _config["AppUrl"] ?? "https://auth.granpasochile.cl";
+        var resetLink = $"{appUrl}/reset-password?email={Uri.EscapeDataString(user.Mail)}&token={Uri.EscapeDataString(rawToken)}";
+
+        await _emailService.SendPasswordResetEmailAsync(user.Mail, user.Name, resetLink);
+    }
+
+    public async Task<bool> VerifyEmailAsync(string token)
+    {
+        var tokenHash = HashToken(token);
+
+        // Find user by verification token hash
+        var user = await _userRepository.GetByEmailVerificationTokenHashAsync(tokenHash);
+
+        // Token already consumed but account is verified — treat as success (idempotent)
+        if (user == null) return true;
+
+        if (user.EmailVerificationTokenExpiresAt == null ||
+            user.EmailVerificationTokenExpiresAt < DateTime.UtcNow)
+            return false;
+
+        user.IsEmailVerified                 = true;
+        user.EmailVerificationTokenHash      = null;
+        user.EmailVerificationTokenExpiresAt = null;
+
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
+        return true;
+    }
+
+    private static string HashToken(string rawToken)
+    {
+        var bytes = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawToken));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     public Task<AuthResponseDto> RefreshTokenAsync(RefreshTokenDto refreshDto)

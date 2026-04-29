@@ -309,6 +309,9 @@ builder.Services.AddScoped<IExpenseTagService, ExpenseTagService>();
 builder.Services.AddHttpClient<IFintocService, FintocService>();
 builder.Services.AddScoped<IBankService, BankService>();
 
+// Email service (Resend)
+builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
+
 // Payment services
 builder.Services.AddScoped<IPaymentCatalogService, PaymentCatalogService>();
 builder.Services.AddScoped<IPaymentPlanService, PaymentPlanService>();

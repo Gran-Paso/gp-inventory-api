@@ -32,6 +32,11 @@ public class UserRepository : Repository<User>, IUserRepository
         return await _dbSet.AnyAsync(u => u.Mail == email);
     }
 
+    public async Task<User?> GetByEmailVerificationTokenHashAsync(string tokenHash)
+    {
+        return await _dbSet.FirstOrDefaultAsync(u => u.EmailVerificationTokenHash == tokenHash);
+    }
+
     public async Task<List<(int UserId, string UserName, string RoleName)>> GetBusinessUsersWithRolesAsync(int businessId, string[] targetRoles)
     {
         var result = await _context.UserHasBusinesses

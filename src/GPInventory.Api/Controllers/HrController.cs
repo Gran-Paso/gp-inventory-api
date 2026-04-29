@@ -499,7 +499,7 @@ public class HrController : ControllerBase
                        e.birth_date, e.hire_date, e.termination_date,
                        e.position_id, p.name AS position_name,
                        e.department_id, d.name AS department_name,
-                       e.contract_type, e.status, e.current_salary, e.notes,
+                       e.contract_type, e.status, e.current_salary, e.hourly_rate, e.notes,
                        e.active, e.created_at, e.updated_at,
                        uhb.hr_business_role_id AS user_hr_role_id
                 FROM hr_employee e
@@ -541,6 +541,7 @@ public class HrController : ControllerBase
                     contractType    = r.GetString("contract_type"),
                     status          = r.GetString("status"),
                     currentSalary   = r.GetDecimal("current_salary"),
+                    hourlyRate      = r.GetDecimal("hourly_rate"),
                     notes           = IsNull(r, "notes") ? null : r.GetString("notes"),
                     active          = r.GetBoolean("active"),
                     createdAt       = r.GetDateTime("created_at"),
@@ -621,11 +622,11 @@ public class HrController : ControllerBase
                 INSERT INTO hr_employee
                     (business_id, user_id, first_name, last_name, email, phone, rut,
                      birth_date, hire_date, position_id, department_id,
-                     contract_type, current_salary, notes)
+                     contract_type, current_salary, hourly_rate, notes)
                 VALUES
                     (@B, @UID, @FN, @LN, @EM, @PH, @RUT,
                      @BD, @HD, @PID, @DID,
-                     @CT, @SAL, @NO);
+                     @CT, @SAL, @HR, @NO);
                 SELECT LAST_INSERT_ID();", conn);
             cmd.Parameters.AddWithValue("@B",   body.GetProperty("businessId").GetInt32());
             cmd.Parameters.AddWithValue("@UID", body.TryGetProperty("userId", out var uid) && uid.ValueKind == JsonValueKind.Number ? uid.GetInt32() : (object)DBNull.Value);
@@ -634,12 +635,13 @@ public class HrController : ControllerBase
             cmd.Parameters.AddWithValue("@EM",  body.TryGetProperty("email", out var em) ? em.GetString() : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@PH",  body.TryGetProperty("phone", out var ph) ? ph.GetString() : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@RUT", body.TryGetProperty("rut", out var rut) ? rut.GetString() : (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@BD",  body.TryGetProperty("birthDate", out var bd) && bd.ValueKind == JsonValueKind.String ? bd.GetString() : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@BD",  body.TryGetProperty("birthDate", out var bd) && bd.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(bd.GetString()) ? bd.GetString() : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@HD",  body.GetProperty("hireDate").GetString()!);
             cmd.Parameters.AddWithValue("@PID", body.TryGetProperty("positionId", out var pid) && pid.ValueKind == JsonValueKind.Number ? pid.GetInt32() : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@DID", body.TryGetProperty("departmentId", out var did) && did.ValueKind == JsonValueKind.Number ? did.GetInt32() : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@CT",  body.TryGetProperty("contractType", out var ct) ? ct.GetString() : "indefinido");
             cmd.Parameters.AddWithValue("@SAL", body.TryGetProperty("currentSalary", out var sal) && sal.ValueKind == JsonValueKind.Number ? sal.GetDecimal() : 0m);
+            cmd.Parameters.AddWithValue("@HR",  body.TryGetProperty("hourlyRate", out var hr) && hr.ValueKind == JsonValueKind.Number ? hr.GetDecimal() : 0m);
             cmd.Parameters.AddWithValue("@NO",  body.TryGetProperty("notes", out var no) ? no.GetString() : (object)DBNull.Value);
             var newId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
             return Ok(new { id = newId });
@@ -672,6 +674,7 @@ public class HrController : ControllerBase
                     contract_type  = COALESCE(@CT,  contract_type),
                     status         = COALESCE(@ST,  status),
                     current_salary = COALESCE(@SAL, current_salary),
+                    hourly_rate    = COALESCE(@HR,  hourly_rate),
                     termination_date = @TD,
                     notes          = COALESCE(@NO,  notes),
                     updated_at     = NOW()
@@ -681,13 +684,14 @@ public class HrController : ControllerBase
             cmd.Parameters.AddWithValue("@EM",  body.TryGetProperty("email", out var em)       ? em.GetString()   : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@PH",  body.TryGetProperty("phone", out var ph)       ? ph.GetString()   : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@RUT", body.TryGetProperty("rut", out var rut)        ? rut.GetString()  : (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@BD",  body.TryGetProperty("birthDate", out var bd) && bd.ValueKind == JsonValueKind.String ? bd.GetString() : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@BD",  body.TryGetProperty("birthDate", out var bd) && bd.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(bd.GetString()) ? bd.GetString() : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@PID", body.TryGetProperty("positionId", out var pid)  && pid.ValueKind == JsonValueKind.Number ? pid.GetInt32()   : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@DID", body.TryGetProperty("departmentId", out var did) && did.ValueKind == JsonValueKind.Number ? did.GetInt32()   : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@CT",  body.TryGetProperty("contractType", out var ct) ? ct.GetString()  : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@ST",  body.TryGetProperty("status", out var st)      ? st.GetString()   : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@SAL", body.TryGetProperty("currentSalary", out var sal) && sal.ValueKind == JsonValueKind.Number ? sal.GetDecimal() : (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@TD",  body.TryGetProperty("terminationDate", out var td) && td.ValueKind == JsonValueKind.String ? td.GetString() : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@HR",  body.TryGetProperty("hourlyRate", out var hr) && hr.ValueKind == JsonValueKind.Number ? hr.GetDecimal() : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@TD",  body.TryGetProperty("terminationDate", out var td) && td.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(td.GetString()) ? td.GetString() : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@NO",  body.TryGetProperty("notes", out var no)       ? no.GetString()   : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@ID",  id);
             await cmd.ExecuteNonQueryAsync();
@@ -707,6 +711,9 @@ public class HrController : ControllerBase
         try
         {
             var terminationDate = body.GetProperty("terminationDate").GetString()!;
+            if (string.IsNullOrWhiteSpace(terminationDate))
+                return BadRequest(new { message = "La fecha de término es requerida" });
+            
             using var conn = GetConnection();
             await conn.OpenAsync();
             using var cmd = new MySqlCommand(@"
